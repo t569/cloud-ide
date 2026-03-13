@@ -30,6 +30,8 @@ export default function EditorComponent({ file, onChange }) {
         fontSize: 14,
         wordWrap: 'on',
         automaticLayout: true,
+        fontFamily: '"JetBrains Mono", monospace', // NEW
+        fontLigatures: true, // Bonus: Turns >= into a real math symbol!
       }}
     />
   );

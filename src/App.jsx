@@ -205,8 +205,19 @@ export default function App() {
             )}
           </div>
         </div>
-        {/* Commit Action Bar */}
+
+        
+        {/* Commit Action Bar and Run Button */}
           <div style={{ backgroundColor: '#2d2d2d', borderBottom: '1px solid #333', padding: '6px 15px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px' }}>
+            <button 
+                      onClick={() => window.dispatchEvent(new CustomEvent('run-terminal-code', { detail: activeFile }))}
+                      style={{
+                        backgroundColor: '#28a745', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold'
+                      }}
+                    >
+                      ▶️ Run File
+            </button>
+            
             <input 
               type="text" 
               placeholder={`Commit message (Default: Update ${activeFile?.name})`}
@@ -228,22 +239,33 @@ export default function App() {
           </div>
         {/* Terminal */}
 
-        
+
         {/* Terminal Pane */}
           <div style={{ flex: 1, backgroundColor: '#1e1e1e', padding: 0, borderTop: '1px solid #333', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             
             {/* Terminal Header with Dropdown */}
-            <div style={{ backgroundColor: '#252526', padding: '4px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #333' }}>
-              <span style={{ fontSize: '12px', color: '#ccc', letterSpacing: '1px', fontWeight: 'bold' }}>TERMINAL</span>
-              <select 
-                value={terminalEnv} 
-                onChange={(e) => setTerminalEnv(e.target.value)}
-                style={{ backgroundColor: '#333', color: '#fff', border: '1px solid #444', borderRadius: '4px', padding: '2px 6px', fontSize: '12px', cursor: 'pointer' }}
-              >
-                <option value="python-wasm">Local WASM (Python)</option>
-                <option value="remote-linux">Remote Server (Linux Bash)</option>
-              </select>
-            </div>
+        
+              <div style={{ backgroundColor: '#252526', padding: '4px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #333' }}>
+                <span style={{ fontSize: '12px', color: '#ccc', letterSpacing: '1px', fontWeight: 'bold' }}>TERMINAL</span>
+                
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button 
+                    onClick={() => window.dispatchEvent(new Event('copy-terminal'))}
+                    style={{ backgroundColor: '#444', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
+                  >
+                    📋 Copy Output
+                  </button>
+
+                  <select 
+                    value={terminalEnv} 
+                    onChange={(e) => setTerminalEnv(e.target.value)}
+                    style={{ backgroundColor: '#333', color: '#fff', border: '1px solid #444', borderRadius: '4px', padding: '2px 6px', fontSize: '12px', cursor: 'pointer' }}
+                  >
+                    <option value="python-wasm">Local WASM (Python)</option>
+                    <option value="remote-linux">Remote Server (Linux Bash)</option>
+                  </select>
+                </div>
+              </div>
 
             {/* Terminal Body */}
             <div style={{ flex: 1, overflow: 'hidden' }}>

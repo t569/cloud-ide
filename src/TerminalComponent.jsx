@@ -18,7 +18,7 @@ export default function TerminalComponent({ environment, files }) {
     const term = new Terminal({ 
       theme: { background: '#1e1e1e', foreground: '#cccccc' }, 
       cursorBlink: true, 
-      fontFamily: 'monospace', 
+      fontFamily: '"JetBrains Mono", monospace', 
       fontSize: 14 
     });
     
@@ -38,18 +38,46 @@ export default function TerminalComponent({ environment, files }) {
     });
     resizeObserver.observe(terminalContainerRef.current);
 
+
+    // --- NEW: Global Event Listeners for the UI Buttons ---
+  
+    // This is for running the current file
+    const handleRunFile = (e) => {
+      const file = e.detail;
+      if (workerRef.current) {
+        term.writeln(`\r\n\x1b[1;32m$ Executing ${file.name}...\x1b[0m`);
+        workerRef.current.postMessage({ type: 'RUN', payload: file.content });
+      } else {
+        term.writeln(`\r\n\x1b[1;31mPlease connect to an environment first.\x1b[0m`);
+      }
+    };
+
+    // This is to handle copying of the terminal
+    const handleCopy = () => {
+      const selection = term.getSelection();
+      if (selection) {
+        navigator.clipboard.writeText(selection);
+      } else {
+        // If nothing is highlighted, copy the entire terminal screen
+        term.selectAll();
+        navigator.clipboard.writeText(term.getSelection());
+        term.clearSelection();
+      }
+    };
+
+    window.addEventListener('run-terminal-code', handleRunFile);
+    window.addEventListener('copy-terminal', handleCopy);
+
+
    const onDataDisposable = term.onData((data) => {
       if (data === '\r') {
         term.writeln('');
         const cmd = currentCommand.current; 
-        
-        if (cmd.trim() !== '' || cmd === '') {
+        if (cmd.trim() !== '' || cmd === '') { 
           if (workerRef.current) {
-            // If Python is running, send the command to the worker
             workerRef.current.postMessage({ type: 'RUN', payload: cmd });
           } else {
-            // NEW: If no worker is running (e.g., disconnected Linux), just print a new $ prompt
-            term.write('\x1b[1;32m$ \x1b[0m');
+            term.write('\x1b[1;32m$ \x1b[0m'); // The standard shell prompt fallback
           }
         }
         currentCommand.current = '';
@@ -67,10 +95,14 @@ export default function TerminalComponent({ environment, files }) {
     return () => {
       resizeObserver.disconnect();
       onDataDisposable.dispose();
-      fitAddon.dispose(); // FIX: Dispose the addon first to kill animation frames!
+      fitAddon.dispose();
       term.dispose();
       termInstance.current = null;
       isInitialized.current = false;
+      
+      // NEW: Cleanup event listeners
+      window.removeEventListener('run-terminal-code', handleRunFile);
+      window.removeEventListener('copy-terminal', handleCopy);
     };
   }, []);
 

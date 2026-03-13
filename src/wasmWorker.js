@@ -54,27 +54,23 @@ self.onmessage = async (event) => {
       return;
     }
 
-    let code = event.data.payload;
+   let code = event.data.payload;
 
-    // --- NEW MULTI-LINE LOGIC ---
     if (codeBuffer.length > 0) {
       if (code.trim() === "") {
-        // An empty line means the user is done with the block. Execute it!
-        code = codeBuffer;
+        // THE FIX: trimEnd() strips trailing empty indents that break Python!
+        code = codeBuffer.trimEnd(); 
         codeBuffer = ""; 
       } else {
-        // Keep buffering the indented lines
         codeBuffer += code + "\n";
-        self.postMessage({ type: 'PROMPT_MULTI' }); // Send the "... " prompt
+        self.postMessage({ type: 'PROMPT_MULTI' });
         return;
       }
     } else if (code.trim().endsWith(":")) {
-      // The user started a block (e.g., if, def, for). Start buffering!
       codeBuffer = code + "\n";
       self.postMessage({ type: 'PROMPT_MULTI' });
       return;
     }
-    // ----------------------------
 
     try {
       const result = await self.pyodide.runPythonAsync(code);

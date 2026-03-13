@@ -93,13 +93,21 @@ export default function TerminalComponent({ environment, files }) {
           term.write('\b \b');
         }
       } else if (data.startsWith('\x1b')) {
-        // THE FIX: Ignore ANSI Escape Sequences!
-        // This prevents Arrow Keys from injecting invisible junk into Python.
+        } else if (data.startsWith('\x1b')) {
+        // Allow escape sequences ONLY for remote-linux so arrow keys work in bash!
+        if (environment === 'remote-linux' && workerRef.current?.postMessage) {
+            // Secretly sending raw keystrokes via our mocked workerRef
+            workerRef.current.postMessage({ type: 'RUN', payload: data });
+        }
         return; 
       } else {
         // Standard typing
-        currentCommand.current += data;
-        term.write(data);
+        if (environment === 'remote-linux') {
+            workerRef.current?.postMessage({ type: 'RUN', payload: data });
+        } else {
+            currentCommand.current += data;
+            term.write(data);
+        }
       }
     });
 
@@ -149,10 +157,35 @@ export default function TerminalComponent({ environment, files }) {
     } else if (environment === 'ruby-wasm') {
       connectWorker(RubyWorker, 'Local WASM (Ruby)', false);
     } else if (environment === 'remote-linux') {
-      if (workerRef.current) workerRef.current.terminate();
-      workerRef.current = null;
-      term.writeln('\x1b[1;31mRemote Linux environment not connected.\x1b[0m');
-      term.write('\x1b[1;32m$ \x1b[0m');
+      term.writeln('\x1b[1;33mConnecting to Remote Linux (Docker)...\x1b[0m');
+      
+      // Clean up any existing worker
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
+
+      // Connect to our new Node.js backend
+      const ws = new WebSocket('ws://localhost:3001');
+      
+      ws.onopen = () => {
+        term.writeln('\r\n\x1b[1;32mConnected to isolated Ubuntu container.\x1b[0m');
+      };
+
+      ws.onmessage = (event) => {
+        term.write(event.data);
+      };
+
+      // We need to attach the WebSocket to a ref so we can send data to it
+      // Let's creatively use the workerRef for now since we aren't using a worker!
+      workerRef.current = {
+        postMessage: (msg) => {
+          if (msg.type === 'RUN' && ws.readyState === WebSocket.OPEN) {
+            ws.send(msg.payload + '\r'); 
+          }
+        },
+        terminate: () => ws.close()
+      };
     }
 
     return () => {

@@ -20,12 +20,48 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState('');
+  const [isCommitting, setIsCommitting] = useState(false);
+  const [commitMessage, setCommitMessage] = useState('');
   
   const [repoInfo, setRepoInfo] = useState({
     owner: '',
     repo: '',
     token: '' // Needs 'repo' scope for private repositories
   });
+
+ // Add this new handler
+  const handleSaveAndCommit = async () => {
+  if (!activeFile || !repoInfo.token) {
+    alert("You need a file open and an active access token to commit.");
+    return;
+  }
+
+  // Fallback to a default message if the user leaves it blank
+  const finalMessage = commitMessage.trim() || `Update ${activeFile.name}`;
+
+  setIsCommitting(true);
+  try {
+    const { commitFileUpdate } = await import('./github');
+    const newSha = await commitFileUpdate(
+      repoInfo.owner, 
+      repoInfo.repo, 
+      activeFile.path, 
+      activeFile.content, 
+      activeFile.sha, 
+      finalMessage, 
+      repoInfo.token
+    );
+    
+    activeFile.sha = newSha; 
+    setCommitMessage(''); // Clear the input field on success
+    alert("Successfully committed and pushed to GitHub! 🎉");
+  } catch (err) {
+    alert("Failed to commit. Check console for details.");
+  } finally {
+    setIsCommitting(false);
+  }
+};
+
 
   // --- IDE STATE ---
   const [files, setFiles] = useState({});
@@ -92,6 +128,11 @@ export default function App() {
       setActiveFile({ ...activeFile });
     }
   };
+
+  // -- TERMINAL ENVIRONMENTS ---
+  // Tracks the active terminal environment
+  const [terminalEnv, setTerminalEnv] = useState('python-wasm');
+
 
   // --- RENDER CONNECTION SCREEN ---
   if (!isConnected) {
@@ -164,11 +205,52 @@ export default function App() {
             )}
           </div>
         </div>
-
+        {/* Commit Action Bar */}
+          <div style={{ backgroundColor: '#2d2d2d', borderBottom: '1px solid #333', padding: '6px 15px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px' }}>
+            <input 
+              type="text" 
+              placeholder={`Commit message (Default: Update ${activeFile?.name})`}
+              value={commitMessage}
+              onChange={(e) => setCommitMessage(e.target.value)}
+              style={{
+                backgroundColor: '#1e1e1e', color: '#fff', border: '1px solid #444', borderRadius: '4px', padding: '6px 10px', fontSize: '12px', width: '250px'
+              }}
+            />
+            <button 
+              onClick={handleSaveAndCommit}
+              disabled={!activeFile || isCommitting}
+              style={{
+                backgroundColor: isCommitting ? '#555' : '#007acc', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: isCommitting ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold'
+              }}
+            >
+              {isCommitting ? 'Pushing...' : '🚀 Commit & Push'}
+            </button>
+          </div>
         {/* Terminal */}
-        <div style={{ flex: 1, backgroundColor: '#1e1e1e', padding: 0, borderTop: '1px solid #333', overflow: 'hidden' }}>
-          <TerminalComponent />
-        </div>
+
+        
+        {/* Terminal Pane */}
+          <div style={{ flex: 1, backgroundColor: '#1e1e1e', padding: 0, borderTop: '1px solid #333', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            
+            {/* Terminal Header with Dropdown */}
+            <div style={{ backgroundColor: '#252526', padding: '4px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #333' }}>
+              <span style={{ fontSize: '12px', color: '#ccc', letterSpacing: '1px', fontWeight: 'bold' }}>TERMINAL</span>
+              <select 
+                value={terminalEnv} 
+                onChange={(e) => setTerminalEnv(e.target.value)}
+                style={{ backgroundColor: '#333', color: '#fff', border: '1px solid #444', borderRadius: '4px', padding: '2px 6px', fontSize: '12px', cursor: 'pointer' }}
+              >
+                <option value="python-wasm">Local WASM (Python)</option>
+                <option value="remote-linux">Remote Server (Linux Bash)</option>
+              </select>
+            </div>
+
+            {/* Terminal Body */}
+            <div style={{ flex: 1, overflow: 'hidden' }}>
+              {/* We now pass the active environment AND the files to the terminal */}
+              <TerminalComponent environment={terminalEnv} files={files} />
+            </div>
+          </div>
 
       </div>
     </div>

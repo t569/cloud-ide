@@ -20,6 +20,7 @@ function buildFileSystemTree(githubTree) {
             type: 'file',
             path: item.path, // Save full path for fetching content later
             url: item.url,
+            sha: item.sha,
             content: null // We will fetch content lazily when clicked!
           };
         } else {
@@ -84,4 +85,26 @@ export async function fetchFileContent(owner, repo, path, token) {
 
   // GitHub returns file content Base64 encoded, so we must decode it
   return atob(data.content);
+}
+
+// Function to commit and push a single file change
+export async function commitFileUpdate(owner, repo, path, content, sha, message, token) {
+  const octokit = new Octokit({ auth: token });
+  
+  try {
+    const { data } = await octokit.rest.repos.createOrUpdateFileContents({
+      owner,
+      repo,
+      path,
+      message, // The commit message
+      content: btoa(unescape(encodeURIComponent(content))), // Encode to Base64 safely
+      sha, // The current SHA of the file being replaced
+    });
+    
+    // GitHub returns the NEW sha for the file after updating
+    return data.content.sha; 
+  } catch (error) {
+    console.error("Failed to commit file:", error);
+    throw error;
+  }
 }

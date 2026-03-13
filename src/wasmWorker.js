@@ -36,6 +36,8 @@ function writeTreeToFS(fs, node, currentPath) {
   }
 }
 
+let codeBuffer = ""; // NEW: Tracks multi-line blocks
+
 self.onmessage = async (event) => {
   if (event.data.type === 'SYNC_FILES') {
     if (!self.pyodide) return;
@@ -52,16 +54,36 @@ self.onmessage = async (event) => {
       return;
     }
 
-    const code = event.data.payload;
+    let code = event.data.payload;
+
+    // --- NEW MULTI-LINE LOGIC ---
+    if (codeBuffer.length > 0) {
+      if (code.trim() === "") {
+        // An empty line means the user is done with the block. Execute it!
+        code = codeBuffer;
+        codeBuffer = ""; 
+      } else {
+        // Keep buffering the indented lines
+        codeBuffer += code + "\n";
+        self.postMessage({ type: 'PROMPT_MULTI' }); // Send the "... " prompt
+        return;
+      }
+    } else if (code.trim().endsWith(":")) {
+      // The user started a block (e.g., if, def, for). Start buffering!
+      codeBuffer = code + "\n";
+      self.postMessage({ type: 'PROMPT_MULTI' });
+      return;
+    }
+    // ----------------------------
+
     try {
       const result = await self.pyodide.runPythonAsync(code);
-      
-      // If the user typed an expression (like 1+1), print the result
       if (result !== undefined && result !== null) {
         self.postMessage({ type: 'STDOUT', payload: result.toString() + '\r\n' });
       }
     } catch (err) {
       self.postMessage({ type: 'ERROR', payload: err.message + '\r\n' });
+      codeBuffer = ""; // Clear buffer on error so they aren't stuck!
     }
     self.postMessage({ type: 'PROMPT' });
   }

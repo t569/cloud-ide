@@ -1,0 +1,9 @@
+# Ignore Node modules in all subdirectories
+node_modules/
+
+# Ignore environment variables
+.env
+
+# Ignore Vite build caches
+dist/
+.vite/

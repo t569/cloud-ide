@@ -7,6 +7,7 @@ const getLanguageFromExtension = (filename) => {
   
   const ext = filename.split('.').pop().toLowerCase();
   
+  // Well add them as we go on lmao
   switch (ext) {
     // Web
     case 'js': case 'jsx': return 'javascript';
@@ -16,14 +17,14 @@ const getLanguageFromExtension = (filename) => {
     case 'json': return 'json';
     
     // Systems & Backend
-    case 'py': return 'python';
+    case 'py': case 'ipynb':case 'pyc': return 'python';
     case 'rs': return 'rust';
     case 'cpp': case 'cc': case 'cxx': case 'hpp': return 'cpp';
     case 'c': case 'h': return 'c';
-    case 'java': return 'java';
+    case 'java': case 'jar': case 'class': return 'java';
     
     // Scripts & Docs
-    case 'sh': case 'bash': return 'shell';
+    case 'sh': case 'bash': case 'zsh': return 'shell';
     case 'md': return 'markdown';
     case 'xml': return 'xml';
     case 'yaml': case 'yml': return 'yaml';

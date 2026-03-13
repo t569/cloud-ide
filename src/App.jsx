@@ -3,17 +3,10 @@ import EditorComponent from './EditorComponent';
 import TerminalComponent from './TerminalComponent';
 import FileExplorer from './FileExplorer';
 import { fetchRepositoryTree, fetchFileContent } from './github'; // Import our new service!
-import { SiJavascript, SiPython, SiHtml5, SiReact } from 'react-icons/si';
-import { VscFile, VscClose, VscGithubInverted } from 'react-icons/vsc';
+import { VscClose, VscGithubInverted } from 'react-icons/vsc';
+import { getFileIcon } from './utils/icons';    // centralised icon pack
 import './App.css';
 
-const getFileIcon = (name) => {
-  if (name.endsWith('.js')) return <SiJavascript color="#f7df1e" size={14} />;
-  if (name.endsWith('.jsx')) return <SiReact color="#61dafb" size={14} />;
-  if (name.endsWith('.py')) return <SiPython color="#3776ab" size={14} />;
-  if (name.endsWith('.html')) return <SiHtml5 color="#e34f26" size={14} />;
-  return <VscFile color="#cccccc" size={14} />;
-};
 
 export default function App() {
   // --- GITHUB CONNECTION STATE ---

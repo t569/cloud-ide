@@ -1,15 +1,7 @@
 import React, { useState } from 'react';
 import { VscFolder, VscFolderOpened, VscFile } from 'react-icons/vsc';
-import { SiJavascript, SiPython, SiHtml5, SiReact } from 'react-icons/si';
+import { getFileIcon } from './utils/icons';
 
-// Helper to grab the right icon
-const getFileIcon = (name) => {
-  if (name.endsWith('.js')) return <SiJavascript color="#f7df1e" />;
-  if (name.endsWith('.jsx')) return <SiReact color="#61dafb" />;
-  if (name.endsWith('.py')) return <SiPython color="#3776ab" />;
-  if (name.endsWith('.html')) return <SiHtml5 color="#e34f26" />;
-  return <VscFile color="#cccccc" />;
-};
 
 export default function FileExplorer({ files, activeFile, onSelectFile }) {
   return (

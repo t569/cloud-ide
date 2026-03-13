@@ -4,13 +4,35 @@ import Editor from '@monaco-editor/react';
 // Dynamically assign the Monaco language based on the filename
 const getLanguageFromExtension = (filename) => {
   if (!filename) return 'plaintext';
-  if (filename.endsWith('.js') || filename.endsWith('.jsx')) return 'javascript';
-  if (filename.endsWith('.py')) return 'python';
-  if (filename.endsWith('.html')) return 'html';
-  if (filename.endsWith('.css')) return 'css';
-  if (filename.endsWith('.json')) return 'json';
-  if (filename.endsWith('.rs')) return 'rust';
-  return 'plaintext';
+  
+  const ext = filename.split('.').pop().toLowerCase();
+  
+  switch (ext) {
+    // Web
+    case 'js': case 'jsx': return 'javascript';
+    case 'ts': case 'tsx': return 'typescript';
+    case 'html': return 'html';
+    case 'css': return 'css';
+    case 'json': return 'json';
+    
+    // Systems & Backend
+    case 'py': return 'python';
+    case 'rs': return 'rust';
+    case 'cpp': case 'cc': case 'cxx': case 'hpp': return 'cpp';
+    case 'c': case 'h': return 'c';
+    case 'java': return 'java';
+    
+    // Scripts & Docs
+    case 'sh': case 'bash': return 'shell';
+    case 'md': return 'markdown';
+    case 'xml': return 'xml';
+    case 'yaml': case 'yml': return 'yaml';
+    
+    // Assembly doesn't have a default Monaco grammar, fallback to plaintext or write a custom Monarch token provider later
+    case 'asm': case 's': return 'plaintext'; 
+    
+    default: return 'plaintext';
+  }
 };
 
 export default function EditorComponent({ file, onChange }) {

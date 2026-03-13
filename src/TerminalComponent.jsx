@@ -71,22 +71,29 @@ export default function TerminalComponent({ environment, files }) {
 
    const onDataDisposable = term.onData((data) => {
       if (data === '\r') {
+        // Enter Key
         term.writeln('');
         const cmd = currentCommand.current; 
         if (cmd.trim() !== '' || cmd === '') { 
           if (workerRef.current) {
             workerRef.current.postMessage({ type: 'RUN', payload: cmd });
           } else {
-            term.write('\x1b[1;32m$ \x1b[0m'); // The standard shell prompt fallback
+            term.write('\x1b[1;32m$ \x1b[0m'); 
           }
         }
         currentCommand.current = '';
       } else if (data === '\x7f') {
+        // Backspace
         if (currentCommand.current.length > 0) {
           currentCommand.current = currentCommand.current.slice(0, -1);
           term.write('\b \b');
         }
+      } else if (data.startsWith('\x1b')) {
+        // THE FIX: Ignore ANSI Escape Sequences!
+        // This prevents Arrow Keys from injecting invisible junk into Python.
+        return; 
       } else {
+        // Standard typing
         currentCommand.current += data;
         term.write(data);
       }

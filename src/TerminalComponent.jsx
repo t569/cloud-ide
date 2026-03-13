@@ -2,7 +2,11 @@ import React, { useEffect, useRef } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
-import PyWorker from './wasmWorker.js?worker';
+
+
+import PyWorker from './repl/pyWorker.js?worker'
+import JsWorker from './repl/jsWorker.js?worker';
+import RubyWorker from './repl/rubyWorker.js?worker';
 
 export default function TerminalComponent({ environment, files }) {
   const terminalContainerRef = useRef(null);
@@ -113,16 +117,17 @@ export default function TerminalComponent({ environment, files }) {
     };
   }, []);
 
+  // 2. Handle Worker Connections
   useEffect(() => {
     const term = termInstance.current;
     if (!term) return;
 
-    if (environment === 'python-wasm') {
-      term.writeln(`\x1b[1;33mStarting Local WASM (Python)...\x1b[0m`);
-      
+    // Helper to spin up a worker cleanly
+    const connectWorker = (WorkerClass, envName, syncFiles) => {
+      term.writeln(`\x1b[1;33mStarting ${envName}...\x1b[0m`);
       if (workerRef.current) workerRef.current.terminate();
       
-      workerRef.current = new PyWorker();
+      workerRef.current = new WorkerClass();
       
       workerRef.current.onmessage = (event) => {
         const { type, payload } = event.data;
@@ -130,20 +135,26 @@ export default function TerminalComponent({ environment, files }) {
         else if (type === 'STDOUT') term.write(payload);
         else if (type === 'ERROR') term.write(`\x1b[1;31m${payload}\x1b[0m`);
         else if (type === 'PROMPT') term.write('\x1b[1;32m>>> \x1b[0m');
-        // NEW: Handle multi-line prompt
         else if (type === 'PROMPT_MULTI') term.write('\x1b[1;33m... \x1b[0m'); 
       };
 
-      workerRef.current.postMessage({ type: 'SYNC_FILES', payload: files });
+      if (syncFiles) workerRef.current.postMessage({ type: 'SYNC_FILES', payload: files });
+    };
 
+    // The Router
+    if (environment === 'python-wasm') {
+      connectWorker(PyWorker, 'Local WASM (Python)', true);
+    } else if (environment === 'js-worker') {
+      connectWorker(JsWorker, 'Local Worker (JavaScript)', false);
+    } else if (environment === 'ruby-wasm') {
+      connectWorker(RubyWorker, 'Local WASM (Ruby)', false);
     } else if (environment === 'remote-linux') {
       if (workerRef.current) workerRef.current.terminate();
       workerRef.current = null;
-      term.writeln('\x1b[1;31mRemote Linux environment not connected. Running in local echo mode.\x1b[0m');
-      
-      // NEW: Print the initial dollar sign prompt for the Linux terminal
+      term.writeln('\x1b[1;31mRemote Linux environment not connected.\x1b[0m');
       term.write('\x1b[1;32m$ \x1b[0m');
     }
+
     return () => {
       if (workerRef.current) {
         workerRef.current.terminate();

@@ -250,13 +250,15 @@ export default function App() {
                   </button>
 
                   <select 
-                    value={terminalEnv} 
-                    onChange={(e) => setTerminalEnv(e.target.value)}
-                    style={{ backgroundColor: '#333', color: '#fff', border: '1px solid #444', borderRadius: '4px', padding: '2px 6px', fontSize: '12px', cursor: 'pointer' }}
-                  >
-                    <option value="python-wasm">Local WASM (Python)</option>
-                    <option value="remote-linux">Remote Server (Linux Bash)</option>
-                  </select>
+                      value={terminalEnv} 
+                      onChange={(e) => setTerminalEnv(e.target.value)}
+                      style={{ backgroundColor: '#333', color: '#fff', border: '1px solid #444', borderRadius: '4px', padding: '2px 6px', fontSize: '12px', cursor: 'pointer' }}
+                    >
+                      <option value="python-wasm">Local WASM (Python)</option>
+                      <option value="ruby-wasm">Local WASM (Ruby)</option>
+                      <option value="js-worker">Local Worker (JS)</option>
+                      <option value="remote-linux">Remote Server (Linux Bash)</option>
+                    </select>
                 </div>
               </div>
 

@@ -15,115 +15,115 @@ export default function TerminalComponent({ environment, files }) {
   const currentCommand = useRef('');
   const isInitialized = useRef(false);
 
+  // 1. Initialize Terminal Safely
   useEffect(() => {
-    if (isInitialized.current || !terminalContainerRef.current) return;
-    isInitialized.current = true;
+    // THE FIX: Wait 100ms for Tailwind to paint the UI layout before touching xterm
+    const bootTimeout = setTimeout(() => {
+      if (!terminalContainerRef.current) return;
+      terminalContainerRef.current.innerHTML = ''; // Clear strict mode duplicates
 
-    const term = new Terminal({ 
-      theme: { background: '#1e1e1e', foreground: '#cccccc' }, 
-      cursorBlink: true, 
-      fontFamily: '"JetBrains Mono", monospace', 
-      fontSize: 14 
-    });
-    
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(terminalContainerRef.current);
-    termInstance.current = term;
+      const term = new Terminal({ 
+        theme: { background: '#1e1e1e', foreground: '#cccccc' }, 
+        cursorBlink: true, 
+        fontFamily: '"JetBrains Mono", monospace', 
+        fontSize: 14 
+      });
+      
+      const fitAddon = new FitAddon();
+      term.loadAddon(fitAddon);
+      term.open(terminalContainerRef.current); // No more dimensions crash!
+      termInstance.current = term;
 
-    setTimeout(() => {
-      try { fitAddon.fit(); } catch (e) {}
-    }, 10);
-
-    const resizeObserver = new ResizeObserver(() => {
-      if (terminalContainerRef.current && terminalContainerRef.current.clientWidth > 0) {
+      // Fit after opening
+      setTimeout(() => {
         try { fitAddon.fit(); } catch (e) {}
-      }
-    });
-    resizeObserver.observe(terminalContainerRef.current);
+      }, 50);
 
+      const resizeObserver = new ResizeObserver(() => {
+        if (terminalContainerRef.current && terminalContainerRef.current.clientWidth > 0) {
+          try { fitAddon.fit(); } catch (e) {}
+        }
+      });
+      resizeObserver.observe(terminalContainerRef.current);
 
-    // --- NEW: Global Event Listeners for the UI Buttons ---
-  
-    // This is for running the current file
-    const handleRunFile = (e) => {
-      const file = e.detail;
-      if (workerRef.current) {
-        term.writeln(`\r\n\x1b[1;32m$ Executing ${file.name}...\x1b[0m`);
-        workerRef.current.postMessage({ type: 'RUN', payload: file.content });
-      } else {
-        term.writeln(`\r\n\x1b[1;31mPlease connect to an environment first.\x1b[0m`);
-      }
-    };
+      // --- Global Event Listeners ---
+      const handleRunFile = (e) => {
+        const file = e.detail;
+        if (workerRef.current) {
+          term.writeln(`\r\n\x1b[1;32m$ Executing ${file.name}...\x1b[0m`);
+          workerRef.current.postMessage({ type: 'RUN', payload: file.content });
+        } else {
+          term.writeln(`\r\n\x1b[1;31mPlease connect to an environment first.\x1b[0m`);
+        }
+      };
 
-    // This is to handle copying of the terminal
-    const handleCopy = () => {
-      const selection = term.getSelection();
-      if (selection) {
-        navigator.clipboard.writeText(selection);
-      } else {
-        // If nothing is highlighted, copy the entire terminal screen
-        term.selectAll();
-        navigator.clipboard.writeText(term.getSelection());
-        term.clearSelection();
-      }
-    };
+      const handleCopy = () => {
+        const selection = term.getSelection();
+        if (selection) {
+          navigator.clipboard.writeText(selection);
+        } else {
+          term.selectAll();
+          navigator.clipboard.writeText(term.getSelection());
+          term.clearSelection();
+        }
+      };
 
-    window.addEventListener('run-terminal-code', handleRunFile);
-    window.addEventListener('copy-terminal', handleCopy);
+      window.addEventListener('run-terminal-code', handleRunFile);
+      window.addEventListener('copy-terminal', handleCopy);
 
-
-   const onDataDisposable = term.onData((data) => {
-      if (data === '\r') {
-        // Enter Key
-        term.writeln('');
-        const cmd = currentCommand.current; 
-        if (cmd.trim() !== '' || cmd === '') { 
-          if (workerRef.current) {
-            workerRef.current.postMessage({ type: 'RUN', payload: cmd });
+      // --- Keystroke Listener ---
+      const onDataDisposable = term.onData((data) => {
+        if (data === '\r') {
+          term.writeln('');
+          const cmd = currentCommand.current; 
+          if (cmd.trim() !== '' || cmd === '') { 
+            if (workerRef.current) {
+              workerRef.current.postMessage({ type: 'RUN', payload: cmd });
+            } else {
+              term.write('\x1b[1;32m$ \x1b[0m'); 
+            }
+          }
+          currentCommand.current = '';
+        } else if (data === '\x7f') {
+          if (currentCommand.current.length > 0) {
+            currentCommand.current = currentCommand.current.slice(0, -1);
+            term.write('\b \b');
+          }
+        } else if (data.startsWith('\x1b')) {
+          if (environment === 'remote-linux' && workerRef.current?.postMessage) {
+              workerRef.current.postMessage({ type: 'RUN', payload: data });
+          }
+          return; 
+        } else {
+          if (environment === 'remote-linux') {
+              workerRef.current?.postMessage({ type: 'RUN', payload: data });
           } else {
-            term.write('\x1b[1;32m$ \x1b[0m'); 
+              currentCommand.current += data;
+              term.write(data);
           }
         }
-        currentCommand.current = '';
-      } else if (data === '\x7f') {
-        // Backspace
-        if (currentCommand.current.length > 0) {
-          currentCommand.current = currentCommand.current.slice(0, -1);
-          term.write('\b \b');
-        }
-      } else if (data.startsWith('\x1b')) {
-        } else if (data.startsWith('\x1b')) {
-        // Allow escape sequences ONLY for remote-linux so arrow keys work in bash!
-        if (environment === 'remote-linux' && workerRef.current?.postMessage) {
-            // Secretly sending raw keystrokes via our mocked workerRef
-            workerRef.current.postMessage({ type: 'RUN', payload: data });
-        }
-        return; 
-      } else {
-        // Standard typing
-        if (environment === 'remote-linux') {
-            workerRef.current?.postMessage({ type: 'RUN', payload: data });
-        } else {
-            currentCommand.current += data;
-            term.write(data);
-        }
-      }
-    });
+      });
 
+      // Attach cleanup methods to the ref so we can call them when the component unmounts
+      terminalContainerRef.current._cleanup = () => {
+        resizeObserver.disconnect();
+        onDataDisposable.dispose();
+        fitAddon.dispose();
+        term.dispose();
+        window.removeEventListener('run-terminal-code', handleRunFile);
+        window.removeEventListener('copy-terminal', handleCopy);
+      };
+    }, 100); // 100ms delay
+
+    // Cleanup function for React unmount
     return () => {
-      resizeObserver.disconnect();
-      onDataDisposable.dispose();
-      fitAddon.dispose();
-      term.dispose();
+      clearTimeout(bootTimeout);
+      if (terminalContainerRef.current?._cleanup) {
+        terminalContainerRef.current._cleanup();
+      }
       termInstance.current = null;
-      isInitialized.current = false;
-      
-      // NEW: Cleanup event listeners
-      window.removeEventListener('run-terminal-code', handleRunFile);
-      window.removeEventListener('copy-terminal', handleCopy);
     };
-  }, []);
+  }, []); // Only run once
 
   // 2. Handle Worker Connections
   useEffect(() => {

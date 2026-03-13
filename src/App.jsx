@@ -1,107 +1,54 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import EditorComponent from './EditorComponent';
 import TerminalComponent from './TerminalComponent';
 import FileExplorer from './FileExplorer';
-import { fetchRepositoryTree, fetchFileContent } from './github'; // Import our new service!
+import { fetchRepositoryTree, fetchFileContent } from './github'; 
 import { VscClose, VscGithubInverted } from 'react-icons/vsc';
-import { getFileIcon } from './utils/icons';    // centralised icon pack
-import './App.css';
-
+import { getFileIcon } from './utils/icons';
 
 export default function App() {
-  // --- GITHUB CONNECTION STATE ---
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState('');
-  const [isCommitting, setIsCommitting] = useState(false);
-  const [commitMessage, setCommitMessage] = useState('');
   
-  const [repoInfo, setRepoInfo] = useState({
-    owner: '',
-    repo: '',
-    token: '' // Needs 'repo' scope for private repositories
-  });
-
- // Add this new handler
-  const handleSaveAndCommit = async () => {
-  if (!activeFile || !repoInfo.token) {
-    alert("You need a file open and an active access token to commit.");
-    return;
-  }
-
-  // Fallback to a default message if the user leaves it blank
-  const finalMessage = commitMessage.trim() || `Update ${activeFile.name}`;
-
-  setIsCommitting(true);
-  try {
-    const { commitFileUpdate } = await import('./github');
-    const newSha = await commitFileUpdate(
-      repoInfo.owner, 
-      repoInfo.repo, 
-      activeFile.path, 
-      activeFile.content, 
-      activeFile.sha, 
-      finalMessage, 
-      repoInfo.token
-    );
-    
-    activeFile.sha = newSha; 
-    setCommitMessage(''); // Clear the input field on success
-    alert("Successfully committed and pushed to GitHub! 🎉");
-  } catch (err) {
-    alert("Failed to commit. Check console for details.");
-  } finally {
-    setIsCommitting(false);
-  }
-};
-
-
-  // --- IDE STATE ---
+  const [repoInfo, setRepoInfo] = useState({ owner: '', repo: '', token: '' });
   const [files, setFiles] = useState({});
   const [openFiles, setOpenFiles] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
+  
+  const [terminalEnv, setTerminalEnv] = useState('python-wasm');
+  const [commitMessage, setCommitMessage] = useState('');
+  const [isCommitting, setIsCommitting] = useState(false);
 
-  // --- HANDLERS ---
+  // --- HANDLERS (Same as before) ---
   const handleConnect = async (e) => {
     e.preventDefault();
-    setIsConnecting(true);
-    setError('');
-
+    setIsConnecting(true); setError('');
     try {
       const tree = await fetchRepositoryTree(repoInfo.owner, repoInfo.repo, repoInfo.token);
       setFiles(tree);
       setIsConnected(true);
     } catch (err) {
-      setError('Failed to connect. Check your repo details and token permissions.');
-      console.error(err);
+      setError('Failed to connect. Check your repo details.');
     } finally {
       setIsConnecting(false);
     }
   };
 
   const handleOpenFile = async (fileNode) => {
-    // 1. If it's a file we haven't fetched the content for yet:
     if (fileNode.type === 'file' && fileNode.content === null) {
       setIsLoadingFile(true);
       try {
-        const content = await fetchFileContent(repoInfo.owner, repoInfo.repo, fileNode.path, repoInfo.token);
-        fileNode.content = content; // Mutate the node to store the content locally
+        fileNode.content = await fetchFileContent(repoInfo.owner, repoInfo.repo, fileNode.path, repoInfo.token);
       } catch (err) {
-        console.error("Failed to fetch file:", err);
         fileNode.content = "// Error loading file content.";
       } finally {
         setIsLoadingFile(false);
       }
     }
-
-    // 2. Add to open tabs if not already open
     const isAlreadyOpen = openFiles.find(f => f.path === fileNode.path);
-    if (!isAlreadyOpen) {
-      setOpenFiles([...openFiles, fileNode]);
-    }
-    
-    // 3. Set as active
+    if (!isAlreadyOpen) setOpenFiles([...openFiles, fileNode]);
     setActiveFile(fileNode);
   };
 
@@ -109,40 +56,40 @@ export default function App() {
     e.stopPropagation();
     const newOpenFiles = openFiles.filter(f => f.path !== fileToClose.path);
     setOpenFiles(newOpenFiles);
-
     if (activeFile?.path === fileToClose.path) {
       setActiveFile(newOpenFiles.length > 0 ? newOpenFiles[newOpenFiles.length - 1] : null);
     }
   };
 
-  const handleEditorChange = (newContent) => {
-    if (activeFile) {
-      activeFile.content = newContent;
-      setActiveFile({ ...activeFile });
+  const handleSaveAndCommit = async () => {
+    if (!activeFile || !repoInfo.token) return alert("Requires an open file and access token.");
+    const finalMessage = commitMessage.trim() || `Update ${activeFile.name}`;
+    setIsCommitting(true);
+    try {
+      const { commitFileUpdate } = await import('./github');
+      activeFile.sha = await commitFileUpdate(repoInfo.owner, repoInfo.repo, activeFile.path, activeFile.content, activeFile.sha, finalMessage, repoInfo.token);
+      setCommitMessage('');
+      alert("Successfully committed! 🎉");
+    } catch (err) {
+      alert("Failed to commit.");
+    } finally {
+      setIsCommitting(false);
     }
   };
-
-  // -- TERMINAL ENVIRONMENTS ---
-  // Tracks the active terminal environment
-  const [terminalEnv, setTerminalEnv] = useState('python-wasm');
-
 
   // --- RENDER CONNECTION SCREEN ---
   if (!isConnected) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#1e1e1e', color: '#fff' }}>
-        <form onSubmit={handleConnect} style={{ backgroundColor: '#2d2d2d', padding: '30px', borderRadius: '8px', width: '350px', display: 'flex', flexDirection: 'column', gap: '15px', boxShadow: '0 4px 12px rgba(0,0,0,0.5)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '20px', fontWeight: 'bold', marginBottom: '10px' }}>
+      <div className="flex justify-center items-center h-screen bg-vscode-bg text-white">
+        <form onSubmit={handleConnect} className="bg-vscode-tab p-8 rounded-lg w-96 flex flex-col gap-4 shadow-2xl border border-vscode-border">
+          <div className="flex items-center gap-3 text-xl font-bold mb-2">
             <VscGithubInverted size={28} /> Connect to GitHub
           </div>
-          
-          {error && <div style={{ color: '#f48771', fontSize: '13px', backgroundColor: '#3a1d1d', padding: '8px', borderRadius: '4px' }}>{error}</div>}
-
-          <input placeholder="Owner (e.g., facebook)" required value={repoInfo.owner} onChange={e => setRepoInfo({...repoInfo, owner: e.target.value})} style={{ padding: '10px', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#1e1e1e', color: '#fff' }} />
-          <input placeholder="Repo (e.g., react)" required value={repoInfo.repo} onChange={e => setRepoInfo({...repoInfo, repo: e.target.value})} style={{ padding: '10px', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#1e1e1e', color: '#fff' }} />
-          <input placeholder="Personal Access Token (Required for Private)" type="password" value={repoInfo.token} onChange={e => setRepoInfo({...repoInfo, token: e.target.value})} style={{ padding: '10px', borderRadius: '4px', border: '1px solid #444', backgroundColor: '#1e1e1e', color: '#fff' }} />
-          
-          <button type="submit" disabled={isConnecting} style={{ padding: '10px', borderRadius: '4px', border: 'none', backgroundColor: '#007acc', color: '#fff', fontWeight: 'bold', cursor: isConnecting ? 'not-allowed' : 'pointer', marginTop: '10px' }}>
+          {error && <div className="text-red-400 text-sm bg-red-900/30 p-2 rounded">{error}</div>}
+          <input placeholder="Owner (e.g., facebook)" required value={repoInfo.owner} onChange={e => setRepoInfo({...repoInfo, owner: e.target.value})} className="p-2 rounded bg-vscode-bg border border-vscode-border outline-none focus:border-vscode-accent" />
+          <input placeholder="Repo (e.g., react)" required value={repoInfo.repo} onChange={e => setRepoInfo({...repoInfo, repo: e.target.value})} className="p-2 rounded bg-vscode-bg border border-vscode-border outline-none focus:border-vscode-accent" />
+          <input placeholder="Personal Access Token" type="password" value={repoInfo.token} onChange={e => setRepoInfo({...repoInfo, token: e.target.value})} className="p-2 rounded bg-vscode-bg border border-vscode-border outline-none focus:border-vscode-accent" />
+          <button type="submit" disabled={isConnecting} className="mt-2 p-2 rounded bg-vscode-accent text-white font-bold hover:bg-blue-600 disabled:bg-gray-600 transition-colors">
             {isConnecting ? 'Fetching Tree...' : 'Connect IDE'}
           </button>
         </form>
@@ -152,122 +99,86 @@ export default function App() {
 
   // --- RENDER IDE SCREEN ---
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100vw', backgroundColor: '#1e1e1e', color: '#fff', fontFamily: 'sans-serif' }}>
+    <div className="flex h-screen w-screen bg-vscode-bg text-white font-sans overflow-hidden">
       
       {/* Sidebar */}
-      <div style={{ width: '250px', borderRight: '1px solid #333', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ padding: '10px 15px', fontSize: '12px', fontWeight: 'bold', letterSpacing: '1px', borderBottom: '1px solid #333', color: '#ccc', display: 'flex', justifyContent: 'space-between' }}>
+      <div className="w-64 border-r border-vscode-border flex flex-col">
+        <div className="px-4 py-2 text-xs font-bold tracking-wider border-b border-vscode-border text-vscode-textDim flex justify-between items-center">
           <span>EXPLORER</span>
-          <span style={{ color: '#007acc', cursor: 'pointer' }} onClick={() => setIsConnected(false)}>Disconnect</span>
+          <span className="text-vscode-accent cursor-pointer hover:underline" onClick={() => setIsConnected(false)}>Disconnect</span>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto' }}>
+        <div className="flex-1 overflow-y-auto">
           <FileExplorer files={files} activeFile={activeFile} onSelectFile={handleOpenFile} />
         </div>
       </div>
 
       {/* Main Content */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="flex-1 flex flex-col min-w-0">
         
         {/* Editor Area */}
-        <div style={{ flex: 2, borderBottom: '1px solid #333', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div className="flex-[2] flex flex-col border-b border-vscode-border min-h-0">
           
           {/* Tabs */}
-          <div style={{ display: 'flex', backgroundColor: '#252526', overflowX: 'auto' }}>
+          <div className="flex bg-vscode-sidebar overflow-x-auto scrollbar-hide">
             {openFiles.map(file => {
               const isActive = activeFile?.path === file.path;
               return (
-                <div key={file.path} onClick={() => setActiveFile(file)} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 15px', fontSize: '13px', cursor: 'pointer', backgroundColor: isActive ? '#1e1e1e' : '#2d2d2d', borderTop: isActive ? '2px solid #007acc' : '2px solid transparent', borderRight: '1px solid #333', minWidth: 'fit-content', color: isActive ? '#fff' : '#888' }}>
+                <div key={file.path} onClick={() => setActiveFile(file)} className={`flex items-center gap-2 px-4 py-2 text-sm cursor-pointer border-t-2 border-r border-r-vscode-border min-w-max transition-colors ${isActive ? 'bg-vscode-bg border-t-vscode-accent text-white' : 'bg-vscode-tab border-t-transparent text-gray-400 hover:bg-[#333]'}`}>
                   {getFileIcon(file.name)}
                   {file.name}
-                  <div onClick={(e) => handleCloseTab(e, file)} style={{ marginLeft: '8px', display: 'flex', alignItems: 'center', padding: '2px', borderRadius: '4px' }} onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#333'} onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}>
-                    <VscClose size={14} />
+                  <div onClick={(e) => handleCloseTab(e, file)} className="ml-2 p-0.5 rounded hover:bg-vscode-border flex items-center justify-center">
+                    <VscClose size={16} />
                   </div>
                 </div>
               );
             })}
           </div>
 
-          {/* Editor */}
-          <div style={{ flex: 1 }}>
+          {/* Action Bar */}
+          <div className="bg-vscode-tab border-b border-vscode-border p-2 flex justify-end items-center gap-3">
+            <button onClick={() => window.dispatchEvent(new CustomEvent('run-terminal-code', { detail: activeFile }))} className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-xs font-bold transition-colors">
+              ▶️ Run File
+            </button>
+            <div className="flex gap-2">
+              <input type="text" placeholder={`Commit message (Default: Update ${activeFile?.name})`} value={commitMessage} onChange={(e) => setCommitMessage(e.target.value)} className="bg-vscode-bg text-white border border-vscode-border rounded px-3 py-1 text-xs w-64 outline-none focus:border-vscode-accent" />
+              <button onClick={handleSaveAndCommit} disabled={!activeFile || isCommitting} className="bg-vscode-accent hover:bg-blue-600 disabled:bg-gray-600 text-white px-3 py-1 rounded text-xs font-bold transition-colors">
+                {isCommitting ? 'Pushing...' : '🚀 Commit & Push'}
+              </button>
+            </div>
+          </div>
+
+          {/* Editor Container */}
+          <div className="flex-1 min-h-0 relative">
             {isLoadingFile ? (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#888' }}>Loading file from GitHub...</div>
+              <div className="absolute inset-0 flex items-center justify-center text-gray-500">Loading from GitHub...</div>
             ) : activeFile ? (
-              <EditorComponent file={activeFile} onChange={handleEditorChange} />
+              <EditorComponent file={activeFile} onChange={(newContent) => { activeFile.content = newContent; setActiveFile({ ...activeFile }); }} />
             ) : (
-              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', color: '#555', fontSize: '24px' }}>Open a file to start editing</div>
+              <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-xl">Open a file to start editing</div>
             )}
           </div>
         </div>
 
-        
-        {/* Commit Action Bar and Run Button */}
-          <div style={{ backgroundColor: '#2d2d2d', borderBottom: '1px solid #333', padding: '6px 15px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px' }}>
-            <button 
-                      onClick={() => window.dispatchEvent(new CustomEvent('run-terminal-code', { detail: activeFile }))}
-                      style={{
-                        backgroundColor: '#28a745', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold'
-                      }}
-                    >
-                      ▶️ Run File
-            </button>
-            
-            <input 
-              type="text" 
-              placeholder={`Commit message (Default: Update ${activeFile?.name})`}
-              value={commitMessage}
-              onChange={(e) => setCommitMessage(e.target.value)}
-              style={{
-                backgroundColor: '#1e1e1e', color: '#fff', border: '1px solid #444', borderRadius: '4px', padding: '6px 10px', fontSize: '12px', width: '250px'
-              }}
-            />
-            <button 
-              onClick={handleSaveAndCommit}
-              disabled={!activeFile || isCommitting}
-              style={{
-                backgroundColor: isCommitting ? '#555' : '#007acc', color: '#fff', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: isCommitting ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold'
-              }}
-            >
-              {isCommitting ? 'Pushing...' : '🚀 Commit & Push'}
-            </button>
-          </div>
-        {/* Terminal */}
-
-
-        {/* Terminal Pane */}
-          <div style={{ flex: 1, backgroundColor: '#1e1e1e', padding: 0, borderTop: '1px solid #333', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            
-            {/* Terminal Header with Dropdown */}
-        
-              <div style={{ backgroundColor: '#252526', padding: '4px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #333' }}>
-                <span style={{ fontSize: '12px', color: '#ccc', letterSpacing: '1px', fontWeight: 'bold' }}>TERMINAL</span>
-                
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button 
-                    onClick={() => window.dispatchEvent(new Event('copy-terminal'))}
-                    style={{ backgroundColor: '#444', color: '#fff', border: '1px solid #555', borderRadius: '4px', padding: '2px 8px', fontSize: '12px', cursor: 'pointer' }}
-                  >
-                    📋 Copy Output
-                  </button>
-
-                  <select 
-                      value={terminalEnv} 
-                      onChange={(e) => setTerminalEnv(e.target.value)}
-                      style={{ backgroundColor: '#333', color: '#fff', border: '1px solid #444', borderRadius: '4px', padding: '2px 6px', fontSize: '12px', cursor: 'pointer' }}
-                    >
-                      <option value="python-wasm">Local WASM (Python)</option>
-                      <option value="ruby-wasm">Local WASM (Ruby)</option>
-                      <option value="js-worker">Local Worker (JS)</option>
-                      <option value="remote-linux">Remote Server (Linux Bash)</option>
-                    </select>
-                </div>
-              </div>
-
-            {/* Terminal Body */}
-            <div style={{ flex: 1, overflow: 'hidden' }}>
-              {/* We now pass the active environment AND the files to the terminal */}
-              <TerminalComponent environment={terminalEnv} files={files} />
+        {/* Terminal Area */}
+        <div className="flex-1 flex flex-col bg-vscode-bg min-h-0">
+          <div className="bg-vscode-sidebar px-3 py-1 flex justify-between items-center border-b border-vscode-border">
+            <span className="text-xs text-vscode-textDim tracking-wider font-bold">TERMINAL</span>
+            <div className="flex gap-3 items-center">
+              <button onClick={() => window.dispatchEvent(new Event('copy-terminal'))} className="bg-vscode-border hover:bg-gray-600 text-white border border-gray-600 rounded px-2 py-0.5 text-xs transition-colors">
+                📋 Copy
+              </button>
+              <select value={terminalEnv} onChange={(e) => setTerminalEnv(e.target.value)} className="bg-vscode-border text-white border border-gray-600 rounded px-2 py-0.5 text-xs outline-none">
+                <option value="python-wasm">Local WASM (Python)</option>
+                <option value="ruby-wasm">Local WASM (Ruby)</option>
+                <option value="js-worker">Local Worker (JS)</option>
+                <option value="remote-linux">Remote Server (Linux Bash)</option>
+              </select>
             </div>
           </div>
+          <div className="flex-1 min-h-0">
+            <TerminalComponent environment={terminalEnv} files={files} />
+          </div>
+        </div>
 
       </div>
     </div>

@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import EditorComponent from './EditorComponent';
 import TerminalComponent from './TerminalComponent';
 import FileExplorer from './FileExplorer';
+import EnvironmentManager from './EnvironmentManager';
+
+
 import { fetchRepositoryTree, fetchFileContent } from './github'; 
 import { VscClose, VscGithubInverted } from 'react-icons/vsc';
 import { getFileIcon } from './utils/icons';
@@ -20,6 +23,8 @@ export default function App() {
   const [terminalEnv, setTerminalEnv] = useState('python-wasm');
   const [commitMessage, setCommitMessage] = useState('');
   const [isCommitting, setIsCommitting] = useState(false);
+
+  const [showEnvManager, setShowEnvManager] = useState(false);
 
   // --- HANDLERS (Same as before) ---
   const handleConnect = async (e) => {
@@ -75,6 +80,19 @@ export default function App() {
     } finally {
       setIsCommitting(false);
     }
+  };
+
+  // This is to handle building of the environment into the custom json file
+  const handleBuildEnvironment = (config) => {
+    setShowEnvManager(false);
+    
+    // We will soon send this config to the backend via WebSocket!
+    // For now, let's just log it to ensure our JSON structure is perfect.
+    console.log("Saving ide-env.json to GitHub...", config);
+    alert("Environment Configured! (Check console for JSON payload)");
+    
+    // Switch the terminal view to the Remote Linux environment so we are ready
+    setTerminalEnv('remote-linux');
   };
 
   // --- RENDER CONNECTION SCREEN ---
@@ -164,6 +182,13 @@ export default function App() {
           <div className="bg-vscode-sidebar px-3 py-1 flex justify-between items-center border-b border-vscode-border">
             <span className="text-xs text-vscode-textDim tracking-wider font-bold">TERMINAL</span>
             <div className="flex gap-3 items-center">
+              {/* NEW: Configure Environment Button */}
+              <button 
+                onClick={() => setShowEnvManager(true)} 
+                className="bg-vscode-accent hover:bg-blue-600 text-white rounded px-2 py-0.5 text-xs font-bold transition-colors"
+              >
+                ⚙️ Configure Env
+              </button>
               <button onClick={() => window.dispatchEvent(new Event('copy-terminal'))} className="bg-vscode-border hover:bg-gray-600 text-white border border-gray-600 rounded px-2 py-0.5 text-xs transition-colors">
                 📋 Copy
               </button>
@@ -180,6 +205,14 @@ export default function App() {
           </div>
         </div>
 
+
+        {/* Render the Modal overlay if active */}
+        {showEnvManager && (
+          <EnvironmentManager 
+            onClose={() => setShowEnvManager(false)} 
+            onBuild={handleBuildEnvironment} 
+          />
+        )}
       </div>
     </div>
   );

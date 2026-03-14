@@ -33,7 +33,23 @@ export default function EnvironmentManager({ onClose, onBuild }) {
   const handleAddPackage = (e) => {
     e.preventDefault();
     if (!newPkgName.trim()) return;
-    setPackages([...packages, { name: newPkgName.trim().toLowerCase(), version: newPkgVersion.trim() || 'latest', type: pkgType }]);
+
+    const name = newPkgName.trim().toLowerCase();
+
+    // 🚨 ECOSYSTEM VALIDATOR FIX
+    if (pkgType === 'language') {
+      const jsPackages = ['react', 'express', 'nodejs', 'nextjs', 'vue'];
+      const pyPackages = ['pandas', 'numpy', 'tensorflow', 'flask', 'django'];
+
+      if (baseImage.includes('python') && jsPackages.includes(name)) {
+        return alert(`❌ Invalid Dependency!\n\nYou cannot install a JavaScript package (${name}) in a Python base environment via pip.\nChange the base image to Node.js, or add it as a System (apt-get) package if wrapper binaries exist.`);
+      }
+      if (baseImage.includes('node') && pyPackages.includes(name)) {
+        return alert(`❌ Invalid Dependency!\n\nYou cannot install a Python package (${name}) in a Node.js base environment via npm.`);
+      }
+    }
+
+    setPackages([...packages, { name, version: newPkgVersion.trim() || 'latest', type: pkgType }]);
     setNewPkgName(''); setNewPkgVersion('');
   };
 

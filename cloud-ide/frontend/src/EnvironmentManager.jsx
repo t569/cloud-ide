@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { VscClose, VscAdd, VscTrash } from 'react-icons/vsc';
+import { VscClose, VscAdd, VscTrash, VscSearch } from 'react-icons/vsc';
 import { getPackageIcon } from './utils/packageIcons';
 
 export default function EnvironmentManager({ onClose, onBuild }) {
   // --- STATE ---
   const [savedEnvs, setSavedEnvs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState(''); // NEW: Search state
   
   const [profileName, setProfileName] = useState('');
   const [baseImage, setBaseImage] = useState('python:3.11');
@@ -28,11 +29,11 @@ export default function EnvironmentManager({ onClose, onBuild }) {
       });
   }, []);
 
-  // --- HANDLERS ---
+  // --- HELPERS ---
   const handleAddPackage = (e) => {
     e.preventDefault();
     if (!newPkgName.trim()) return;
-    setPackages([...packages, { name: newPkgName.trim(), version: newPkgVersion.trim() || 'latest', type: pkgType }]);
+    setPackages([...packages, { name: newPkgName.trim().toLowerCase(), version: newPkgVersion.trim() || 'latest', type: pkgType }]);
     setNewPkgName(''); setNewPkgVersion('');
   };
 
@@ -46,6 +47,27 @@ export default function EnvironmentManager({ onClose, onBuild }) {
     setPackages([...env.packages.system, ...env.packages.language]);
   };
 
+  // NEW: Deep Compare logic to find duplicates
+  const findDuplicateEnvironment = (newConfig) => {
+    return savedEnvs.find(saved => {
+      if (saved.base !== newConfig.base) return false;
+
+      const compareArrays = (arr1, arr2) => {
+        if (arr1.length !== arr2.length) return false;
+        // Sort alphabetically by package name to ensure order doesn't trigger a false negative
+        const sorted1 = [...arr1].sort((a, b) => a.name.localeCompare(b.name));
+        const sorted2 = [...arr2].sort((a, b) => a.name.localeCompare(b.name));
+        return sorted1.every((pkg, i) => pkg.name === sorted2[i].name && pkg.version === sorted2[i].version);
+      };
+
+      const sysMatch = compareArrays(saved.packages.system, newConfig.packages.system);
+      const langMatch = compareArrays(saved.packages.language, newConfig.packages.language);
+      
+      return sysMatch && langMatch;
+    });
+  };
+
+  // --- SAVE & BUILD ---
   const handleSaveAndBuild = async () => {
     if (!profileName.trim()) return alert("Please give this environment a name!");
 
@@ -58,18 +80,34 @@ export default function EnvironmentManager({ onClose, onBuild }) {
       }
     };
 
-    // Save to backend database
+    // NEW: Intercept duplicates
+    const duplicate = findDuplicateEnvironment(config);
+    // Only alert if the duplicate has a different name (meaning they aren't just re-saving/building an existing one)
+    if (duplicate && duplicate.name !== profileName) {
+      alert(`⚠️ Exact configuration already exists!\n\nYou already saved this exact setup as "${duplicate.name}".\nPlease load that profile or add/remove packages to create a new one.`);
+      return; 
+    }
+
     try {
-      await fetch('http://localhost:3001/api/environments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config)
-      });
-      onBuild(config); // Trigger the build process in App.jsx
+      // If it's a completely new environment, save it to the DB
+      if (!duplicate) {
+        await fetch('http://localhost:3001/api/environments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(config)
+        });
+      }
+      onBuild(config);
     } catch (err) {
-      alert("Failed to save to backend database.");
+      alert("Failed to connect to backend database.");
     }
   };
+
+  // NEW: Filter logic for the Search Bar
+  const filteredEnvs = savedEnvs.filter(env => 
+    env.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    env.base.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <div className="fixed inset-0 bg-black/60 flex justify-center items-center z-50">
@@ -77,18 +115,34 @@ export default function EnvironmentManager({ onClose, onBuild }) {
         
         {/* LEFT SIDEBAR: Saved Environments */}
         <div className="w-1/3 border-r border-vscode-border bg-vscode-bg flex flex-col rounded-l-lg">
-          <div className="px-4 py-3 border-b border-vscode-border font-bold text-white tracking-wide text-sm">
-            Saved Profiles
+          <div className="px-4 py-3 border-b border-vscode-border font-bold text-white tracking-wide text-sm flex justify-between items-center">
+            <span>Profiles</span>
           </div>
+          
+          {/* NEW: Search Bar */}
+          <div className="p-2 border-b border-vscode-border bg-vscode-sidebar">
+            <div className="flex items-center bg-vscode-bg border border-vscode-border rounded px-2 py-1">
+              <VscSearch className="text-gray-500 mr-2" size={14} />
+              <input 
+                placeholder="Search profiles..." 
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="bg-transparent text-white text-xs outline-none w-full"
+              />
+            </div>
+          </div>
+
           <div className="flex-1 overflow-y-auto p-2">
-            {isLoading ? <div className="text-gray-500 text-sm text-center mt-4">Loading...</div> : null}
-            {!isLoading && savedEnvs.length === 0 ? <div className="text-gray-500 text-xs text-center mt-4">No saved profiles yet.</div> : null}
+            {isLoading && <div className="text-gray-500 text-sm text-center mt-4">Loading...</div>}
+            {!isLoading && filteredEnvs.length === 0 && <div className="text-gray-500 text-xs text-center mt-4">No matching profiles.</div>}
             
-            {savedEnvs.map(env => (
+            {filteredEnvs.map(env => (
               <div 
                 key={env.id} 
                 onClick={() => loadSavedEnvironment(env)}
-                className="p-2 mb-1 rounded cursor-pointer border border-transparent hover:border-vscode-border hover:bg-vscode-sidebar transition-colors text-sm text-gray-300"
+                className={`p-2 mb-1 rounded cursor-pointer border transition-colors text-sm text-gray-300 ${
+                  profileName === env.name ? 'border-vscode-accent bg-vscode-sidebar' : 'border-transparent hover:border-vscode-border hover:bg-vscode-sidebar'
+                }`}
               >
                 <div className="font-bold text-white">{env.name}</div>
                 <div className="text-xs text-vscode-textDim truncate">{env.base}</div>

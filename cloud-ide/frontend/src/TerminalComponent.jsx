@@ -71,9 +71,22 @@ export default function TerminalComponent({ environment, files }) {
       window.addEventListener('run-terminal-code', handleRunFile);
       window.addEventListener('copy-terminal', handleCopy);
 
-      // --- Keystroke Listener ---
+      // TODO: fix this
+      // --- Keystroke & Input Listener ---
       const onDataDisposable = term.onData((data) => {
+        
+        // 🚨 REMOTE LINUX FIX: Bypass local buffer entirely! 
+        // This instantly fixes pasting, Ctrl+C (\x03), Ctrl+D (\x04), and clear (\r)
+        if (environment === 'remote-linux') {
+          if (workerRef.current?.postMessage) {
+            workerRef.current.postMessage({ type: 'RUN', payload: data });
+          }
+          return; // EXIT EARLY
+        }
+
+        // --- LOCAL WASM/WORKER LOGIC ---
         if (data === '\r') {
+          // Handle Enter
           term.writeln('');
           const cmd = currentCommand.current; 
           if (cmd.trim() !== '' || cmd === '') { 
@@ -84,23 +97,20 @@ export default function TerminalComponent({ environment, files }) {
             }
           }
           currentCommand.current = '';
+        } else if (data === '\x03') {
+          // Handle Ctrl+C locally
+          term.write('^C\r\n\x1b[1;32m>>> \x1b[0m');
+          currentCommand.current = '';
         } else if (data === '\x7f') {
+          // Handle Backspace
           if (currentCommand.current.length > 0) {
             currentCommand.current = currentCommand.current.slice(0, -1);
             term.write('\b \b');
           }
-        } else if (data.startsWith('\x1b')) {
-          if (environment === 'remote-linux' && workerRef.current?.postMessage) {
-              workerRef.current.postMessage({ type: 'RUN', payload: data });
-          }
-          return; 
         } else {
-          if (environment === 'remote-linux') {
-              workerRef.current?.postMessage({ type: 'RUN', payload: data });
-          } else {
-              currentCommand.current += data;
-              term.write(data);
-          }
+          // Standard typing
+          currentCommand.current += data;
+          term.write(data);
         }
       });
 
@@ -149,7 +159,7 @@ export default function TerminalComponent({ environment, files }) {
       if (syncFiles) workerRef.current.postMessage({ type: 'SYNC_FILES', payload: files });
     };
 
-    // The Router
+    // The Router for the REPLs
     if (environment === 'python-wasm') {
       connectWorker(PyWorker, 'Local WASM (Python)', true);
     } else if (environment === 'js-worker') {
@@ -165,8 +175,10 @@ export default function TerminalComponent({ environment, files }) {
         workerRef.current = null;
       }
 
-      // Connect to our new Node.js backend
-      const ws = new WebSocket('ws://localhost:3001');
+      // NEW: Pass the environment name in the URL so the backend knows what to build!
+      // TODO: In the next step, we will make this dynamic based on the user's selection.
+      const targetEnvName = encodeURIComponent("Default"); 
+      const ws = new WebSocket(`ws://localhost:3001?env=${targetEnvName}`);
       
       ws.onopen = () => {
         term.writeln('\r\n\x1b[1;32mConnected to isolated Ubuntu container.\x1b[0m');

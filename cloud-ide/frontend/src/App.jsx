@@ -20,7 +20,7 @@ export default function App() {
   const [activeFile, setActiveFile] = useState(null);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
   
-  const [terminalEnv, setTerminalEnv] = useState('python-wasm');
+  const [terminalEnv, setTerminalEnv] = useState('');
   const [commitMessage, setCommitMessage] = useState('');
   const [isCommitting, setIsCommitting] = useState(false);
 
@@ -193,10 +193,11 @@ export default function App() {
                 📋 Copy
               </button>
               <select value={terminalEnv} onChange={(e) => setTerminalEnv(e.target.value)} className="bg-vscode-border text-white border border-gray-600 rounded px-2 py-0.5 text-xs outline-none">
-                <option value="python-wasm">Local WASM (Python)</option>
-                <option value="ruby-wasm">Local WASM (Ruby)</option>
-                <option value="js-worker">Local Worker (JS)</option>
-                <option value="remote-linux">Remote Server (Linux Bash)</option>
+                  <option value="" disabled>Select Environment...</option>
+                  <option value="python-wasm">Local WASM (Python)</option>
+                  <option value="js-worker">Local Worker (JS)</option>
+                  <option value="remote-linux">Remote Server (Docker)</option>
+                  <option value="ruby-wasm">Local WASM (Ruby)</option>
               </select>
             </div>
           </div>

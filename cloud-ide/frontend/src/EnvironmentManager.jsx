@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { VscClose, VscAdd, VscTrash, VscSearch } from 'react-icons/vsc';
-import { getPackageIcon } from './utils/packageIcons';
+
+import { DynamicPackageIcon } from './utils/packageIcons';
+import { parsePackageString } from './utils/packageParser';
 
 export default function EnvironmentManager({ onClose, onBuild }) {
   // --- STATE ---
@@ -30,13 +32,19 @@ export default function EnvironmentManager({ onClose, onBuild }) {
   }, []);
 
   // --- HELPERS ---
-  const handleAddPackage = (e) => {
+ const handleAddPackage = (e) => {
     e.preventDefault();
     if (!newPkgName.trim()) return;
 
-    const name = newPkgName.trim().toLowerCase();
+    // 🚨 NEW: Run their input through our parser!
+    // If they typed "express@4.18.2", it splits it automatically.
+    const { name, version: parsedVersion } = parsePackageString(newPkgName);
+    
+    // If they manually typed a version in the separate Version box, prioritize that.
+    // Otherwise, use the version we magically parsed from their string.
+    const finalVersion = newPkgVersion.trim() || parsedVersion;
 
-    // 🚨 ECOSYSTEM VALIDATOR FIX
+    // --- ECOSYSTEM VALIDATOR ---
     if (pkgType === 'language') {
       const jsPackages = ['react', 'express', 'nodejs', 'nextjs', 'vue'];
       const pyPackages = ['pandas', 'numpy', 'tensorflow', 'flask', 'django'];
@@ -49,8 +57,9 @@ export default function EnvironmentManager({ onClose, onBuild }) {
       }
     }
 
-    setPackages([...packages, { name, version: newPkgVersion.trim() || 'latest', type: pkgType }]);
-    setNewPkgName(''); setNewPkgVersion('');
+    setPackages([...packages, { name, version: finalVersion, type: pkgType }]);
+    setNewPkgName(''); 
+    setNewPkgVersion('');
   };
 
   const removePackage = (indexToRemove) => {
@@ -212,7 +221,9 @@ export default function EnvironmentManager({ onClose, onBuild }) {
               {packages.map((pkg, idx) => (
                 <div key={idx} className="flex justify-between items-center bg-vscode-sidebar p-2 mb-1 rounded border border-vscode-border group">
                   <div className="flex items-center gap-3">
-                    <div className="text-lg">{getPackageIcon(pkg.name)}</div>
+                    <div className="flex items-center justify-center w-5 h-5">
+                        <DynamicPackageIcon name={pkg.name} size={18} />
+                    </div>
                     <div>
                       <span className="text-white font-mono text-sm">{pkg.name}</span>
                       {pkg.version !== 'latest' && <span className="text-xs text-gray-400 ml-2">v: {pkg.version}</span>}

@@ -1,17 +1,26 @@
-import React from 'react';
-import { SiPython, SiNodedotjs, SiReact, SiPandas, SiNumpy, SiTensorflow, SiDocker } from 'react-icons/si';
+import React, { useState } from 'react';
 import { VscPackage } from 'react-icons/vsc';
+import { parsePackageString } from './packageParser';
 
-// A simple mapper to give popular packages nice icons
-export const getPackageIcon = (name) => {
-  const lower = name.toLowerCase();
-  if (lower.includes('react')) return <SiReact color="#61dafb" />;
-  if (lower.includes('pandas')) return <SiPandas color="#150458" />;
-  if (lower.includes('numpy')) return <SiNumpy color="#013243" />;
-  if (lower.includes('tensor')) return <SiTensorflow color="#FF6F00" />;
-  if (lower.includes('node') || lower.includes('express')) return <SiNodedotjs color="#339933" />;
-  if (lower.includes('python')) return <SiPython color="#3776ab" />;
-  if (lower.includes('docker')) return <SiDocker color="#2496ed" />;
-  
-  return <VscPackage color="#cccccc" />; // Default box icon
+// 🚨 THE FIX: Changed 'rawString' back to 'name', with a safe default
+export const DynamicPackageIcon = ({ name = '', size = 20 }) => {
+  const [hasError, setHasError] = useState(false);
+
+  const { iconName } = parsePackageString(name);
+
+  // If there's an error, or the parser returned an empty string, show the default box
+  if (hasError || !iconName) {
+    return <VscPackage size={size} color="#cccccc" />;
+  }
+
+  return (
+    <img 
+      src={`https://cdn.simpleicons.org/${iconName}`} 
+      alt={`${iconName} icon`}
+      width={size}
+      height={size}
+      onError={() => setHasError(true)} 
+      style={{ display: 'inline-block' }}
+    />
+  );
 };

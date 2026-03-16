@@ -13,7 +13,7 @@ export const useTerminal = () => {
 
     const term = new Terminal({
       cursorBlink: true,
-      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      fontFamily: ' "JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
       fontSize: 14,
       theme: {
         background: '#1e1e1e',

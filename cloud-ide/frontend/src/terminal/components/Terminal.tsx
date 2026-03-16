@@ -1,101 +1,114 @@
 import React, { useEffect, useRef } from 'react';
 import { useTerminal } from '../hooks/useTerminal';
 import { InputManager } from '../core/InputManager';
+import { MiddlewarePipeline } from '../core/MiddlewarePipeline';
+import { WindowsClearFix } from '../core/middlewares/WindowsClearFix';
+import { DockerStream } from '../transport/DockerStream';
 
 export const TerminalComponent: React.FC = () => {
-
-    // returns to use the actual refined terminal object
   const { terminalRef, xterm } = useTerminal();
-
-  // this keeps an instance of the InputManager that survives re-renders
+  
+  // Persist our core logic managers across React renders
   const inputManagerRef = useRef(new InputManager());
-
+  const pipelineRef = useRef(new MiddlewarePipeline());
+  const transportRef = useRef<DockerStream | null>(null);
 
   useEffect(() => {
     if (!xterm) return;
 
     const inputManager = inputManagerRef.current;
-
-
-    // Print a welcome message using ANSI escape codes for colors
-    xterm.writeln('\x1b[1;32mCloud IDE Terminal Initialized\x1b[0m');
-    xterm.write('$ ');
-
- 
-    // TEMPORARY LOCAL ECHO: Just to prove the UI works before we attach the backend
+    const pipeline = pipelineRef.current;
     
-    // 1. handle normal typing and special characters
-    const onDataDisposable = xterm.onData((data) => {
-      // Right now, transport is null. When we build the Docker transport, we will pass it here.
-      inputManager.handleInput(data, null);
+    // Register our middlewares
+    pipeline.use(new WindowsClearFix());
+
+
+    // TODO: we can eitheruse docker or WASM
+    // DOCKER INIT
+    // 1. Initialize the WebSocket connection to your Node backend
+    const dockerStream = new DockerStream('ws://localhost:3001/');
+    transportRef.current = dockerStream;
+
+    dockerStream.connect().then(() => {
+      xterm.writeln('\x1b[1;32mConnected to Docker Backend\x1b[0m');
+      
+      // Tell the backend our starting terminal dimensions
+      dockerStream.resize(xterm.cols, xterm.rows);
+    }).catch(err => {
+      xterm.writeln('\x1b[1;31mFailed to connect to backend\x1b[0m');
     });
 
-    // 2. Listen for our custom signals
-    // Defines what to do on these signals
-    inputManager.onSignal('SIGINT', () => {
-        xterm.write('^C\r\n$ ');    // Simulate visual Cntrl+C behavior i.e write this to the terminal
-    });
 
-    inputManager.onSignal('EOF', () => {
-        xterm.write('^D\r\n$ ');    // Simulate visual Cntrl+D behavior i.e. write this to the terminal
-    })
-
-    // 3. Handle Copying: Automatically copy when text is selected
-    const onSelectionDisposable = xterm.onSelectionChange(() => {
-    const selection = xterm.getSelection();
-      if (selection) {
-        inputManager.handleCopy(selection);
+    // DOCKER STREAM
+    // 2. Data FROM Backend -> Middleware -> Screen
+    dockerStream.onData((rawData) => {
+      const sanitizedData = pipeline.processIncoming(rawData);
+      if (sanitizedData) {
+        xterm.write(sanitizedData);
       }
     });
 
-    // 4. Handle Pasting (Right-click or Ctrl+V/Cmd+V)
+    // 3. Data FROM Screen (Typing) -> InputManager -> Transport
+    const onDataDisposable = xterm.onData((data) => {
+      const sanitizedOutgoing = pipeline.processOutgoing(data);
+      // Pass the dockerStream to the InputManager so it can route the data
+      inputManager.handleInput(sanitizedOutgoing, dockerStream);
+    });
+
+
+
+    // DOCKER TERMINAL RESIZE
+    // 4. Handle Terminal Resizing (When the browser window shrinks/grows)
+    const onResizeDisposable = xterm.onResize(({ cols, rows }) => {
+      dockerStream.resize(cols, rows);
+    });
+
+
+
+
+    // SIGNAL HANDLERS
+    // 5. Connect InputManager OS Signals
+    inputManager.onSignal('SIGINT', () => {
+      // Instead of just printing ^C locally, we send the actual hex code to the backend
+      dockerStream.write('\x03'); 
+    });
+
+    inputManager.onSignal('EOF', () => {
+      dockerStream.write('\x04');
+    });
+
+
+    // HANDLE TERMINAL UTILS
+    // 6. Copy & Paste
+    const onSelectionDisposable = xterm.onSelectionChange(() => {
+      const selection = xterm.getSelection();
+      if (selection) inputManager.handleCopy(selection);
+    });
+
     const handleDOMPaste = async (e: ClipboardEvent) => {
       e.preventDefault();
       const pastedText = await inputManager.handlePaste();
       if (pastedText) {
-         // Pass pasted text as input
-         inputManager.handleInput(pastedText, null);
-         // Local echo for now just so you can see it:
-         xterm.write(pastedText); 
+         inputManager.handleInput(pastedText, dockerStream);
       }
     };
 
-    // Attach native paste event to the terminal DOM element
     const terminalElement = terminalRef.current;
     terminalElement?.addEventListener('paste', handleDOMPaste);
 
     return () => {
+      // Cleanup on unmount to prevent memory leaks and ghost connections
       onDataDisposable.dispose();
+      onResizeDisposable.dispose();
       onSelectionDisposable.dispose();
       terminalElement?.removeEventListener('paste', handleDOMPaste);
+      dockerStream.disconnect();
     };
-}, [xterm, terminalRef]);
-    // const disposable = xterm.onData((data) => {
-    //   // If the user presses Enter (carriage return)
-    //   if (data === '\r') {
-    //     xterm.write('\r\n$ ');
-    //   } 
-    //   // If the user presses Backspace
-    //   else if (data === '\x7f') {
-    //     xterm.write('\b \b');
-    //   } 
-    //   // Standard typing
-    //   else {
-    //     xterm.write(data);
-    //   }
-    // });
-
-//     return () => {
-//       disposable.dispose();
-//     };
-//   }, [xterm]);
+  }, [xterm, terminalRef]);
 
   return (
     <div style={{ width: '100%', height: '100%', padding: '10px', backgroundColor: '#1e1e1e' }}>
-      <div 
-        ref={terminalRef} 
-        style={{ width: '100%', height: '100%' }} 
-      />
+      <div ref={terminalRef} style={{ width: '100%', height: '100%' }} />
     </div>
   );
 };

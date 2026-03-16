@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { VscClose, VscAdd, VscTrash, VscSearch } from 'react-icons/vsc';
 
-import { DynamicPackageIcon } from './utils/packageIcons';
+
+import { DynamicPackageIcon, BaseImageIcon } from './utils/packageIcons';
 import { parsePackageString } from './utils/packageParser';
 
 export default function EnvironmentManager({ onClose, onBuild }) {
@@ -193,7 +194,13 @@ export default function EnvironmentManager({ onClose, onBuild }) {
                 <input placeholder="e.g. Node Backend" value={profileName} onChange={(e) => setProfileName(e.target.value)} className="w-full bg-vscode-bg border border-vscode-border text-white p-2 rounded outline-none focus:border-vscode-accent" />
               </div>
               <div className="flex-1">
-                <label className="block text-vscode-textDim mb-1 text-[10px] font-bold tracking-wider">BASE IMAGE</label>
+    
+                {/* Base Image Icons update */}
+                <div className="flex items-center gap-2 mb-1">
+                    <BaseImageIcon baseImage={baseImage} size={14} />
+                    <label className="text-vscode-textDim text-[10px] font-bold tracking-wider m-0">BASE IMAGE</label>
+                </div>
+
                 <select value={baseImage} onChange={(e) => setBaseImage(e.target.value)} className="w-full bg-vscode-bg border border-vscode-border text-white p-2 rounded outline-none focus:border-vscode-accent">
                   <option value="python:3.11">Python 3.11</option>
                   <option value="node:18">Node.js 18</option>
@@ -222,7 +229,13 @@ export default function EnvironmentManager({ onClose, onBuild }) {
                 <div key={idx} className="flex justify-between items-center bg-vscode-sidebar p-2 mb-1 rounded border border-vscode-border group">
                   <div className="flex items-center gap-3">
                     <div className="flex items-center justify-center w-5 h-5">
-                        <DynamicPackageIcon name={pkg.name} size={18} />
+                        {/* Now we render the language image for libraries that dont have logos */}
+                        <DynamicPackageIcon 
+                                name={pkg.name} 
+                                size={18} 
+                                type={pkg.type} 
+                                baseImage={baseImage} 
+                        />
                     </div>
                     <div>
                       <span className="text-white font-mono text-sm">{pkg.name}</span>

@@ -14,7 +14,8 @@
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "node-pty": "^1.1.0",
-    "ws": "^8.19.0"
+    "ws": "^8.19.0",
+    "@cloud-ide/shared": "*" 
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

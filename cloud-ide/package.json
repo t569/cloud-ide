@@ -1,0 +1,12 @@
+{
+  "name": "cloud-ide-workspace",
+  "private": true,
+  "workspaces": [
+    "ide-frontend",
+    "ide-backend",
+    "shared"
+  ],
+  "devDependencies": {
+    "@types/jest": "^30.0.0"
+  }
+}

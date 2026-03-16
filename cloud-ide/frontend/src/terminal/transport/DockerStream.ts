@@ -1,8 +1,11 @@
+// src/transport/DockerStream.ts
+
+// the stream that the middleware uses to send commands to the backend
 import { ITransportStream } from '../types/terminal';
 
 export class DockerStream implements ITransportStream {
-  private socket: WebSocket | null = null;
-  private url: string;
+  private socket: WebSocket | null = null;      // this is what sends the data payload to the backend
+  private url: string;                          // also sends this to the backend for access
   
   // Callbacks to pass data and errors back up to the terminal UI
   private onDataCallback?: (data: string) => void;

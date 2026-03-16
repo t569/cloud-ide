@@ -4,6 +4,7 @@
  * Handles communication to and from an execution environment 
  * (either Docker backend or local WASM REPL).
  */
+
 export interface ITransportStream {
   connect(): Promise<void>;
   disconnect(): void;

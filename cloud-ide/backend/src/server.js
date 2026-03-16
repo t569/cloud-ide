@@ -21,6 +21,8 @@ const server = app.listen(3001, () => {
 const wss = new WebSocketServer({ server });
 const wsManager = new WebSocketManager();
 
+
+// spin up the server, then give it to the manager to handle the rest
 wss.on('connection', (ws, req) => {
   wsManager.handleConnection(ws, req);
 });

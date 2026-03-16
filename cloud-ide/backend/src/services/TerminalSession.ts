@@ -22,7 +22,7 @@ export class TerminalSession {
 
     // runs all the call backs to handle that data
     // pty Process onData method automatically captures the data
-    
+    // if we have a callback defined (by our own onData method) then we call it on the data
     this.ptyProcess.onData((data: string) => {
       if (this.onDataCallback) {
         this.onDataCallback(data);

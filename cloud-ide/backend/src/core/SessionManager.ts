@@ -3,6 +3,9 @@ import { Session } from './Session';
 
 export class SessionManager {
   // The universal registry tracking active I/O streams in memory
+
+  // Ive looke through the logic and i currently see no conflicts with the map and the database functioning
+  // NOTE: always check this
   private sessions: Map<string, Session> = new Map();
 
   public createSession(sessionId: string): Session {

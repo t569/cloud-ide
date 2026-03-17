@@ -27,7 +27,12 @@ export class WebSocketManager{
       ws.close();
       return;
     }
-    
+
+    try{
+      // Workflow goes here
+    }catch (err: any) {
+      ws.send(`\r\n\x1b[1;31mInfrastructure Error: ${err.message}\x1b[0m\r\n`);
+    }
   }
 
   private async fetchConfigFromDB(envName: string): Promise<string> {

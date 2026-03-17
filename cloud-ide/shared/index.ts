@@ -1,12 +1,10 @@
-/*      shared/index.ts
-*   Barrel file for global imports to other parts
+/* shared/index.ts
+* Barrel file for global imports to other parts
 */
 
-// Export our data contracts
+// Export our data contracts (export * is fine for interfaces/types)
 export * from './types/builder';
 
-// Export our semantic analyzer
-export * from './utils/ConfigParser';
-
-// Export our compiler
-export * from './utils/DockerGenerator';
+// Explicitly export the classes so the compiler doesn't lose them
+export { ConfigParser } from './utils/ConfigParser';
+export { DockerGenerator } from './utils/DockerGenerator';

@@ -1,46 +1,56 @@
-
-/*
-        backend/src/core/Session.ts
-*/
+// backend/src/core/Session.ts
 import { WebSocket } from 'ws';
 import { Container } from './Container';
+import { IDisposable } from 'node-pty';
 
 export class Session {
-  public readonly sessionId: string;
   private container: Container | null = null;
   private activeSocket: WebSocket | null = null;
+  private dataListener: IDisposable | null = null; 
 
-  constructor(sessionId: string) {
-    this.sessionId = sessionId;
-  }
+  constructor(public readonly sessionId: string) {}
 
   /**
-   * Couples this session to a specific container [cite: 5]
+   * Links this I/O stream to a specific hardware execution thread.
    */
   public coupleContainer(container: Container): void {
     this.container = container;
   }
 
   /**
-   * Sets up the communication stream [cite: 6]
-   * If a stream already exists, this allows a new socket to "hijack" it 
+   * Routes the container's output to the connected WebSocket.
+   * Seamlessly handles stream hijacking if a previous socket was active.
    */
-
-  // this is useful in scheduling algorithms
-  public attachStream(ws: WebSocket, ptyProcess: any): void {
-    // If someone else is connected, disconnect them (Stream Hijacking)
+  public attachStream(ws: WebSocket): void {
+    // 1. Terminate the old socket if a new one is hijacking the stream
     if (this.activeSocket && this.activeSocket !== ws) {
       this.activeSocket.close();
     }
-    
     this.activeSocket = ws;
 
-    // Route PTY output to the new socket
-    ptyProcess.onData((data: string) => {
+    // 2. Prevent Memory Leaks: Destroy the old event listener
+    if (this.dataListener) {
+      this.dataListener.dispose();
+    }
+
+    const ptyProcess = this.container?.getPtyProcess();
+    if (!ptyProcess) return;
+
+    // 3. Attach the new listener and save the reference for future garbage collection
+    this.dataListener = ptyProcess.onData((data: string) => {
       if (this.activeSocket?.readyState === WebSocket.OPEN) {
         this.activeSocket.send(data);
       }
     });
+  }
+
+  /**
+   * Pipes frontend keystrokes down into the execution thread.
+   */
+  public write(data: string): void {
+    if (this.container) {
+      this.container.write(data);
+    }
   }
 
   public getContainer(): Container | null {

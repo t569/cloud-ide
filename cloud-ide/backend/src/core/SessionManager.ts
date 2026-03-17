@@ -1,15 +1,10 @@
-/*
-        backend/src/core/SessionManager.ts
-*/
+// backend/src/core/SessionManager.ts
 import { Session } from './Session';
 
 export class SessionManager {
-  // Our universal hashmap: sessionId -> Session instance [cite: 5]
+  // The universal registry tracking active I/O streams in memory
   private sessions: Map<string, Session> = new Map();
 
-  /**
-   * Creates a session and adds it to the hashmap [cite: 5]
-   */
   public createSession(sessionId: string): Session {
     const session = new Session(sessionId);
     this.sessions.set(sessionId, session);
@@ -21,7 +16,7 @@ export class SessionManager {
   }
 
   /**
-   * Executes the decouple and teardown logic based on the frontend message 
+   * Executes the teardown strategy when a WebSocket drops.
    */
   public handleDecouple(sessionId: string, strategy: 'DESTROY' | 'STOP' | 'LEAVE_RUNNING'): void {
     const session = this.sessions.get(sessionId);
@@ -32,22 +27,21 @@ export class SessionManager {
     if (container) {
       switch (strategy) {
         case 'DESTROY':
-          // Decouple and destroy container 
           container.destroy();
+          this.sessions.delete(sessionId); 
           break;
+          
         case 'STOP':
-          // Decouple and stop container 
-          // Stop the container from running but persist it in storage [cite: 4]
           container.stop();
+          this.sessions.delete(sessionId); 
           break;
+          
         case 'LEAVE_RUNNING':
-          // Decouple and leave running 
-          // We do nothing to the container here; it stays alive!
-          break;
+          // CRITICAL: We do NOT delete the session from the map here.
+          // The container remains alive, waiting for the user to hijack the stream again.
+          console.log(`[Registry] Session ${sessionId} suspended in memory.`);
+          break; 
       }
     }
-
-    // Invalidate session and remove from hashmap 
-    this.sessions.delete(sessionId);
   }
 }

@@ -1,50 +1,87 @@
-
-/*      backend/src/core/Container.ts
-*/
-
+// backend/src/core/Container.ts
 import { spawn } from 'node:child_process';
 import * as pty from 'node-pty';
 
 export class Container {
-  public containerId: string;
-  public isLive: boolean = false; // Tracks if the process is currently running [cite: 5]
+  public readonly containerId: string;
+  public isLive: boolean = false;
+  
+  // The raw OS-level terminal stream
+  private ptyProcess: pty.IPty | null = null;
 
-  constructor(private imageName: string, private envConfig: any) {
-    // Generates a unique Docker container name
-    this.containerId = `ide-exec-${Math.random().toString(36).substring(7)}`;
+  constructor(sessionId: string, private imageName: string) {
+    // Deterministic naming: Tightly couples the OS process to the User ID
+    this.containerId = `ide-exec-${sessionId}`;
   }
 
   /**
-   * Boots the container and attaches the pseudo-terminal.
+   * Cold Boot: Spawns a brand new container and physically mounts the file system.
    */
-  public run(mountPath: string): pty.IPty {
-    this.isLive = true; // Set live field to true [cite: 5]
+  public createAndRun(mountPath: string): pty.IPty {
+    this.isLive = true; 
     
-    // Notice the -v flag! This mounts our backend folder into the container's /workspace
-    return pty.spawn('docker', [
+    this.ptyProcess = pty.spawn('docker', [
       'run', '-it', 
       '--name', this.containerId,
-      '-v', `${mountPath}:/workspace`, 
+      '-v', `${mountPath}:/workspace`, // Physical volume mount
       '-w', '/workspace',
       this.imageName, 'bash'
     ], { name: 'xterm-256color', cols: 80, rows: 24 });
+
+    return this.ptyProcess;
   }
 
   /**
-   * Option B: Stop the container but persist its data [cite: 4]
+   * Warm Boot: Wakes up a sleeping container. 
+   * Docker inherently remembers the volume mount from the cold boot.
+   */
+  public wakeUp(): pty.IPty {
+    this.isLive = true;
+
+    // 'start -i' attaches our terminal directly to the waking process
+    this.ptyProcess = pty.spawn('docker', [
+      'start', '-i', this.containerId
+    ], { name: 'xterm-256color', cols: 80, rows: 24 });
+
+    return this.ptyProcess;
+  }
+
+  /**
+   * Pauses execution but preserves the hard drive state and volume mounts.
    */
   public stop(): void {
     if (this.isLive) {
+      this.killLocalProcess();
       spawn('docker', ['stop', this.containerId]);
       this.isLive = false;
     }
   }
 
   /**
-   * Option A: Destroy container entirely 
+   * Violently assassinates the container and wipes its ephemeral memory.
    */
   public destroy(): void {
+    this.killLocalProcess();
     spawn('docker', ['rm', '-f', this.containerId]);
     this.isLive = false;
+  }
+
+  /**
+   * Exposes the PTY process so the Session class can hijack the stream.
+   */
+  public getPtyProcess(): pty.IPty | null {
+    return this.ptyProcess;
+  }
+
+  public write(data: string): void {
+    if (this.ptyProcess) this.ptyProcess.write(data);
+  }
+
+  // Helper to prevent memory leaks by destroying the Node.js wrapper
+  private killLocalProcess(): void {
+    if (this.ptyProcess) {
+      this.ptyProcess.kill();
+      this.ptyProcess = null;
+    }
   }
 }

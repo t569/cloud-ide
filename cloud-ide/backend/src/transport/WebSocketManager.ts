@@ -1,4 +1,15 @@
 // backend/src/transport/WebSocketManager.ts
+/*
+      * The manager for all the requests that come from the frontend
+      * This is then queried to a backend session Manager 
+      * The session manager handles sessions and containers by coupling and decoupling
+      * synonymous to OS mounting and dismounting
+      *
+      * To find our api routes that we expose to the frontend,
+      * check backend/src/api/SessionRoutes.ts
+*/
+
+
 import { WebSocket, RawData } from 'ws';
 import { IncomingMessage } from 'http';
 

@@ -1,11 +1,10 @@
-const { createDefaultPreset } = require("ts-jest");
-
-const tsJestTransformCfg = createDefaultPreset().transform;
-
-/** @type {import("jest").Config} **/
+/** @type {import('ts-jest').JestConfigWithTsJest} */
 module.exports = {
-  testEnvironment: "node",
-  transform: {
-    ...tsJestTransformCfg,
+  preset: 'ts-jest',
+  testEnvironment: 'node',
+  // This is the testing version of our tsconfig.json 'paths' map!
+  moduleNameMapper: {
+    '^@cloud-ide/shared(.*)$': '<rootDir>/../shared/index.ts',
   },
+  clearMocks: true, // Crucial: wipes our fake Docker calls between tests
 };

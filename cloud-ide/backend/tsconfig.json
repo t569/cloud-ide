@@ -11,7 +11,7 @@
     "forceConsistentCasingInFileNames": true,
     
     // 1. Tells TS to load built-in OS modules (child_process, crypto, etc.)
-    "types": ["node"],
+    "types": ["node","jest"],
     
     // 2. The Monorepo Treasure Map (Fixes the @cloud-ide/shared errors)
     "baseUrl": ".",
@@ -19,6 +19,12 @@
       "@cloud-ide/shared": ["../shared/index.ts"],
       "@cloud-ide/shared/*": ["../shared/*"]
     }
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "dev": "ts-node -r tsconfig-paths/register src/server.ts", 
+    "test": "jest"
   },
   "include": ["src/**/*"]
 }

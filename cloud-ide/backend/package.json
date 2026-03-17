@@ -17,7 +17,7 @@
     "express": "^5.2.1",
     "node-pty": "^1.1.0",
     "ws": "^8.19.0",
-    "@cloud-ide/shared": "1.0.0"
+    "@cloud-ide/shared": "file:../shared"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

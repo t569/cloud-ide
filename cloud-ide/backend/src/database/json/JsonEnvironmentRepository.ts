@@ -11,7 +11,7 @@ export class JsonEnvironmentRepository implements IEnvironmentRepository {
     this.initDb();
   }
 
-  private async initDb(): Promise<void> {
+  public async initDb(): Promise<void> {
     try {
       await fs.access(this.filePath);
     } catch {

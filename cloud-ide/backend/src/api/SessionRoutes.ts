@@ -13,16 +13,21 @@ import { SessionManager } from '../core/SessionManager';
 
 export function createSessionRouter(sessionManager: SessionManager) {
   const router = Router();
+  // NOTE: all handleDecouple() calls:
+  // 1. Remove the session from the active session map
+  // 2. Change session state in the database
 
+  
   // POST /api/session/:id/stop
   router.post('/:id/stop', async (req, res) => {
     const { id } = req.params;
     
     // 1. Tell OS to halt the container
+    // database auto tracks with event listener daemon see src/core/SessionManager.ts and src/database/PersistenceLayer.ts
+    
+    // in this case it updates the database to say that the session is sleeping
     sessionManager.handleDecouple(id, 'STOP');
     
-    // 2. TODO: Tell DB to mark session as "sleeping"
-    // await db.updateSessionState(id, 'SLEEPING');
 
     res.json({ message: `Session ${id} successfully stopped.` });
   });
@@ -32,13 +37,15 @@ export function createSessionRouter(sessionManager: SessionManager) {
     const { id } = req.params;
     
     // 1. Tell OS to assassinate the container
+    // database auto tracks with event listener daemon see src/core/SessionManager.ts and src/database/PersistenceLayer.ts
+
+    // in this case it tells the database to delete the session
     sessionManager.handleDecouple(id, 'DESTROY');
     
     // 2. TODO: Tell WorkspaceManager to wipe the hard drive folder
     // await workspaceManager.deleteWorkspace(id);
     
-    // 3. TODO: Tell DB to permanently delete the session record
-    // await db.deleteSession(id);
+   
 
     res.json({ message: `Session ${id} destroyed and purged.` });
   });

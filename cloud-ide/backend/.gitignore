@@ -2,3 +2,4 @@ environments.json
 
 builds/
 src/core/__tests__/
+src/database/__tests__/

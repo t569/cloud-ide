@@ -9,8 +9,6 @@
       * check backend/src/api/SessionRoutes.ts
 */
 
-// TODO on: 91
-
 import { WebSocket, RawData } from 'ws';
 import { IncomingMessage } from 'http';
 
@@ -25,6 +23,10 @@ import { Container } from '../core/Container';
 // Import our database services
 import { IEnvironmentRepository } from 'src/database/IEnvironmentRepository';
 import { ISessionRepository } from 'src/database/ISessionRepository';
+
+// Import our github api
+import path from 'node:path';
+import { GitProvisioner } from 'src/workspace/GitProvisioner';
 
 import fs from 'node:fs/promises';
 
@@ -44,9 +46,17 @@ export class WebSocketManager{
     
     const sessionId = url.searchParams.get('sessionId');
     const envId = url.searchParams.get('env') || 'Default';
+    const repoUrl = url.searchParams.get('repo');
 
+
+    // null guards to handle if we dont pass a session or repo
     if (!sessionId) {
       ws.send('\r\n\x1b[1;31m[Fatal] Missing sessionId in connection request.\x1b[0m\r\n');
+      return ws.close();
+    }
+
+    if (!repoUrl) {
+      ws.send('\r\n\x1b[1;31m[Fatal] Missing GitHub repository URL.\x1b[0m\r\n');
       return ws.close();
     }
 
@@ -79,16 +89,24 @@ export class WebSocketManager{
         ws.send(`\r\n\x1b[1;34m[System]\x1b[0m Allocating new hardware thread for ${sessionId}...\r\n`);
 
         // 1. Pull real config from the database
+        
         const envRecord = await this.envRepo.get(envId);
         if (!envRecord) throw new Error(`Environment ${envId} not found in ROM.`);
 
+        // Generate a deterministic, isolated path on the host server
+        const mountPath = path.resolve(__dirname, `../../data/workspaces/${sessionId}`);
+
         // 2. Build via IaC
+        // Pull the physical code to the hard drive BEFORE booting Docker
+        await GitProvisioner.cloneRepository(repoUrl, mountPath);
+
+        // Iac main pipeline
         const dockerfileContent = DockerGenerator.generate(envRecord.config);
         const builder = new DockerBuilder(envId, dockerfileContent);
         const imageName = await builder.buildAndStreamLogs(ws);   // stream all the logs into our websocket
 
         // 3. Register & Boot
-        const mountPath = '/tmp/fake-github-repo'; // TODO: Update in Workspace Module
+
         session = this.sessionManager.createSession(sessionId, envId, mountPath);
         container = new Container(sessionId, imageName);
         session.coupleContainer(container);

@@ -43,7 +43,7 @@ export class WebSocketManager{
     const url = new URL(req.url || '', `http://localhost`);
     
     const sessionId = url.searchParams.get('sessionId');
-    const envName = url.searchParams.get('env') || 'Default';
+    const envId = url.searchParams.get('env') || 'Default';
 
     if (!sessionId) {
       ws.send('\r\n\x1b[1;31m[Fatal] Missing sessionId in connection request.\x1b[0m\r\n');
@@ -79,17 +79,17 @@ export class WebSocketManager{
         ws.send(`\r\n\x1b[1;34m[System]\x1b[0m Allocating new hardware thread for ${sessionId}...\r\n`);
 
         // 1. Pull real config from the database
-        const envRecord = await this.envRepo.get(envName);
-        if (!envRecord) throw new Error(`Environment ${envName} not found in ROM.`);
+        const envRecord = await this.envRepo.get(envId);
+        if (!envRecord) throw new Error(`Environment ${envId} not found in ROM.`);
 
         // 2. Build via IaC
         const dockerfileContent = DockerGenerator.generate(envRecord.config);
-        const builder = new DockerBuilder(envName, dockerfileContent);
+        const builder = new DockerBuilder(envId, dockerfileContent);
         const imageName = await builder.buildAndStreamLogs(ws);   // stream all the logs into our websocket
 
         // 3. Register & Boot
         const mountPath = '/tmp/fake-github-repo'; // TODO: Update in Workspace Module
-        session = this.sessionManager.createSession(sessionId, envName, mountPath);
+        session = this.sessionManager.createSession(sessionId, envId, mountPath);
         container = new Container(sessionId, imageName);
         session.coupleContainer(container);
         container.createAndRun(mountPath);

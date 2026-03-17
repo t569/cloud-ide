@@ -15,5 +15,18 @@ import { Container } from '../core/Container';
 export class WebSocketManager{
   constructor(private sessionManager: SessionManager) {}
 
-  public async handleConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {}
+  public async handleConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
+
+    // search for session id and environment and resolve changes
+    const url = new URL(req.url || '', `http://localhost`);
+    
+    const sessionId = url.searchParams.get('sessionId');
+    const envName = url.searchParams.get('env') || 'Default';
+
+    if (!sessionId) {
+      ws.send('\r\n\x1b[1;31m[Fatal] Missing sessionId in connection request.\x1b[0m\r\n');
+      ws.close();
+      return;
+    }
+  }
 }

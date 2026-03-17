@@ -9,6 +9,7 @@
       * check backend/src/api/SessionRoutes.ts
 */
 
+// TODO on: 91
 
 import { WebSocket, RawData } from 'ws';
 import { IncomingMessage } from 'http';
@@ -21,10 +22,20 @@ import { ConfigParser, DockerGenerator } from '@cloud-ide/shared';
 import { SessionManager } from '../core/SessionManager';
 import { Container } from '../core/Container';
 
+// Import our database services
+import { IEnvironmentRepository } from 'src/database/IEnvironmentRepository';
+import { ISessionRepository } from 'src/database/ISessionRepository';
+
+import fs from 'node:fs/promises';
+
 
 // this manages connection to our session objects
+// this also imports our database handlers and manages our connections to them
 export class WebSocketManager{
-  constructor(private sessionManager: SessionManager) {}
+  constructor(private sessionManager: SessionManager,
+              private envRepo: IEnvironmentRepository,
+              private sessionRepo: ISessionRepository
+  ) {}
 
   public async handleConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
 
@@ -36,8 +47,7 @@ export class WebSocketManager{
 
     if (!sessionId) {
       ws.send('\r\n\x1b[1;31m[Fatal] Missing sessionId in connection request.\x1b[0m\r\n');
-      ws.close();
-      return;
+      return ws.close();
     }
 
     try {
@@ -52,31 +62,38 @@ export class WebSocketManager{
           ws.send(`\r\n\x1b[1;32m[System]\x1b[0m Hijacking active execution thread for session ${sessionId}...\r\n`);
         } else {
           // SCENARIO B: WARM BOOT (Container is asleep, needs to be woken up)
+
+          // get session from database so we can tell it that we are waking the container up
+          const dbSession = await this.sessionRepo.get(sessionId);
+          await fs.access(dbSession!.mountPath);
+
+
           ws.send(`\r\n\x1b[1;33m[System]\x1b[0m Waking up suspended environment ${sessionId}...\r\n`);
           container.wakeUp();
+
+          // Let the daemon know it's awake
+          this.sessionManager.emit('session:status_changed', { sessionId, status: 'LIVE' });
         }
       } else {
         // SCENARIO C: COLD BOOT (Brand new environment)
         ws.send(`\r\n\x1b[1;34m[System]\x1b[0m Allocating new hardware thread for ${sessionId}...\r\n`);
 
-        // 1. Fetch & Compile the Infrastructure
-        const rawJsonConfig = await this.fetchConfigFromDB(envName);
-        const validatedConfig = ConfigParser.parseAndValidate(rawJsonConfig);
-        const dockerfileContent = DockerGenerator.generate(validatedConfig);
+        // 1. Pull real config from the database
+        const envRecord = await this.envRepo.get(envName);
+        if (!envRecord) throw new Error(`Environment ${envName} not found in ROM.`);
 
-        // 2. Build the Docker Image
+        // 2. Build via IaC
+        const dockerfileContent = DockerGenerator.generate(envRecord.config);
         const builder = new DockerBuilder(envName, dockerfileContent);
         const imageName = await builder.buildAndStreamLogs(ws);   // stream all the logs into our websocket
 
-        // 3. Register the Process & Allocate Hardware
-        session = this.sessionManager.createSession(sessionId);
+        // 3. Register & Boot
+        const mountPath = '/tmp/fake-github-repo'; // TODO: Update in Workspace Module
+        session = this.sessionManager.createSession(sessionId, envName, mountPath);
         container = new Container(sessionId, imageName);
         session.coupleContainer(container);
+        container.createAndRun(mountPath);
 
-        // 4. Boot the Container and Mount Filesystem 
-        // TODO: Replace this string in Step 2 when we build the Storage Module
-        const temporaryMountPath = '/tmp/fake-github-repo'; 
-        container.createAndRun(temporaryMountPath);
       }
 
       // Step 2: Route the I/O Stream
@@ -102,16 +119,4 @@ export class WebSocketManager{
     }
   }
 
-
-  /**
-   * STUB: This will eventually connect to your database to pull saved environments.
-   * Right now, it returns a hardcoded config to satisfy the ConfigParser.
-   */
-  private async fetchConfigFromDB(envName: string): Promise<string> {
-    return JSON.stringify({ 
-      baseImage: 'node:18-bullseye', 
-      system: ['curl', 'git'], 
-      languages: {} 
-    });
-  }
 }

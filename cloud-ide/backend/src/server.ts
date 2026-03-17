@@ -11,6 +11,7 @@ import { SessionManager } from './core/SessionManager';
 import { WebSocketManager } from './transport/WebSocketManager';
 import { createSessionRouter } from './api/SessionRoutes'; 
 import { createEnvironmentRouter } from './api/EnvironmentRoutes';
+import { createFileSystemRouter } from './api/FileSystemRoutes';
 
 // Import our database functionality
 import { JsonEnvironmentRepository } from './database/json/JsonEnvironmentRepository';
@@ -39,6 +40,7 @@ const persistenceLayer = new PersistenceLayer(sessionManager, sessionRepo);
 // We pass the sessionManager into the router so it can Stop/Destroy containers
 app.use('/api/session', createSessionRouter(sessionManager)); // the session manager is also passed here and we can do stuff with it
 app.use('/api/environment', createEnvironmentRouter(envRepo, sessionRepo)); // this helps with environments
+app.use('/api/fs', createFileSystemRouter(sessionRepo));    // this helps with changes to the file structure
 
 // 5. Mount Data Plane (WebSockets)
 const server = http.createServer(app);

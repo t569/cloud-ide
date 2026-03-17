@@ -1,6 +1,6 @@
 import * as pty from 'node-pty';
-import { spawn } from 'child_process';
-import { randomBytes } from 'crypto';
+import { spawn } from 'node:child_process'; // node prefix is so that the imports work
+import { randomBytes } from 'node:crypto';
 
 export class TerminalSession {
   private ptyProcess: pty.IPty;

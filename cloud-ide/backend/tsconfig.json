@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    
+    // 1. Tells TS to load built-in OS modules (child_process, crypto, etc.)
+    "types": ["node"],
+    
+    // 2. The Monorepo Treasure Map (Fixes the @cloud-ide/shared errors)
+    "baseUrl": ".",
+    "paths": {
+      "@cloud-ide/shared": ["../shared/index.ts"],
+      "@cloud-ide/shared/*": ["../shared/*"]
+    }
+  },
+  "include": ["src/**/*"]
+}

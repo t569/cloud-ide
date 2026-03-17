@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import { WebSocket } from 'ws';
 
+// TO MIGRATE
 export class DockerBuilder {
   private envName: string;
   private dockerfileContent: string;

@@ -2,6 +2,7 @@ import * as pty from 'node-pty';
 import { spawn } from 'node:child_process'; // node prefix is so that the imports work
 import { randomBytes } from 'node:crypto';
 
+// DEPRECIATED
 export class TerminalSession {
   private ptyProcess: pty.IPty;
   private containerName: string;

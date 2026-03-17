@@ -21,10 +21,33 @@ export function createEnvironmentRouter(envRepo: IEnvironmentRepository, session
   router.post('/', async (req, res) => {
     const newEnv: EnvironmentRecord = req.body;
     
-    // Add validation here later to ensure newEnv.config matches builder.ts
-    // turn newEnv.config to a raw string
-    // call parseAndValidate or return error that the json cannot be parsed and validated
-    newEnv.createdAt = Date.now();
+    try 
+    {
+      // Add validation here later to ensure newEnv.config matches builder.ts
+      
+      // turn newEnv.config to a raw string
+      const rawConfigString = JSON.stringify(newEnv.config);
+    
+      // call parseAndValidate or return error that the json cannot be parsed and validated
+      const validatedConfig = ConfigParser.parseAndValidate(rawConfigString);
+
+      // Overwrite the unvalidated config with our strictly parsed version
+      newEnv.config = validatedConfig;
+      newEnv.createdAt = Date.now();
+
+      // Safely write to ROM
+      await envRepo.save(newEnv);
+      
+      res.status(201).json({ message: 'Environment successfully created', environment: newEnv });
+
+    }catch (err: any) {
+      // Return error that the json cannot be parsed and validated
+      return res.status(400).json({ 
+        error: 'Invalid Environment Configuration', 
+        details: err.message 
+      });
+    }
+    
     
     await envRepo.save(newEnv);
     res.status(201).json({ message: 'Environment created', environment: newEnv });

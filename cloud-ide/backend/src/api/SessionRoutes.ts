@@ -17,7 +17,7 @@ export function createSessionRouter(sessionManager: SessionManager) {
   // 1. Remove the session from the active session map
   // 2. Change session state in the database
 
-  
+
   // POST /api/session/:id/stop
   router.post('/:id/stop', async (req, res) => {
     const { id } = req.params;
@@ -42,11 +42,6 @@ export function createSessionRouter(sessionManager: SessionManager) {
     // in this case it tells the database to delete the session
     sessionManager.handleDecouple(id, 'DESTROY');
     
-    // 2. TODO: Tell WorkspaceManager to wipe the hard drive folder
-    // await workspaceManager.deleteWorkspace(id);
-    
-   
-
     res.json({ message: `Session ${id} destroyed and purged.` });
   });
 

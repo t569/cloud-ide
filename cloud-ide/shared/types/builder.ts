@@ -36,8 +36,8 @@ export interface IDEEnvironmentConfig {
   baseImage: string; // e.g., 'node:18-bullseye'
   
   // OS-level tools installed via apt-get, apk, etc.
-  system: PackageDef[]; 
+  system?: PackageDef[]; 
   
   // Dynamic map of language stacks
-  languages: Record<string, LanguageSection>; 
+  languages?: Record<string, LanguageSection>; 
 }

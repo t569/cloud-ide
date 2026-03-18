@@ -46,6 +46,71 @@ export const VirtualFileSystem = {
   },
 
   /**
+   * Creates a new file and sends it to the backend
+   * @param {*} sessionId 
+   * @param {*} filePath 
+   * @returns 
+   */
+  createFile: async (sessionId, filePath) => {
+    const response = await fetch(`/api/fs/${sessionId}/file`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: filePath })
+    });
+    if (!response.ok) throw new Error((await response.json()).error);
+    return response.json();
+  },
+
+  /**
+   * Creates a new directory and sends it to the backend
+   * @param {*} sessionId 
+   * @param {*} dirPath 
+   * @returns 
+   */
+  createDirectory: async (sessionId, dirPath) => {
+    const response = await fetch(`/api/fs/${sessionId}/directory`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: dirPath })
+    });
+    if (!response.ok) throw new Error((await response.json()).error);
+    return response.json();
+  },
+
+  /**
+   * Rename a particular file or directory
+   * @param {*} sessionId 
+   * @param {*} oldPath 
+   * @param {*} newPath 
+   * @returns 
+   */
+  renameEntity: async (sessionId, oldPath, newPath) => {
+    const response = await fetch(`/api/fs/${sessionId}/rename`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldPath, newPath })
+    });
+    if (!response.ok) throw new Error((await response.json()).error);
+    return response.json();
+  },
+
+  /**
+   * Delete a file or directory
+   * @param {*} sessionId 
+   * @param {*} targetPath 
+   * @returns 
+   */
+  deleteEntity: async (sessionId, targetPath) => {
+    const query = new URLSearchParams({ path: targetPath }).toString();
+    const response = await fetch(`/api/fs/${sessionId}/entity?${query}`, {
+      method: 'DELETE'
+    });
+    if (!response.ok) throw new Error((await response.json()).error);
+    return response.json();
+  },
+
+
+  /**
    * Fetches the nested directory structure for the sidebar explorer.
    */
   getTree: async (sessionId) => {

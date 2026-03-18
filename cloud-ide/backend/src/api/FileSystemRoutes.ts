@@ -123,6 +123,79 @@ export function createFileSystemRouter(sessionRepo: ISessionRepository) {
   });
 
   // ==========================================
+  // POST: Create a new empty file
+  // ==========================================
+  router.post('/:sessionId/file', async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { path: filePath } = req.body;
+
+      if (!filePath) return res.status(400).json({ error: 'File path is required.' });
+
+      const session = await sessionRepo.get(sessionId);
+      if (!session) return res.status(404).json({ error: 'Session not found.' });
+
+      const secureFilePath = resolveSecurePath(session.mountPath, filePath);
+
+      // 'wx' flag: Open for writing, but fail if the path exists.
+      await fs.writeFile(secureFilePath, '', { flag: 'wx' });
+      res.status(201).json({ message: 'File created successfully.' });
+
+    } catch (err: any) {
+      if (err.code === 'EEXIST') return res.status(409).json({ error: 'File already exists.' });
+      res.status(403).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // POST: Create a new directory
+  // ==========================================
+  router.post('/:sessionId/directory', async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { path: dirPath } = req.body;
+
+      if (!dirPath) return res.status(400).json({ error: 'Directory path is required.' });
+
+      const session = await sessionRepo.get(sessionId);
+      if (!session) return res.status(404).json({ error: 'Session not found.' });
+
+      const secureDirPath = resolveSecurePath(session.mountPath, dirPath);
+
+      await fs.mkdir(secureDirPath, { recursive: true });
+      res.status(201).json({ message: 'Directory created successfully.' });
+
+    } catch (err: any) {
+      res.status(403).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
+  // PUT: Rename or Move a file/directory
+  // ==========================================
+  router.put('/:sessionId/rename', async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      const { oldPath, newPath } = req.body;
+
+      if (!oldPath || !newPath) return res.status(400).json({ error: 'Both oldPath and newPath are required.' });
+
+      const session = await sessionRepo.get(sessionId);
+      if (!session) return res.status(404).json({ error: 'Session not found.' });
+
+      // We must secure BOTH the origin and the destination paths
+      const secureOldPath = resolveSecurePath(session.mountPath, oldPath);
+      const secureNewPath = resolveSecurePath(session.mountPath, newPath);
+
+      await fs.rename(secureOldPath, secureNewPath);
+      res.json({ message: 'Renamed successfully.' });
+
+    } catch (err: any) {
+      res.status(403).json({ error: err.message });
+    }
+  });
+
+  // ==========================================
   // PUT: Save file content from the Monaco Editor
   // ==========================================
   router.put('/:sessionId/save', async (req, res) => {
@@ -154,5 +227,30 @@ export function createFileSystemRouter(sessionRepo: ISessionRepository) {
     }
   });
 
+  // ==========================================
+  // DELETE: Remove a file or directory
+  // ==========================================
+  router.delete('/:sessionId/entity', async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      // Using query params for DELETE requests is standard practice
+      const targetPath = req.query.path as string; 
+
+      if (!targetPath) return res.status(400).json({ error: 'Target path is required.' });
+
+      const session = await sessionRepo.get(sessionId);
+      if (!session) return res.status(404).json({ error: 'Session not found.' });
+
+      const secureTargetPath = resolveSecurePath(session.mountPath, targetPath);
+
+      // recursive: true handles non-empty folders. force: true ignores errors if it doesn't exist.
+      await fs.rm(secureTargetPath, { recursive: true, force: true });
+      res.json({ message: 'Deleted successfully.' });
+
+    } catch (err: any) {
+      res.status(403).json({ error: err.message });
+    }
+  });
+ 
   return router;
 }

@@ -42,7 +42,7 @@ export class WebSocketManager{
   public async handleConnection(ws: WebSocket, req: IncomingMessage): Promise<void> {
 
     // search for session id and environment and resolve changes
-    const url = new URL(req.url || '', `http://localhost`);
+    const url = new URL(req.url || '', `${req.headers.host}`);
     
     const sessionId = url.searchParams.get('sessionId');
     const envId = url.searchParams.get('env') || 'Default';
@@ -52,12 +52,12 @@ export class WebSocketManager{
     // null guards to handle if we dont pass a session or repo
     if (!sessionId) {
       ws.send('\r\n\x1b[1;31m[Fatal] Missing sessionId in connection request.\x1b[0m\r\n');
-      return ws.close();
+      return ws.close(1008, 'Missing session parameters');
     }
 
     if (!repoUrl) {
       ws.send('\r\n\x1b[1;31m[Fatal] Missing GitHub repository URL.\x1b[0m\r\n');
-      return ws.close();
+      return ws.close(1008, 'Missing session parameters');
     }
 
     try {

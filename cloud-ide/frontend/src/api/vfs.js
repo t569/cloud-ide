@@ -4,14 +4,14 @@
 * frontend api endpoints for CRUD operations on the virtual file system in the backend
 * this file defines all the various endpoints for CRUD operations on a file/directory, mounted on our backend virtaul file system
 */
-
+import { API_BASE_URL } from "../config/env";
 
 export const VirtualFileSystem = {
   /**
    * Pushes the file content to the OS physical hard drive.
    */
   saveFile: async (sessionId, filePath, content) => {
-    const response = await fetch(`/api/fs/${sessionId}/save`, {
+    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/save`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: filePath, content })
@@ -32,7 +32,7 @@ export const VirtualFileSystem = {
     // Safely encode the path as a query parameter
     const query = new URLSearchParams({ path: filePath }).toString();
     
-    const response = await fetch(`/api/fs/${sessionId}/file?${query}`, {
+    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/file?${query}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });
@@ -52,7 +52,7 @@ export const VirtualFileSystem = {
    * @returns 
    */
   createFile: async (sessionId, filePath) => {
-    const response = await fetch(`/api/fs/${sessionId}/file`, {
+    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/file`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: filePath })
@@ -68,7 +68,7 @@ export const VirtualFileSystem = {
    * @returns 
    */
   createDirectory: async (sessionId, dirPath) => {
-    const response = await fetch(`/api/fs/${sessionId}/directory`, {
+    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/directory`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: dirPath })
@@ -85,7 +85,7 @@ export const VirtualFileSystem = {
    * @returns 
    */
   renameEntity: async (sessionId, oldPath, newPath) => {
-    const response = await fetch(`/api/fs/${sessionId}/rename`, {
+    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/rename`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ oldPath, newPath })
@@ -102,7 +102,7 @@ export const VirtualFileSystem = {
    */
   deleteEntity: async (sessionId, targetPath) => {
     const query = new URLSearchParams({ path: targetPath }).toString();
-    const response = await fetch(`/api/fs/${sessionId}/entity?${query}`, {
+    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/entity?${query}`, {
       method: 'DELETE'
     });
     if (!response.ok) throw new Error((await response.json()).error);
@@ -114,7 +114,7 @@ export const VirtualFileSystem = {
    * Fetches the nested directory structure for the sidebar explorer.
    */
   getTree: async (sessionId) => {
-    const response = await fetch(`/api/fs/${sessionId}/tree`, {
+    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/tree`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' }
     });

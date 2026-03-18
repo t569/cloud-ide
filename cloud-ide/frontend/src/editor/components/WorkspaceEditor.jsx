@@ -5,6 +5,7 @@ import Editor from '@monaco-editor/react';
 import { getLanguageFromExtension } from '../utils/editorUtils';
 import { VirtualFileSystem } from '../api/vfs';
 
+// TODO: can we handle copy and paste?
 export default function WorkspaceEditor({ sessionId, file, onFileStateChange }) {
   const editorRef = useRef(null);
   const [isSaving, setIsSaving] = useState(false);

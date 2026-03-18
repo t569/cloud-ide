@@ -6,6 +6,8 @@ import { getLanguageFromExtension } from '../utils/editorUtils';
 import { VirtualFileSystem } from '../api/vfs';
 
 // TODO: can we handle copy and paste?
+// TODO:we will build a vfs local cache before sending it to our backend api and syncing
+
 export default function WorkspaceEditor({ sessionId, file, onFileStateChange }) {
   const editorRef = useRef(null);
   const [isSaving, setIsSaving] = useState(false);

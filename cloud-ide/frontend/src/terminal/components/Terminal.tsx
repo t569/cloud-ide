@@ -9,15 +9,30 @@ import { useTerminal } from '../hooks/useTerminal';
 import { InputManager } from '../core/InputManager';
 import { MiddlewarePipeline } from '../core/MiddlewarePipeline';
 import { WindowsClearFix } from '../core/middlewares/WindowsClearFix';
-import { DockerStream } from '../transport/DockerStream';
 
-export const TerminalComponent: React.FC = () => {
+import { SessionStream } from '../transport/SessionStream'; 
+
+// define terminal props that we send to the backend
+// this includes: sessionId, envId, repoUrl
+interface TerminalProps {
+  sessionId: string;
+  envId: string;
+  repoUrl: string;    //i think this is for the backend to pull
+}
+
+// we pass these props into our component
+export const TerminalComponent: React.FC<TerminalProps> = ({
+  sessionId,
+  envId,
+  repoUrl
+}) => {
+
   const { terminalRef, xterm } = useTerminal();
   
   // Persist our core logic managers across React renders
   const inputManagerRef = useRef(new InputManager());
   const pipelineRef = useRef(new MiddlewarePipeline());
-  const transportRef = useRef<DockerStream | null>(null);
+  const transportRef = useRef<SessionStream | null>(null);
 
   useEffect(() => {
     if (!xterm) return;
@@ -28,67 +43,66 @@ export const TerminalComponent: React.FC = () => {
     // Register our middlewares
     pipeline.use(new WindowsClearFix());
 
+    // 1. Initialise the SessionStream with our props and not hardcoded strings
+    const sessionStream = new SessionStream(sessionId, envId, repoUrl);
+    transportRef.current = sessionStream;
 
-    // TODO: we can eitheruse docker or WASM
 
-    // TODO: rewrite to have SessionStream for a particular session id not dockerstream
-    // Docker stream is depreciated
-    // DOCKER INIT
-    // 1. Initialize the WebSocket connection to your Node backend
-    const dockerStream = new DockerStream('ws://localhost:3001/');
-    transportRef.current = dockerStream;
+    // 2. Make the connection to the backend session based on the ino we just passed
+    sessionStream.connect().then(() => {
+       xterm.writeln('\x1b[1;32m[+] Connected to OS Session\x1b[0m');   // TODO: we can give better messages later
 
-    dockerStream.connect().then(() => {
-      xterm.writeln('\x1b[1;32mConnected to Docker Backend\x1b[0m');
-      
-      // Tell the backend our starting terminal dimensions
-      dockerStream.resize(xterm.cols, xterm.rows);
+       // Tell the backend our starting terminal dimensions inside the success block
+       sessionStream.resize(xterm.cols, xterm.rows);
     }).catch(err => {
-      xterm.writeln('\x1b[1;31mFailed to connect to backend\x1b[0m');
+       xterm.writeln('\x1b[1;31m[-] Failed to connect to backend\x1b[0m');
     });
+     
 
 
-    // DOCKER STREAM
-    // 2. Data FROM Backend -> Middleware -> Screen
-    dockerStream.onData((rawData) => {
+    // 3. Data Pipeline: FROM Backend (Transport response) -> Middleware -> Screen
+    sessionStream.onData((rawData) =>{
       const sanitizedData = pipeline.processIncoming(rawData);
-      if (sanitizedData) {
+
+      // we get something back
+      if(sanitizedData)
+      {
         xterm.write(sanitizedData);
       }
     });
 
-    // 3. Data FROM Screen (Typing) -> InputManager -> Transport
+
+
+    // 4. Data Pipeline: FROM Screen (Typing) -> Middleware -> Transport
     const onDataDisposable = xterm.onData((data) => {
+
+      // sanitise the data first (work on it with all our middlewares)
       const sanitizedOutgoing = pipeline.processOutgoing(data);
-      // Pass the dockerStream to the InputManager so it can route the data
-      inputManager.handleInput(sanitizedOutgoing, dockerStream);
+
+      // Pass the sessionStream to the InputManager so it can route the data
+      inputManager.handleInput(sanitizedOutgoing, sessionStream);
     });
 
 
 
-    // DOCKER TERMINAL RESIZE
-    // 4. Handle Terminal Resizing (When the browser window shrinks/grows)
-    const onResizeDisposable = xterm.onResize(({ cols, rows }) => {
-      dockerStream.resize(cols, rows);
+    // 5. Handle terminal resizing (when our browser window shrinks or grows)
+    const onResizeDisposable= xterm.onResize(({cols, rows}) => {
+      sessionStream.resize(cols, rows);
     });
 
 
-
-
-    // SIGNAL HANDLERS
-    // 5. Connect InputManager OS Signals
-    inputManager.onSignal('SIGINT', () => {
-      // Instead of just printing ^C locally, we send the actual hex code to the backend
-      dockerStream.write('\x03'); 
+    // 6. Register our input manager OS Signals
+    inputManager.onSignal('SIGINT', () =>
+    {
+      // simply send the hex code for Cntrl+C to the backend
+      sessionStream.write('\x03');
     });
-
     inputManager.onSignal('EOF', () => {
-      dockerStream.write('\x04');
+      // Send the actual Ctrl+D hex code to the backend
+      sessionStream.write('\x04');
     });
 
-
-    // HANDLE TERMINAL UTILS
-    // 6. Copy & Paste
+    // 7. Copy & Paste
     const onSelectionDisposable = xterm.onSelectionChange(() => {
       const selection = xterm.getSelection();
       if (selection) inputManager.handleCopy(selection);
@@ -98,12 +112,13 @@ export const TerminalComponent: React.FC = () => {
       e.preventDefault();
       const pastedText = await inputManager.handlePaste();
       if (pastedText) {
-         inputManager.handleInput(pastedText, dockerStream);
+         inputManager.handleInput(pastedText, sessionStream);
       }
     };
 
     const terminalElement = terminalRef.current;
     terminalElement?.addEventListener('paste', handleDOMPaste);
+
 
     return () => {
       // Cleanup on unmount to prevent memory leaks and ghost connections
@@ -111,9 +126,14 @@ export const TerminalComponent: React.FC = () => {
       onResizeDisposable.dispose();
       onSelectionDisposable.dispose();
       terminalElement?.removeEventListener('paste', handleDOMPaste);
-      dockerStream.disconnect();
+      
+
+      // safely disonnect the correct stream
+      if(transportRef.current){
+        transportRef.current.disconnect();
+      }
     };
-  }, [xterm, terminalRef]);
+  }, [xterm, terminalRef, sessionId, envId, repoUrl]);
 
   return (
     <div style={{ width: '100%', height: '100%', padding: '10px', backgroundColor: '#1e1e1e' }}>

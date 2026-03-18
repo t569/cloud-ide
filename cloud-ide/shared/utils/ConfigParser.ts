@@ -42,9 +42,9 @@ export class ConfigParser {
    * Useful for global security sweeps.
    */
   private static getAllPackages(config: IDEEnvironmentConfig): PackageDef[] {
-    const packages: PackageDef[] = [...config.system];
+    const packages: PackageDef[] = [...config.system || []];
     
-    for (const lang of Object.values(config.languages)) {
+    for (const lang of Object.values(config.languages || {})) {
       packages.push(...lang.hybridGlobalLibraries);
       for (const venv of lang.virtualEnvironments) {
         packages.push(...(venv.libraries || []));
@@ -57,7 +57,7 @@ export class ConfigParser {
    * Extracts all virtual environment definitions across all languages.
    */
   private static getAllVirtualEnvs(config: IDEEnvironmentConfig): VirtualEnvDef[] {
-    return Object.values(config.languages).flatMap(lang => lang.virtualEnvironments);
+    return Object.values(config.languages || {}).flatMap(lang => lang.virtualEnvironments);
   }
 
   // --- RULE IMPLEMENTATIONS ---
@@ -91,7 +91,7 @@ export class ConfigParser {
 
     const forbiddenSystemPackages = knownAliases[baseName] || [baseName];
     // if we have a package in system already installed in our base image, throw an error
-    for (const pkg of config.system) {
+    for (const pkg of config.system || []) {
       if (forbiddenSystemPackages.includes(pkg.name.toLowerCase())) {
         throw new Error(
           `Conflict: The base image '${config.baseImage}' inherently provides '${baseName}'. ` +
@@ -101,7 +101,7 @@ export class ConfigParser {
     }
 
     // 2. The Venv Version Redundancy Rule: if we try to install a version and language in our venv defined in global, throw an error
-    for (const [langKey, langSection] of Object.entries(config.languages)) {
+    for (const [langKey, langSection] of Object.entries(config.languages || {})) {
       if (langKey.toLowerCase() === baseName) {
         for (const venv of langSection.virtualEnvironments) {
           if (venv.version && baseTag && baseTag.startsWith(venv.version)) {

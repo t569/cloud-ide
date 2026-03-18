@@ -12,7 +12,8 @@ export class DockerGenerator {
    * Translates a validated IDEEnvironmentConfig into a raw Dockerfile string.
    * This breaks our JSON into the respective commands
    */
-  public static generate(config: IDEEnvironmentConfig): string {
+  public static wegenerate(config: IDEEnvironmentConfig): string {
+    
     let df = `FROM ${config.baseImage}\n\n`;
     
     // 1. Core OS Configuration
@@ -20,14 +21,18 @@ export class DockerGenerator {
     df += `ENV DEBIAN_FRONTEND=noninteractive\n`;   // this prevents the build from hanging if a system package prompts the user for a timezone or keyboard layout.
     df += `ENV TERM=xterm-256color\n\n`; // Ensures colors work immediately in the terminal
 
+    // THE FIX: Extract safely before passing to the helpers
+    const safeSystemPackages = config.system || [];
+    const safeLanguagesPackages = config.languages || {};
+
     // 2. System Packages
-    df += this.buildSystemPackages(config.system);
+    df += this.buildSystemPackages(safeSystemPackages);
 
     // 3. Global Language Tools (The Hybrids)
-    df += this.buildHybridGlobals(config.languages);
+    df += this.buildHybridGlobals(safeLanguagesPackages);
 
     // 4. Localized Workspaces (Virtual Environments)
-    df += this.buildVirtualEnvironments(config.languages);
+    df += this.buildVirtualEnvironments(safeLanguagesPackages);
 
     // 5. Default Entrypoint
     df += `\n# --- ENTRYPOINT ---\n`;

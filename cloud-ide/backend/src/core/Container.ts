@@ -77,6 +77,21 @@ export class Container {
     if (this.ptyProcess) this.ptyProcess.write(data);
   }
 
+  /**
+   * Resizes the pseudo-terminal (PTY) matrix to match the frontend UI.
+   */
+  public resize(cols: number, rows: number): void {
+    // Ensure the PTY process is actually running before trying to resize it
+    if (this.ptyProcess) {
+      try {
+        // node-pty has a built-in resize method!
+        this.ptyProcess.resize(cols, rows);
+      } catch (err: any) {
+        console.error(`\x1b[31m[Container ${this.containerId}]\x1b[0m Failed to resize PTY: ${err.message}`);
+      }
+    }
+  }
+
   // Helper to prevent memory leaks by destroying the Node.js wrapper
   private killLocalProcess(): void {
     if (this.ptyProcess) {

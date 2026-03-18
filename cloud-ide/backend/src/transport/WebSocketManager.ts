@@ -121,7 +121,28 @@ export class WebSocketManager{
 
       // Step 3: Pipe Data Plane (Frontend -> Docker)
       ws.on('message', (msg: RawData) => {
-        session!.write(msg.toString()); 
+        try{
+          const rawString = msg.toString();
+        
+          // 1. Parse the incoming JSON from SessionStream
+          const parsed = JSON.parse(rawString);
+
+          // 2. Route the command based on its 'type'
+          if (parsed.type === 'data') {
+            // Route typing directly to the bash terminal
+            session!.write(parsed.payload);
+          } 
+          else if (parsed.type === 'resize') {
+            // Route terminal dimensions to the node-pty instance
+            session!.resize(parsed.cols, parsed.rows);
+            console.log(`\x1b[36m[PTY]\x1b[0m Session ${sessionId} resized to ${parsed.cols}x${parsed.rows}`);
+          }
+        }catch(err)
+        {
+          // Fallback: If it's not valid JSON (e.g., someone connecting via a raw tool),
+          // we assume it's raw text and try to write it anyway to prevent a crash.
+          session!.write(msg.toString());
+        }
       });
 
       // Step 4: Handle Disconnects gracefully, not session ends

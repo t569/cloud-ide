@@ -52,6 +52,16 @@ export class Session {
       this.container.write(data);
     }
   }
+  /**
+   * Forwards the terminal dimensions to the attached Docker container.
+   */
+  public resize(cols: number, rows: number): void {
+    if (this.container) {
+      this.container.resize(cols, rows);
+    } else {
+      console.warn(`[Session ${this.sessionId}] Cannot resize: No container attached.`);
+    }
+  }
 
   public getContainer(): Container | null {
     return this.container;

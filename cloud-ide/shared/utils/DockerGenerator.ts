@@ -12,7 +12,7 @@ export class DockerGenerator {
    * Translates a validated IDEEnvironmentConfig into a raw Dockerfile string.
    * This breaks our JSON into the respective commands
    */
-  public static wegenerate(config: IDEEnvironmentConfig): string {
+  public static generate(config: IDEEnvironmentConfig): string {
     
     let df = `FROM ${config.baseImage}\n\n`;
     

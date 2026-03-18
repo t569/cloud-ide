@@ -37,5 +37,23 @@ export const VirtualFileSystem = {
     }
 
     return response.json(); // Returns { content: "raw string data..." }
+  },
+
+  /**
+   * Fetches the nested directory structure for the sidebar explorer.
+   */
+  getTree: async (sessionId) => {
+    const response = await fetch(`/api/fs/${sessionId}/tree`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to fetch directory tree');
+    }
+
+    const data = await response.json();
+    return data.tree; // Returns an array of nested file/folder objects
   }
 };

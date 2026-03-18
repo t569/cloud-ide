@@ -2,8 +2,8 @@
   "name": "cloud-ide-workspace",
   "private": true,
   "workspaces": [
-    "ide-frontend",
-    "ide-backend",
+    "frontend",
+    "backend",
     "shared"
   ],
   "devDependencies": {

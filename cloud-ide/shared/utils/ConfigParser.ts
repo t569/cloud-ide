@@ -18,6 +18,11 @@ export class ConfigParser {
       throw new Error("Invalid JSON format.");
     }
 
+    // THE PATCH: Prevent fatal Node.js crash if baseImage is completely omitted
+    if (!config || !config.baseImage || typeof config.baseImage !== 'string') {
+      throw new Error("Configuration Error: 'baseImage' is required and must be a string.");
+    }
+
     // Safely initialize missing arrays/objects to prevent null pointer errors
     config.system = config.system || [];
     config.languages = config.languages || {};

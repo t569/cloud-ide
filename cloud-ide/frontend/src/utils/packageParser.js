@@ -1,3 +1,8 @@
+// frontend/src/utils/packageParser.js
+
+// this file is used to resolve a library name (based on the language) to library name and version number seperately
+// for example node@1.2.0 will become {'node','1.2.0'} and sympy==1.2.0 will become {'sympy','1.2.0'}
+ 
 export const parsePackageString = (rawInput = '') => {
   // 🚨 BULLETPROOF FIX: If undefined or null is passed, exit safely
   if (!rawInput) {

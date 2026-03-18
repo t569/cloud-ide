@@ -1,3 +1,9 @@
+// frontend/rc/terminal/core/middlewares/WindowsClearFix.ts
+
+// this is a middleware to resolve the 24 lines added when we run the clear command on a linux container in docker, running on windows
+// for more information about what middleware are see core/MiddlearePipeline.ts
+
+
 import { IMiddleware } from '../MiddlewarePipeline';
 
 export class WindowsClearFix implements IMiddleware {

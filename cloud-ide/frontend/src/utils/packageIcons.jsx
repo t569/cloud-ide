@@ -1,3 +1,7 @@
+// frontend/src/utils/packageIcons.jsx
+
+/* this file is used to resolve icons for packages: system packages and language libraries/packages */
+
 import React, { useState } from 'react';
 import { VscPackage } from 'react-icons/vsc';
 import { SiPython, SiNodedotjs, SiRust, SiUbuntu } from 'react-icons/si';

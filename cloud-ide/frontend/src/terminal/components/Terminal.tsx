@@ -1,3 +1,9 @@
+// frontend/src/terminal/components/Terminal.tsx
+
+// this is the final terminal component encapsulating the hook from src/terminal/hooks/useTerminal.ts
+
+// TODO: line 30 down
+
 import React, { useEffect, useRef } from 'react';
 import { useTerminal } from '../hooks/useTerminal';
 import { InputManager } from '../core/InputManager';
@@ -24,6 +30,9 @@ export const TerminalComponent: React.FC = () => {
 
 
     // TODO: we can eitheruse docker or WASM
+
+    // TODO: rewrite to have SessionStream for a particular session id not dockerstream
+    // Docker stream is depreciated
     // DOCKER INIT
     // 1. Initialize the WebSocket connection to your Node backend
     const dockerStream = new DockerStream('ws://localhost:3001/');

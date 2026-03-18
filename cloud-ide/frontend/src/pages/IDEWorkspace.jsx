@@ -1,4 +1,8 @@
 // frontend/src/pages/IDEWorkspace.jsx
+
+/*
+* This file defines the page that renders our WorkspaceEditor component, (TODO) terminal component and sidebar component
+*/
 import React, { useState } from 'react';
 import { VirtualFileSystem } from '../api/vfs';
 import WorkspaceEditor from '../components/WorkspaceEditor';

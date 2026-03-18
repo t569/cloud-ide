@@ -1,3 +1,11 @@
+// frontend/src/terminal/MiddlewarePipeline.ts
+
+/* this file defines the interface for creating middleware
+*  a middleware is basically a service that is run on input before it is sent to a backend stream 
+* or a service that is run on output given from the backend stream
+* for more info about our backend stream please check ./terminal/transport
+*/ 
+
 export interface IMiddleware {
     name: string;
 

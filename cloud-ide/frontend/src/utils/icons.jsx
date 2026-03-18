@@ -1,3 +1,7 @@
+// frontend/src/utils/icons.jsx
+
+/* this file is to resolve the icon for a particular file extension */
+
 import React from 'react';
 import { 
   SiJavascript, SiPython, SiHtml5, SiReact, SiRust, 

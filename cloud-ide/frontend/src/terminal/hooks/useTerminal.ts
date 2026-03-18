@@ -1,3 +1,9 @@
+// frontend/src/terminal/hooks/useTerminal.ts
+
+/* this file defines the core xterm.js terminal that has been wrapped in logic and is injected to our terminal object
+*  see src/terminal/components/Terminal.tsx
+*/
+
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';

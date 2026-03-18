@@ -1,5 +1,11 @@
 // frontend/src/api/vfs.js
 
+/*
+* frontend api endpoints for CRUD operations on the virtual file system in the backend
+* this file defines all the various endpoints for CRUD operations on a file/directory, mounted on our backend virtaul file system
+*/
+
+
 export const VirtualFileSystem = {
   /**
    * Pushes the file content to the OS physical hard drive.

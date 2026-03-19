@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "ts-node src/server.ts",
-    "test": "jest"
+    "test": "jest",
+    "start:engine": "node ../opensandbox/boot-engine.js"
   },
   "keywords": [],
   "author": "",

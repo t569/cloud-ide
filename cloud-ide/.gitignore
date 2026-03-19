@@ -7,3 +7,4 @@ node_modules/
 # Ignore Vite build caches
 dist/
 .vite/
+opensandbox/sandbox-env/

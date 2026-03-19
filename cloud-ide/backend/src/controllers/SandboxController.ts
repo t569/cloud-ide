@@ -9,6 +9,10 @@ import { ISessionRepository } from '../database/interfaces/ISessionRepository';
 // env config 
 import { config } from '../config/env';
 
+// volume mounts for our session
+import { WorkspaceProvisioner, GitStrategy, LocalBindStrategy } from '../services/WorkspaceProvisioner';
+
+// TODO: we need to write a way to clone or repo
 export class SandboxController {
   private openSandboxApiUrl: string;
 
@@ -18,7 +22,6 @@ export class SandboxController {
     private sessionRepo: ISessionRepository
   ) {
     // This points to where you are running the OpenSandbox FastAPI Server
-    // TODO: We need to test it
     this.openSandboxApiUrl = config.OPENSANDBOX_API_URL || 'http://localhost:8080';
   }
 
@@ -26,8 +29,9 @@ export class SandboxController {
    * POST /api/sessions/start
    * Body: { sessionId: string, envId: string, repoUrl: string }
    */
-  public startSession = async (req: Request, res: Response): Promise<void> => {
-    const { sessionId, envId, repoUrl } = req.body;
+ public startSession = async (req: Request, res: Response): Promise<void> => {
+  // repoUrl and localPath are optional
+    const { sessionId, envId, repoUrl, localPath } = req.body;
 
     if (!sessionId || !envId) {
       res.status(400).json({ error: 'Missing required fields: sessionId or envId' });
@@ -42,20 +46,37 @@ export class SandboxController {
         return;
       }
 
-      // 2. CHECK EXISTING SESSION: See if this user already has a paused sandbox
+      // 2. INITIALIZE THE CORRECT PROVISIONING STRATEGY
+      let provisioner: WorkspaceProvisioner | null = null;
+      if (repoUrl) {
+        provisioner = new WorkspaceProvisioner(new GitStrategy(repoUrl));
+      } else if (localPath) {
+        provisioner = new WorkspaceProvisioner(new LocalBindStrategy(localPath));
+      }
+
+      // Get any pre-boot Docker volumes from the strategy (Empty array if Git, Host path if Local)
+      const bootVolumes = provisioner ? provisioner.getBootVolumes() : [];
+
+      console.log(`\x1b[36m[Controller]\x1b[0m Requesting Sandbox Engine to boot session: ${sessionId}`);
+      
+      // 3. CHECK EXISTING SESSION: See if this user already has a paused sandbox
       let session = await this.sessionRepo.get(sessionId);
       let targetSandboxId = session?.openSandboxId;
 
-      // 3. CREATE SANDBOX IF WE HAVE NONE
+      // 4. CREATE SANDBOX IF WE HAVE NONE
       if (!targetSandboxId) {
         const imageTag = (environment as any).imageName;
         console.log(`\x1b[36m[API]\x1b[0m Requesting Sandbox for image: ${imageTag}`);
 
-        // Tell OpenSandbox to boot the Docker image
+        // Tell OpenSandbox to boot the Docker image WITH our volumes and workdir
         const sandboxResponse = await fetch(`${this.openSandboxApiUrl}/sandboxes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ image: imageTag }),
+          body: JSON.stringify({ 
+            image: imageTag,
+            volumes: bootVolumes,
+            env: ["WORKDIR=/workspace"] // Ensure the terminal starts in the correct directory
+          }),
         });
 
         // In case sandbox failed to boot
@@ -66,20 +87,32 @@ export class SandboxController {
         // Get return data
         const sandboxData = await sandboxResponse.json();
 
-        // FIX: Strict validation ensuring Alibaba actually gave us an ID (Resolves your TODO)
+        // Strict validation ensuring Alibaba actually gave us an ID
         if (!sandboxData || !sandboxData.id) {
             throw new Error('OpenSandbox API returned an invalid response (missing ID).');
         }
         
-        targetSandboxId = sandboxData.id;
+        targetSandboxId = sandboxData.id as string;
 
-        // 4. TRIGGER EVENTS FOR OUR DATABASE TRACKING!
+        // --- NEW: EXECUTE POST-BOOT SETUP (e.g., Git Clone) ---
+        if (provisioner) {
+          try {
+            console.log(`\x1b[36m[API]\x1b[0m Running post-boot provisioner for sandbox ${targetSandboxId}...`);
+            await provisioner.runPostBoot(targetSandboxId);
+          } catch (provisionErr: any) {
+            console.error(`\x1b[31m[Provisioner Error]\x1b[0m Failed to provision workspace: ${provisionErr.message}`);
+            // Note: We log the error but don't crash the session entirely, 
+            // allowing the user to manually clone from the terminal if needed.
+          }
+        }
+
+        // 5. TRIGGER EVENTS FOR OUR DATABASE TRACKING!
         // The PersistenceLayer daemon listens for this to run sessionRepo.save()
         this.systemEvents.emit('sandbox:provisioned', {
             sessionId,
             envId,
-            sandboxId: targetSandboxId, // FIX: Mapped to the correct key expected by the daemon
-            mountPath: '/workspace'     // OpenSandbox's default mountpath. TODO: make this more robust
+            sandboxId: targetSandboxId,
+            mountPath: '/workspace'
         });
         
       } else {
@@ -88,7 +121,7 @@ export class SandboxController {
         this.systemEvents.emit('sandbox:status_changed', { sessionId, status: 'active' });
       }
 
-      // 5. THE HANDOFF: Give the connection details back to the React frontend
+      // 6. THE HANDOFF: Give the connection details back to the React frontend
       res.status(200).json({
         message: 'Sandbox provisioned successfully',
         sessionId,

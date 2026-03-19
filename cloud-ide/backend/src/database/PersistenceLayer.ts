@@ -20,11 +20,12 @@ export class PersistenceLayer {
     this.systemEvents.on('sandbox:provisioned', async (data) => {
       // 1. Save the initial session
       await this.sessionRepo.save({
-        sessionId: data.sessionId,
+        sessionId: data.sessionId,  
         envId: data.envId,
-        status: 'active',
-        createdAt: Date.now(),
-        openSandboxId: data.sandboxId
+        status: data.status,
+        createdAt: data.createdAt,
+        openSandboxId: data.openSandboxId,
+        mountPath: data.mountPath  
       });
     });
 

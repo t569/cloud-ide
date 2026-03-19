@@ -20,7 +20,7 @@ export interface EnvironmentRecord {
 export interface SessionRecord {
   sessionId: string;
   envId: string;       
-  status: 'active' | 'paused' | 'stopped';
+  status: 'active' | 'paused';
   mountPath?: string;   
   createdAt: number;
   openSandboxId?: string; // the ID for our backend sandbox

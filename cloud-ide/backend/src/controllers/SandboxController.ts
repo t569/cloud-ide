@@ -2,33 +2,41 @@
 
 
 import { Request, Response } from 'express';
+import { IEnvironmentRepository } from 'src/database/interfaces/IEnvironmentRepository';
+import { ISessionRepository } from 'src/database/interfaces/ISessionRepository';
 import { EventEmitter } from 'events';
-import { IEnvironmentRepository } from '../database/interfaces/IEnvironmentRepository';
-import { ISessionRepository } from '../database/interfaces/ISessionRepository';
-
-// env config 
+import { OpenSandboxRouter } from '../services/OpenSandboxRouter';
 import { config } from '../config/env';
 
 // volume mounts for our session
 import { WorkspaceProvisioner, GitStrategy, LocalBindStrategy } from '../services/WorkspaceProvisioner';
+import { SessionRecord } from 'src/database/models';
 
-// TODO: we need to write a way to clone or repo
+
 export class SandboxController {
+  
+  // the router that talks to our sandbox backend
+  private router: OpenSandboxRouter;
   private openSandboxApiUrl: string;
-
   constructor(
     private systemEvents: EventEmitter,
     private envRepo: IEnvironmentRepository,
-    private sessionRepo: ISessionRepository
+    private sessionRepo: ISessionRepository,
   ) {
     // This points to where you are running the OpenSandbox FastAPI Server
-    this.openSandboxApiUrl = config.OPENSANDBOX_API_URL || 'http://localhost:8080';
+    // TODO: route config later
+    this.openSandboxApiUrl = 'http://localhost:8080';
+
+    // initialise router  
+    this.router = new OpenSandboxRouter();
   }
 
   /**
    * POST /api/sessions/start
    * Body: { sessionId: string, envId: string, repoUrl: string }
    */
+
+  // ERROR: all requests and responses here are flawed, we need an api
  public startSession = async (req: Request, res: Response): Promise<void> => {
   // repoUrl and localPath are optional
     const { sessionId, envId, repoUrl, localPath } = req.body;
@@ -62,6 +70,7 @@ export class SandboxController {
       // 3. CHECK EXISTING SESSION: See if this user already has a paused sandbox
       let session = await this.sessionRepo.get(sessionId);
       let targetSandboxId = session?.openSandboxId;
+      let endpointUrl = this.openSandboxApiUrl;
 
       // 4. CREATE SANDBOX IF WE HAVE NONE
       if (!targetSandboxId) {
@@ -69,49 +78,42 @@ export class SandboxController {
         console.log(`\x1b[36m[API]\x1b[0m Requesting Sandbox for image: ${imageTag}`);
 
         // Tell OpenSandbox to boot the Docker image WITH our volumes and workdir
-        const sandboxResponse = await fetch(`${this.openSandboxApiUrl}/sandboxes`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            image: imageTag,
-            volumes: bootVolumes,
-            env: ["WORKDIR=/workspace"] // Ensure the terminal starts in the correct directory
-          }),
+        // --REFACTOR-- We use router now
+        const bootData = await this.router.bootContainer({
+          imageTag: imageTag,
+          volumes: bootVolumes,
+          envVars:["WORKDIR=/workspace"]
         });
 
-        // In case sandbox failed to boot
-        if (!sandboxResponse.ok) {
-          throw new Error(`OpenSandbox engine failed to boot: ${sandboxResponse.statusText}`);
-        }
+        targetSandboxId = bootData.sandboxId;
 
-        // Get return data
-        const sandboxData = await sandboxResponse.json();
-
-        // Strict validation ensuring Alibaba actually gave us an ID
-        if (!sandboxData || !sandboxData.id) {
-            throw new Error('OpenSandbox API returned an invalid response (missing ID).');
-        }
-        
-        targetSandboxId = sandboxData.id as string;
-
-        // --- NEW: EXECUTE POST-BOOT SETUP (e.g., Git Clone) ---
-        if (provisioner) {
+        // Execute Post-Boot Setup (e.g., Git clone strategy)
+        if(provisioner)
+        {
           try {
-            console.log(`\x1b[36m[API]\x1b[0m Running post-boot provisioner for sandbox ${targetSandboxId}...`);
+            console.log(`\x1b[36m[API]\x1b[0m Running post-boot provisioner...`);
             await provisioner.runPostBoot(targetSandboxId);
           } catch (provisionErr: any) {
-            console.error(`\x1b[31m[Provisioner Error]\x1b[0m Failed to provision workspace: ${provisionErr.message}`);
+            console.error(`\x1b[31m[Provisioner Error]\x1b[0m ${provisionErr.message}`);
             // Note: We log the error but don't crash the session entirely, 
             // allowing the user to manually clone from the terminal if needed.
           }
         }
-
+        
+      
         // 5. TRIGGER EVENTS FOR OUR DATABASE TRACKING!
         // The PersistenceLayer daemon listens for this to run sessionRepo.save()
+        // Save session locally and trigger Persistence Layer
+        const sessionRecord = {
+          sessionId: sessionId, 
+          openSandboxId: targetSandboxId, 
+          envId: envId,
+          status: bootData.status,
+          createdAt: Date.now()
+        };
+
         this.systemEvents.emit('sandbox:provisioned', {
-            sessionId,
-            envId,
-            sandboxId: targetSandboxId,
+            ...sessionRecord,
             mountPath: '/workspace'
         });
         
@@ -126,12 +128,13 @@ export class SandboxController {
         message: 'Sandbox provisioned successfully',
         sessionId,
         sandboxId: targetSandboxId,
-        endpoint: this.openSandboxApiUrl 
+        endpoint: endpointUrl
       });
 
     } catch (error: any) {
       console.error('\x1b[31m[SandboxController Error]\x1b[0m', error.message);
-      res.status(500).json({ error: 'Failed to provision workspace environment' });
+      // Now we have the actual error, mad useful ngl
+      res.status(500).json({ error: error.message || 'Failed to provision workspace environment' });
     }
   };
 
@@ -150,7 +153,7 @@ export class SandboxController {
     try {
       const session = await this.sessionRepo.get(sessionId);
       
-      if (!session) {
+      if (!session || !session.openSandboxId) {
         res.status(404).json({ error: 'Session not found in database' });
         return;
       }
@@ -163,13 +166,7 @@ export class SandboxController {
       console.log(`\x1b[33m[API]\x1b[0m Pausing Sandbox: ${session.openSandboxId}`);
 
       // 1. Tell Alibaba's engine to freeze the container
-      const pauseResponse = await fetch(`${this.openSandboxApiUrl}/sandboxes/${session.openSandboxId}/pause`, {
-        method: 'POST'
-      });
-
-      if (!pauseResponse.ok) {
-        throw new Error(`OpenSandbox engine failed to pause: ${pauseResponse.statusText}`);
-      }
+      await this.router.pauseSandbox(session.openSandboxId);
 
       // 2. FIRE THE EVENT!
       // The PersistenceLayer will hear this and update the DB status to 'paused'
@@ -178,7 +175,7 @@ export class SandboxController {
       res.status(200).json({ message: 'Session paused successfully' });
     } catch (error: any) {
       console.error('\x1b[31m[SandboxController Error]\x1b[0m', error.message);
-      res.status(500).json({ error: 'Failed to pause session' });
+      res.status(500).json({ error: error.message || 'Failed to pause session' });
     }
   };
 
@@ -196,21 +193,23 @@ export class SandboxController {
 
     try {
       const session = await this.sessionRepo.get(sessionId);
-      
-      // 1. Tell OpenSandbox to kill the container
-      if (session?.openSandboxId) {
-        await fetch(`${this.openSandboxApiUrl}/sandboxes/${session.openSandboxId}`, {
-          method: 'DELETE'
-        });
+      if (!session || !session.openSandboxId) {
+        res.status(404).json({ error: 'Session not found or already stopped.' });
+        return;
       }
 
-      // 2. FIRE THE EVENT!
-      // The PersistenceLayer will hear this and delete the record from the DB.
+      // 1. Tell the Engine to destroy the Docker container
+      await this.router.destroySandbox(session.openSandboxId);
+
+      // 2. Remove from our database by emitting event
+  
+      // FIX 2: Emit 'sandbox:destroyed' and just pass the string, not an object
       this.systemEvents.emit('sandbox:destroyed', sessionId);
 
-      res.status(200).json({ message: 'Session terminated' });
+      res.status(200).json({ message: 'Session terminated successfully.' });
     } catch (error: any) {
-      res.status(500).json({ error: 'Failed to terminate session' });
+      console.error('\x1b[31m[SandboxController Error]\x1b[0m Failed to stop session:', error.message);
+      res.status(500).json({ error: error.message });
     }
   };
 }

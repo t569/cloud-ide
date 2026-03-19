@@ -14,7 +14,7 @@ export interface EnvironmentRecord {
   // this section is for environments that track specific repos
   isRepoSpecific: boolean;
   targetRepo?: string,
-  trackedTools?:[];
+  trackedTools?:string[];
 }
 
 export interface SessionRecord {

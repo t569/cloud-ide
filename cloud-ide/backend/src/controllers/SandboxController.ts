@@ -6,6 +6,9 @@ import { EventEmitter } from 'events';
 import { IEnvironmentRepository } from '../database/interfaces/IEnvironmentRepository';
 import { ISessionRepository } from '../database/interfaces/ISessionRepository';
 
+// env config 
+import { config } from '../config/env';
+
 export class SandboxController {
   private openSandboxApiUrl: string;
 
@@ -15,8 +18,8 @@ export class SandboxController {
     private sessionRepo: ISessionRepository
   ) {
     // This points to where you are running the OpenSandbox FastAPI Server
-    // TODO: we need to configure
-    this.openSandboxApiUrl = process.env.OPENSANDBOX_API_URL || 'http://localhost:8000';
+    // TODO: We need to test it
+    this.openSandboxApiUrl = config.OPENSANDBOX_API_URL || 'http://localhost:8080';
   }
 
   /**

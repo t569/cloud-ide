@@ -5,7 +5,7 @@ import { ISessionRepository } from '../database/interfaces/ISessionRepository';
 
 // Import our Core Tools
 import { ConfigParser } from '@cloud-ide/shared';
-import { DockerBuilder } from 'src/services/DockerBuilder'; // Adjust path if needed
+import { DockerBuilder } from '../services/DockerBuilder'; // Adjust path if needed
 import { DockerGenerator } from '@cloud-ide/shared'; // The class that turns Config into a Dockerfile string
 
 // Import Models

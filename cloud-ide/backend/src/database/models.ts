@@ -10,6 +10,11 @@ export interface EnvironmentRecord {
   imageName: string;        
   builderConfig?: IDEEnvironmentConfig; // Strictly bound to builder.ts!
   createdAt: number;
+
+  // this section is for environments that track specific repos
+  isRepoSpecific: boolean;
+  targetRepo?: string,
+  trackedTools?:[];
 }
 
 export interface SessionRecord {

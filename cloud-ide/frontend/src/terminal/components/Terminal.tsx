@@ -50,7 +50,7 @@ export const TerminalComponent: React.FC<TerminalProps> = ({
 
     // 2. Make the connection to the backend session based on the ino we just passed
     sessionStream.connect().then(() => {
-       xterm.writeln('\x1b[1;32m[+] Connected to OS Session\x1b[0m');   // TODO: we can give better messages later
+       xterm.writeln('\x1b[1;32m[+] Connected to Session\x1b[0m');   // TODO: we can give better messages later
 
        // Tell the backend our starting terminal dimensions inside the success block
        sessionStream.resize(xterm.cols, xterm.rows);

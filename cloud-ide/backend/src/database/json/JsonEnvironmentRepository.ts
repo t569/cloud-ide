@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { IEnvironmentRepository } from '../IEnvironmentRepository';
+import { IEnvironmentRepository } from '../interfaces/IEnvironmentRepository';
 import { EnvironmentRecord } from '../models';
 
 export class JsonEnvironmentRepository implements IEnvironmentRepository {
@@ -11,7 +11,7 @@ export class JsonEnvironmentRepository implements IEnvironmentRepository {
     this.initDb();
   }
 
-  public async initDb(): Promise<void> {
+  private async initDb(): Promise<void> {
     try {
       await fs.access(this.filePath);
     } catch {

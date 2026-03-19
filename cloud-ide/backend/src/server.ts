@@ -10,6 +10,9 @@ import { config } from './config/env';
 import { SandboxController } from './controllers/SandboxController';
 import { createEnvironmentRouter } from './api/EnvironmentRoutes';
 
+// File Routers
+import { createFileSystemRouter } from './api/FileSystemRoutes';
+
 // Import our database functionality
 import { EventEmitter } from 'events';
 import { JsonEnvironmentRepository } from './database/json/JsonEnvironmentRepository';
@@ -40,6 +43,9 @@ app.post('/api/sessions/start', sandboxController.startSession);
 app.delete('/api/sessions/:sessionId', sandboxController.stopSession);
 app.post('/api/sessions/:sessionId/pause', sandboxController.pauseSession);
 app.use('/api/environment', createEnvironmentRouter(envRepo, sessionRepo));
+
+// NEW: Mount the Virtual File System routes
+app.use('/api/fs', createFileSystemRouter());
 
 // Start the Gateway Server
 const server = http.createServer(app);

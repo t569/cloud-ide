@@ -1,6 +1,7 @@
+// backend/src/database/json/JsonSessionRepository.ts
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { ISessionRepository } from '../ISessionRepository';
+import { ISessionRepository } from '../interfaces/ISessionRepository';
 import { SessionRecord } from '../models';
 
 export class JsonSessionRepository implements ISessionRepository {
@@ -40,7 +41,6 @@ export class JsonSessionRepository implements ISessionRepository {
     return db[sessionId] || null;
   }
 
-  // Uses the 'envId' pointer to find all linked sessions
   public async getSessionsByEnvId(envId: string): Promise<SessionRecord[]> {
     const db = await this.read();
     return Object.values(db).filter(session => session.envId === envId);
@@ -50,6 +50,15 @@ export class JsonSessionRepository implements ISessionRepository {
     const db = await this.read();
     if (db[sessionId]) {
       db[sessionId].status = status;
+      await this.write(db);
+    }
+  }
+
+  // NEW: Saves the OpenSandbox ID to our JSON database
+  public async updateSandboxId(sessionId: string, sandboxId: string): Promise<void> {
+    const db = await this.read();
+    if (db[sessionId]) {
+      db[sessionId].openSandboxId = sandboxId;
       await this.write(db);
     }
   }

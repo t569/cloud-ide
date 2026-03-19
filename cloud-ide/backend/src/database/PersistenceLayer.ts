@@ -2,13 +2,13 @@
 
 // this file is basically a daeomon to listen to any changes made to our sessions
 
-import { SessionManager } from '../core/SessionManager';
-import { ISessionRepository } from './ISessionRepository';
+import { EventEmitter } from 'events';
+import { ISessionRepository } from './interfaces/ISessionRepository';
 
-// pass in both our database and our sessionmanager to start the tracking
+// We pass in a generic Node EventEmitter that our new SandboxController will use
 export class PersistenceLayer {
   constructor(
-    private sessionManager: SessionManager,
+    private systemEvents: EventEmitter,
     private sessionRepo: ISessionRepository
   ) {
     this.startWatching();
@@ -17,21 +17,22 @@ export class PersistenceLayer {
 
   // function to handle events emitted by the session manager
   private startWatching(): void {
-    this.sessionManager.on('session:created', async (data) => {
+    this.systemEvents.on('sandbox:provisioned', async (data) => {
+      // 1. Save the initial session
       await this.sessionRepo.save({
         sessionId: data.sessionId,
         envId: data.envId,
-        status: data.status,
-        mountPath: data.mountPath,
-        createdAt: Date.now()
+        status: 'active',
+        createdAt: Date.now(),
+        openSandboxId: data.sandboxId
       });
     });
 
-    this.sessionManager.on('session:status_changed', async (data) => {
-      await this.sessionRepo.updateStatus(data.sessionId, data.status);
+    this.systemEvents.on('sandbox:paused', async (sessionId) => {
+      await this.sessionRepo.updateStatus(sessionId, 'paused');
     });
 
-    this.sessionManager.on('session:destroyed', async (sessionId) => {
+    this.systemEvents.on('sandbox:destroyed', async (sessionId) => {
       await this.sessionRepo.delete(sessionId);
     });
   }

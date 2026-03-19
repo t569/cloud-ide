@@ -5,16 +5,18 @@
 import { IDEEnvironmentConfig } from '@cloud-ide/shared'; 
 
 export interface EnvironmentRecord {
-  id: string;          
-  name: string;        
-  config: IDEEnvironmentConfig; // Strictly bound to builder.ts!
+  id: string;  
+   // CRITICAL: The literal Docker tag OpenSandbox will use (e.g., 'drago/node-env:v1')        
+  imageName: string;        
+  builderConfig?: IDEEnvironmentConfig; // Strictly bound to builder.ts!
   createdAt: number;
 }
 
 export interface SessionRecord {
   sessionId: string;
   envId: string;       
-  status: 'LIVE' | 'SLEEPING';
-  mountPath: string;   
+  status: 'active' | 'paused' | 'stopped';
+  mountPath?: string;   
   createdAt: number;
+  openSandboxId?: string; // the ID for our backend sandbox
 }

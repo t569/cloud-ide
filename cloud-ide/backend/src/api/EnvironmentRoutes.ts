@@ -1,7 +1,7 @@
 // backend/src/api/EnvironmentRoutes.ts
 import { Router } from 'express';
-import { IEnvironmentRepository } from '../database/IEnvironmentRepository';
-import { ISessionRepository } from '../database/ISessionRepository';
+import { IEnvironmentRepository } from 'src/database/interfaces/IEnvironmentRepository';
+import { ISessionRepository } from '../database/interfaces/ISessionRepository';
 
 // this is for frontend to send environments we want to build
 import { EnvironmentRecord } from 'src/database/models';
@@ -26,13 +26,13 @@ export function createEnvironmentRouter(envRepo: IEnvironmentRepository, session
       // Add validation here later to ensure newEnv.config matches builder.ts
       
       // turn newEnv.config to a raw string
-      const rawConfigString = JSON.stringify(newEnv.config);
+      const rawConfigString = JSON.stringify(newEnv.builderConfig);
     
       // call parseAndValidate or return error that the json cannot be parsed and validated
       const validatedConfig = ConfigParser.parseAndValidate(rawConfigString);
 
       // Overwrite the unvalidated config with our strictly parsed version
-      newEnv.config = validatedConfig;
+      newEnv.builderConfig = validatedConfig;
       newEnv.createdAt = Date.now();
 
       // Safely write to ROM

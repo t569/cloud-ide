@@ -243,7 +243,7 @@ export default function EnvironmentManager({ onClose, onBuildComplete }) {
                  disabled={isBuilding}
                />
              </div>
-             
+             {/* TODO */ }
              {/* UI Implementation for adding packages (calling `handleAddPackage`) goes here */}
              {/* UI Implementation for mapping `packages` (calling `removePackage`) goes here */}
           </div>

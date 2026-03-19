@@ -8,7 +8,7 @@
  */
 import { API_BASE_URL } from "../config/env";
 
-
+// NOTE: that the terminal object is a stream
 export const streamDockerBuild = async (newEnv: any, terminal: any): Promise<void> => {
   try {
     // 1. Initiate the POST request

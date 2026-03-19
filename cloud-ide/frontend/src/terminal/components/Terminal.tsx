@@ -2,8 +2,6 @@
 
 // this is the final terminal component encapsulating the hook from src/terminal/hooks/useTerminal.ts
 
-// frontend/src/terminal/components/Terminal.tsx
-
 import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import { useTerminal } from '../hooks/useTerminal';
 
@@ -35,6 +33,7 @@ export interface TerminalHandle {
 
 // TerminalProps encapsulates ITerminalConfig
 export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
+  // default values 
   theme = 'dark',
   fontFamily = ' "JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
   fontSize = 14,

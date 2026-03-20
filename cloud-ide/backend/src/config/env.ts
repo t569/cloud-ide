@@ -18,6 +18,7 @@ export const config = {
   PORT: process.env.PORT || 3000,
 
   // You can construct the full URLs right here so the rest of the app doesn't have to
-  OPENSANDBOX_API_URL: `${IS_SECURE ? 'https' : 'http'}${process.env.OPENSANDBOX_API_URL || 'localhost:8080'}`,
-  BACKEND_API_URL: `${IS_SECURE ? 'https' : 'http'}${process.env.IDE_BACKEND_API_URL || 'localhost:3000'}`
+  // OPENSANDBOX_API_URL: `${IS_SECURE ? 'https://' : 'http://'}${process.env.OPENSANDBOX_API_URL || '127.0.0.1:8080'}`,
+  OPENSANDBOX_API_URL: `http://127.0.0.1:8080`,
+  BACKEND_API_URL: `${IS_SECURE ? 'https://' : 'http://'}${process.env.IDE_BACKEND_API_URL || 'localhost:3000'}`
 };

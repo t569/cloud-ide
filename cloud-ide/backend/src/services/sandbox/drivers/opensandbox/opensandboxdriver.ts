@@ -25,6 +25,18 @@ export class OpenSandboxDriver implements ISandboxProvider {
   }
 
   public async boot(spec: SandboxSpec): Promise<SandboxStatus> {
+    
+    // 1.Translate Egress Rules for Openandbox's Sidecar
+    let network_policy = undefined;
+    if(spec.networkPolicy) {
+      network_policy = {
+        defaultAction: spec.networkPolicy.blockAllOterTraffic ? "deny" : "allow",
+        egress: spec.networkPolicy.allowOutboundDomains.map(domain => ({
+          action: "allow",
+          target: domain  // OpenSandbox will handle the DNS proxy
+        }))
+      };
+    }
     const payload = {
       image: {
         uri: spec.imageTag,
@@ -40,6 +52,8 @@ export class OpenSandboxDriver implements ISandboxProvider {
       entrypoint: ["sleep", "infinity"] // Keeps the container alive
     };
 
+
+    // Boot the Sandbox
     const response = await fetch(`${this.engineUrl}/sandboxes`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -51,12 +65,28 @@ export class OpenSandboxDriver implements ISandboxProvider {
     }
 
     const data = await response.json();
+    const sandboxId = data.id;
 
+    // 3. Resolve Native Ingress URLs
+    // OpenSandbox has a built-in gateway. We just ask it for the URLs.
+    const previewUrls: Record<number, string> = {};
+    if (spec.exposedPorts) {
+      for (const port of spec.exposedPorts) {
+        // TODO: IS THIS THE RIGHT ENDPOINT?
+        const endpointRes = await fetch(`${this.engineUrl}/v1/sandboxes/${sandboxId}/endpoints/${port}`);
+        if (endpointRes.ok) {
+           const endpointData = await endpointRes.json();
+           previewUrls[port] = endpointData.url; // e.g. <sandbox-id>-<port>.example.com
+        }
+      }
+    }
+    
     return {
-      sandboxId: data.id,
+      sandboxId: sandboxId,
       state: this.mapState(data.status?.state),
       ipAddress: data.status?.ip,
       execdPort: 44772, // Default port for the OpenSandbox exec daemon
+      previewUrls: previewUrls
     };
   }
 

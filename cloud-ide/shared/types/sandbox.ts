@@ -1,9 +1,11 @@
 // shared/types/sandbox.ts
 
 export type SandboxState = 'PROVISIONING' | 'RUNNING' | 'PAUSED' | 'STOPPED' | 'ERROR';
+
+// TODO: add this to the container boot path
 export type SandboxRuntimeType = 'docker' | 'gvisor' | 'kata-qemu' | 'kata-firecracker';
 
-
+// the data structure for a volume mount
 export interface VolumeMount {
   name: string;
   mountPath: string;      // Inside the container (e.g., /workspace)
@@ -21,6 +23,9 @@ export interface SandboxSpec {
     cpuCount?: number;
     memoryMb?: number;
   };
+  // ingress and egress: abstracted network configurations
+  networkPolicy?: NetworkPolicySpec;
+  exposedPorts?: number[]; // e.g. [3000, 8000]
 }
 
 // The standardized response from ANY sandbox provider
@@ -30,6 +35,7 @@ export interface SandboxStatus {
   ipAddress?: string;     // Needed later for the execd TCP connection
   execdPort?: number;     // Usually 44772 for OpenSandbox
   message?: string;
+  previewUrls?: Record<number, string>; // e.g., { 3000: "http://3000-sbx123.our-domain.com" }
 }
 
 // THE MASTER INTERFACE: Every driver you ever build must implement this.
@@ -38,6 +44,12 @@ export interface ISandboxProvider {
   pause(sandboxId: string): Promise<boolean>;
   destroy(sandboxId: string): Promise<boolean>;
   getStatus(sandboxId: string): Promise<SandboxStatus>;
+}
+
+// all the endpoints we can and cannot allow
+export interface NetworkPolicySpec {
+  allowOutboundDomains: string[]; // e.g., ["registry.npmjs.org", "github.com"]
+  blockAllOterTraffic: boolean;
 }
 
 /**

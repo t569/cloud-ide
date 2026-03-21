@@ -8,3 +8,5 @@ export * from './types/builder';
 // Explicitly export the classes so the compiler doesn't lose them
 export { ConfigParser } from './utils/ConfigParser';
 export { DockerGenerator } from './utils/DockerGenerator';
+
+export {ISandboxProvider, SandboxSpec, SandboxStatus, SandboxState, VolumeMount } from './types/sandbox';

@@ -44,6 +44,10 @@ export interface ISandboxProvider {
   pause(sandboxId: string): Promise<boolean>;
   destroy(sandboxId: string): Promise<boolean>;
   getStatus(sandboxId: string): Promise<SandboxStatus>;
+
+  // Networking methods for ingress and egress
+  getIngressUrl(sandboxId: string, port: number): Promise<string>;
+  updateEgressPolicy(sandboxId: string, policy: NetworkPolicySpec): Promise<void>;
 }
 
 // all the endpoints we can and cannot allow

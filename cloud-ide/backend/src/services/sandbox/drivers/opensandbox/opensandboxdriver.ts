@@ -4,7 +4,8 @@
 // translates our schema into opensandbox pydantic schema
 
 
-import { ISandboxProvider, SandboxSpec, SandboxStatus, SandboxState, VolumeMount } from '@cloud-ide/shared';
+import { ISandboxProvider, SandboxSpec, SandboxStatus, SandboxState,
+   VolumeMount, NetworkPolicySpec } from '@cloud-ide/shared';
 
 export class OpenSandboxDriver implements ISandboxProvider {
   private engineUrl: string;    // opensandbox FastAPI backend
@@ -90,6 +91,7 @@ export class OpenSandboxDriver implements ISandboxProvider {
     };
   }
 
+  /** GETSTATUS: get the opensandbox sandbox based on ID */
   public async getStatus(sandboxId: string): Promise<SandboxStatus> {
     const response = await fetch(`${this.engineUrl}/sandboxes/${sandboxId}`);
     
@@ -109,11 +111,13 @@ export class OpenSandboxDriver implements ISandboxProvider {
     };
   }
 
+  /** PAUSE: Pauses the opensandbox sandbox based on ID */
   public async pause(sandboxId: string): Promise<boolean> {
     const response = await fetch(`${this.engineUrl}/sandboxes/${sandboxId}/pause`, { method: 'POST' });
     return response.ok || response.status === 204;
   }
 
+  /** DESTROY: Destroys the opensandbox sandbox based on ID */
   public async destroy(sandboxId: string): Promise<boolean> {
     const response = await fetch(`${this.engineUrl}/sandboxes/${sandboxId}`, { method: 'DELETE' });
     return response.ok || response.status === 204 || response.status === 404; // 404 means it's already gone, which is a success for deletion
@@ -130,4 +134,45 @@ export class OpenSandboxDriver implements ISandboxProvider {
     };
     return stateMap[engineState] || 'ERROR';
   }
+
+  /**
+   * INGRESS: Asks the infrastrucre for the public routing to a specific internal port
+   */
+  public async getIngressUrl(sandboxId: string, port: number): Promise<string> {
+    const response = await fetch(`${this.engineUrl}/v1/sandboxes/${sandboxId}/endpoints/${port}`);
+
+    if(!response.ok){
+      throw new Error(`Failed to resolve ingress for port ${port}`);
+    }
+
+    const data = await response.json();
+    return data.url; // e.g. 'https://3000-sbx123.example.com"
+  }
+
+
+  /**
+   * EGRESS: Updates the outbound firewall rules dynamically while the VM is running.
+   * basically what we can allow the user connect to 
+   * we will use this when spinning up servers in the sandbox
+   */
+  public async updateEgressPolicy(sandboxId: string, policy: NetworkPolicySpec): Promise<void> {
+
+    // 1. OpenSandbox requires us to find the sidecar's internal address first (port 18080)
+    const sidecarUrl = await this.getIngressUrl(sandboxId, 18080);
+
+    const egressRules = policy.allowOutboundDomains.map(domain => ({
+      action: "allow",
+      target: domain
+    }));
+
+    // 2. Patch the sidecar directly
+    const response = await fetch(`${sidecarUrl}/policy`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ egress: egressRules })
+    });
+
+    if (!response.ok) throw new Error("Failed to update egress policy");
+  }
+  
 }

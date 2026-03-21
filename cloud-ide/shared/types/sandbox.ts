@@ -1,6 +1,8 @@
 // shared/types/sandbox.ts
 
 export type SandboxState = 'PROVISIONING' | 'RUNNING' | 'PAUSED' | 'STOPPED' | 'ERROR';
+export type SandboxRuntimeType = 'docker' | 'gvisor' | 'kata-qemu' | 'kata-firecracker';
+
 
 export interface VolumeMount {
   name: string;

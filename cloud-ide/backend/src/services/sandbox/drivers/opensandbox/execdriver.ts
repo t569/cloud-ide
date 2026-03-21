@@ -24,7 +24,8 @@ export class OpenSandboxExecClient extends EventEmitter {
   /**
    * Initiates a command and streams the result via events.
    */
-  public run(options: ExecOptions): void {
+
+  public run(options: ExecOptions): this {
     const payload = JSON.stringify({
       cmd: ['bash', '-c', options.command],
       cwd: options.cwd || '/workspace',
@@ -66,5 +67,7 @@ export class OpenSandboxExecClient extends EventEmitter {
 
     req.write(payload);
     req.end();
+
+    return this;
   }
 }

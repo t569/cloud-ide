@@ -6,6 +6,9 @@ import { SandboxSpec } from '@cloud-ide/shared';
 import { IProvisioningStrategy } from './IProvisioningStrategy';
 import { OpenSandboxExecClient } from '../sandbox/drivers/opensandbox/execdriver';
 
+
+// the general class we export and use
+// takes in the value of a mounting strategy e.g. git | local
 export class WorkspaceProvisioner {
   private strategy: IProvisioningStrategy | null;
 

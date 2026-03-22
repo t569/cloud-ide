@@ -4,6 +4,8 @@
 // we can then add any type
 export type InstallStepType = 'apt' | 'npm' | 'pip' | 'shell';
 
+
+// each build step should define an isolated workflow for a particular path
 export interface BuildStep {
   name: string;           // e.g., "Install System Dependencies"
   type: InstallStepType;  
@@ -15,6 +17,9 @@ export interface BuildStep {
   // Environment Isolation
   targetPath?: string;    // IF defined, the step runs isolated in this directory (e.g., /workspace/api)
   isGlobal?: boolean;     // For npm/pip: true = global system install, false = local to targetPath
+
+  // this is for the versioning (for the language)
+  version?: string;     // should default to latest if not provided
 }
 
 export interface EnvironmentConfig {
@@ -22,9 +27,21 @@ export interface EnvironmentConfig {
   name: string;
   baseImage: string; // e.g., 'ubuntu:22.04' or 'node:18'
   buildSteps: BuildStep[]; 
+  bootUpAsRoot?: boolean;   // boot up the image as root
+  env?: Record<string,string>;  // e.g. {"PORT":"3000","NODE_ENV":"development"}
+  platform?: 'linux/amd64' | 'linx/arm64'; // Support for M-series Macs or standard Linux
+  timeout?: number; // Max build time in seconds; fail safe to exit safely
 }
 
+export const baseAliases: Record<string, string[]> = {
+      'python': ['python', 'python3', 'pip', 'pip3'],
+      'node': ['node', 'nodejs', 'npm'],
+      'golang': ['go', 'golang']
+    }
+
 /* EXAMPLE SCHEMA
+
+for package version, include it on the name e.g tensorflow==1.0.0
 {
   "id": "zkp-noir-env",
   "name": "Zero-Knowledge Proving Environment",

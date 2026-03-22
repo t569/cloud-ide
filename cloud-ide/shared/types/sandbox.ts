@@ -25,7 +25,7 @@ export interface SandboxSpec {
   };
   // ingress and egress: abstracted network configurations
   networkPolicy?: NetworkPolicySpec;
-  exposedPorts?: number[]; // e.g. [3000, 8000]
+  exposedPorts?: number[]; // e.g. [3000, 8000] at boot time
 }
 
 // The standardized response from ANY sandbox provider
@@ -48,6 +48,10 @@ export interface ISandboxProvider {
   // Networking methods for ingress and egress
   getIngressUrl(sandboxId: string, port: number): Promise<string>;
   updateEgressPolicy(sandboxId: string, policy: NetworkPolicySpec): Promise<void>;
+
+  // dynamically map a port on a running sandbox
+  exposePort(sandboxId: string, port:number): Promise<string>;
+  unexposePort(sandboxId: string, port: number): Promise<void>;
 }
 
 // all the endpoints we can and cannot allow

@@ -5,5 +5,11 @@
   "main": "index.ts",
   "scripts": {
     "test": "jest"
+  },
+  "dependencies": {
+    "@types/crypto-js": "^4.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0"
   }
 }

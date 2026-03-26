@@ -3,7 +3,7 @@
 // this defines optimsation functions for our docker builder
 import { BuildStep } from "../types/env";
 
-
+// this is to rebuild dependencies freshly and not use the cached versions avaliable before
 export function injectCacheBuster(force: boolean) : string {
     return force ? `\n# --- CACHE BYPASS: ${Date.now()} --\n`: '';
 }

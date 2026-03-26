@@ -1,0 +1,24 @@
+# Git
+.git
+.gitignore
+
+# Dependencies
+node_modules/
+jspm_packages/
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Build outputs
+dist/
+build/
+out/
+*.log
+
+# Docker/IDE junk
+Dockerfile
+.dockerignore
+.vscode/
+.idea/
+.env

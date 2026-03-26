@@ -1,6 +1,8 @@
 // shared/types/env.ts
 // RECOMMENDED, we will use this from now on
 
+
+
 // we can then add any type
 export type InstallStepType = 'apt' | 'npm' | 'pip' | 'shell';
 
@@ -38,6 +40,7 @@ export const baseAliases: Record<string, string[]> = {
       'node': ['node', 'nodejs', 'npm'],
       'golang': ['go', 'golang']
     }
+
 
 /* EXAMPLE SCHEMA
 

@@ -5,7 +5,7 @@
 // based on our backend sandbox architecture, this syncing logic can change 
 export interface IFileWatcher {
   startWatching(workspacePath: string): void;
-  stopWatching(): void;
+  stopWatching(workspacePath: string): void;
   onDependencyChanged(callback: (pkgManager: 'npm' | 'pip' | 'apt') => void): void;
   onError(callback: (error: Error) => void): void;
 }

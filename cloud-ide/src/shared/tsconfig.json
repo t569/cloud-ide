@@ -8,5 +8,5 @@
     "forceConsistentCasingInFileNames": true,
     "types": ["jest","node"] 
   },
-  "include": ["**/*.ts"]
+  "include": ["**/*.ts", "../backend/src/services/builder/ExecutorService.ts", "../backend/src/services/builder/GarbageCollector.ts", "../backend/src/services/builder/GeneratorService.ts"]
 }

@@ -1,13 +1,15 @@
 // shared/utils/services/GeneratorService.ts
 
-import { EnvironmentConfig, BuildStep } from '../../types/env';
-import { Validator } from '../Validator';
-import { StageOrchestrator } from '../../../pipeline/StageOrchestrator';
-import { MiddlewareEngine } from '../../../pipeline/middleware/MiddlewareEngine';
-import { SecurityUserInjector } from '../../../pipeline/middleware/injectors/SecurityUserInjector';
-import { OpenSandboxInjector } from '../../../pipeline/middleware/injectors/OpenSandboxInjector';
-import { DockerfileAssembler } from '../../../pipeline/assembler/DockerfileAssembler';
+import { EnvironmentConfig, BuildStep } from '../../../../shared/types/env';
+import { Validator } from '../../../../shared/utils/Validator';
+import { StageOrchestrator } from '../../../../pipeline/StageOrchestrator';
+import { MiddlewareEngine } from '../../../../pipeline/middleware/MiddlewareEngine';
+import { SecurityUserInjector } from '../../../../pipeline/middleware/injectors/SecurityUserInjector';
+import { OpenSandboxInjector } from '../../../../pipeline/middleware/injectors/OpenSandboxInjector';
+import { DockerfileAssembler } from '../../../../pipeline/assembler/DockerfileAssembler';
 
+// utils
+import { optimizeLayers } from '@cloud-ide/shared'
 export class DockerGeneratorService {
   
   /**
@@ -17,6 +19,11 @@ export class DockerGeneratorService {
     
     // Phase 1: Parse and run security/redundancy checks
     const config = Validator.parseAndValidate(rawJson);
+
+    // Phase 1.1: Optimisation to make the image smaller and speed up build times by reducing the number of layers
+    if(config.buildSteps){
+      config.buildSteps = optimizeLayers(config.buildSteps);
+    }
 
     // Phase 2: Split into Builder and Runtime stages
     const baseManifest = StageOrchestrator.generateManifest(config);

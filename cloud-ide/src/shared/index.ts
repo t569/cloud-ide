@@ -5,8 +5,9 @@
 // Explicitly export the classes so the compiler doesn't lose them
 
 // UTILS
-export { ConfigParser } from './utils/ConfigParser';
-export { DockerGenerator } from './utils/dockergen';
+export { Validator } from './utils/Validator';
+export { optimizeLayers, injectCacheBuster } from './utils/optimise';
+export { StepHasher } from './utils/hasher';
 export { PackageManagerRules } from './utils/packagemanager_rules';
 
 // TYPES

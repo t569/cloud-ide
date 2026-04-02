@@ -12,3 +12,5 @@ opensandbox/sandbox-env/
 # OpenSandbox Local Data
 sandbox-data/
 .sandbox-data/
+
+../../__tests__/

@@ -228,7 +228,7 @@ import { GitStrategy } from '../services/provisioning';
 import { LocalMountStrategy } from '../services/provisioning';
 
 // security checks
-import { PreFlightChecks } from '../services/sandbox/security/';
+import { PreFlightChecks } from '../services/sandbox/security';
 import { IEnvironmentRepository, ISessionRepository } from '../database';
 
 export class SandboxController {

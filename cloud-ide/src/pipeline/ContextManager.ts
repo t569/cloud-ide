@@ -27,6 +27,7 @@ export class PipelineContext {
     this.currentPath = newPath;
   }
 
+
   public getPath(): string { return this.currentPath; }
   public getUser(): string { return this.currentUser; }
   public getEnv(): Record<string, string> { return this.envVars; }

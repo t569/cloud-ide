@@ -31,6 +31,12 @@ export interface DockerStage {
   
   // Artifacts to copy IN to this stage from previous stages
   inboundArtifacts: ArtifactTransfer[]; 
+
+  entrypoint?: string[];     // Optional: The command to run when the container starts (e.g., 'node server.js')
+                            // e.g. ["/bin/bash", "-c"]
+  cmd?: string[];           // Optional: Arguments for the entrypoint (e.g., ["npm", "start"])
+                            // e.g. ["/usr/local/bin/execd", "--port", "2222"]
+    
 }
 
 /**

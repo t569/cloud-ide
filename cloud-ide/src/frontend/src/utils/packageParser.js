@@ -21,16 +21,41 @@ export const parsePackageString = (rawInput = '') => {
   for (const rule of rules) {
     const match = name.match(rule.regex);
     if (match) {
-      name = name.substring(0, match.index).trim();
+      // name = string before the operator
+      const operatorIndex = match.index;
+      name = name.substring(0, operatorIndex).trim();
       version = match[2].trim();
       break; 
     }
   }
 
+
+  // handles scoped packages like @babel/core or @angular/core, we want the icon to be core not babel or angular
   let iconName = name.toLowerCase();
+  // Usually, the 'scope' (babel) is the brand we want the icon for.
   if (iconName.startsWith('@') && iconName.includes('/')) {
-    iconName = iconName.split('/')[1];
+    iconName = iconName.split('/')[0].replace('@', ''); 
+    // result: 'babel'
   }
+
+  // common icon slugs for CDN that don't match the package name exactly
+  const ICON_SLUGS = {
+    'node': 'nodedotjs',
+    'nodejs': 'nodedotjs',
+    'nextjs': 'nextdotjs',
+    'c++': 'cplusplus',
+    'cpp': 'cplusplus',
+    'c#': 'csharp',
+    'cs': 'csharp',
+    'golang': 'go',
+    'tailwind': 'tailwindcss',
+    'react': 'react',
+    'django': 'django'
+  }; 
+ 
+
+  // Apply mapping
+  iconName = ICON_SLUGS[iconName] || iconName;
 
   return { 
     name: name, 

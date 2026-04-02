@@ -52,7 +52,7 @@ export const BaseImageIcon = ({ imageName = '', size = 24 }: BaseImageIconProps)
     return (
       <div style={{ width: size, height: size }} className="flex items-center justify-center p-0.5">
         <img
-          src={`https://cdn.simpleicons.org/{slug}`}
+          src={`https://cdn.simpleicons.org/${slug}`}
           alt={cleanName}
           className="w-full h-full object-contain"
           onError={() => setHasError(true)}

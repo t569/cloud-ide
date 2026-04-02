@@ -3,7 +3,7 @@
 // this file has all our env data
 
 // The 'as any' forces TypeScript to stop inspecting import.meta
-const BACKEND_HOST = (import.meta as any).env.VITE_BACKEND_HOST || 'localhost:8080';
+const BACKEND_HOST = (import.meta as any).env.VITE_BACKEND_HOST || 'localhost:3000';
 
 // Safely check if 'window' exists before checking the protocol
 const IS_SECURE = typeof window !== 'undefined' && window.location.protocol === 'https:';

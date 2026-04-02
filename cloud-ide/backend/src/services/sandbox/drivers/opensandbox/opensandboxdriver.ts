@@ -136,7 +136,7 @@ export class OpenSandboxDriver implements ISandboxProvider {
   }
 
   /**
-   * INGRESS: Asks the infrastrucre for the public routing to a specific internal port
+   * INGRESS: Asks the infrastructure for the public routing to a specific internal port
    */
   public async getIngressUrl(sandboxId: string, port: number): Promise<string> {
     const response = await fetch(`${this.engineUrl}/v1/sandboxes/${sandboxId}/endpoints/${port}`);
@@ -149,11 +149,40 @@ export class OpenSandboxDriver implements ISandboxProvider {
     return data.url; // e.g. 'https://3000-sbx123.example.com"
   }
 
+  /**
+   * INGRESS: Dynamically asks the OpenSandbox Gateway for the routed URL of an internal port.
+   */
+  public async exposePort(sandboxId: string, port: number): Promise<string> {
+    const response = await fetch(`${this.engineUrl}/v1/sandboxes/${sandboxId}/endpoints/${port}`);
+    
+    if (!response.ok) {
+      throw new Error(`Engine failed to route port ${port}: ${response.statusText}`);
+    }
+    
+    const data = await response.json();
+    // OpenSandbox Gateway returns the ingress URL mapping
+    return data.url; 
+  }
+
+  /**
+   * INGRESS CLEANUP: Tells the engine we no longer need routing for this port.
+   */
+  public async unexposePort(sandboxId: string, port: number): Promise<void> {
+    // Note: Depending on OpenSandbox's specific version, this might be a DELETE request
+    // to the endpoint mapping, or it just drops when the internal process dies.
+    // We implement the explicit DELETE for strict resource cleanup.
+    const response = await fetch(`${this.engineUrl}/v1/sandboxes/${sandboxId}/endpoints/${port}`, {
+      method: 'DELETE'
+    });
+
+    if (!response.ok && response.status !== 404) {
+      console.warn(`[Driver Warning] Failed to unexpose port ${port}`);
+    }
+  }
 
   /**
    * EGRESS: Updates the outbound firewall rules dynamically while the VM is running.
-   * basically what we can allow the user connect to 
-   * we will use this when spinning up servers in the sandbox
+   * basically what we can allow the sandbox to connect to
    */
   public async updateEgressPolicy(sandboxId: string, policy: NetworkPolicySpec): Promise<void> {
 

@@ -17,26 +17,118 @@ export class FileSystemManager {
   /**
    * Internal helper to execute shell commands securely inside the OpenSandbox container
    */
-  private async execContainerCommand(sandboxId: string, cmd: string[]): Promise<string> {
-    const response = await fetch(`${this.apiUrl}/api/sandbox/${sandboxId}/exec`, {
+
+  // TODO: stream errors back to 
+  // A. the user for stderr
+  // B. backend errors to server.ts
+  /**
+   * Internal helper to execute shell commands securely inside the OpenSandbox container
+   */
+
+  // ERROR: we are routing to the wrong endpoint
+ private async execContainerCommand(sandboxId: string, cmd: string[]): Promise<string> {
+    
+    const baseUrl = this.apiUrl.replace(/\/$/, '');
+
+    // 1. Ask the Lifecycle API where the execd daemon is physically mapped
+    const endpointRes = await fetch(`${baseUrl}/sandboxes/${sandboxId}/endpoints/44772`);
+    
+    if (!endpointRes.ok) {
+      const serverErr = await endpointRes.text();
+      throw new Error(`Failed to map execd endpoint: ${endpointRes.status} - ${serverErr}`);
+    }
+    
+    const { endpoint } = await endpointRes.json(); 
+    const execdUrl = endpoint.startsWith('http') ? endpoint : `http://${endpoint}`;
+
+    // 2. Fire the command directly at the execd daemon
+    const response = await fetch(`${execdUrl}/command`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cmd })
+      body: JSON.stringify({ command: cmd }) 
     });
 
     if (!response.ok) {
-      throw new Error(`OpenSandbox Engine rejected command: ${response.statusText}`);
+      const serverErr = await response.text();
+      throw new Error(`execd daemon rejected command: ${response.status} - ${serverErr}`);
     }
 
-    const data = await response.json();
+    // 3. Parse the Server-Sent Events (SSE) stream
+    const text = await response.text();
+    let stdout = '';
+    let stderr = '';
+    let exitCode = 0;
     
-    // OpenSandbox typically returns { code, stdout, stderr }
-    if (data.code !== 0 && data.stderr) {
-      throw new Error(`Container Error: ${data.stderr}`);
+    const lines = text.split('\n');
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const eventData = JSON.parse(line.substring(6));
+          
+          if (eventData.type === 'stdout') {
+            stdout += eventData.text || eventData.data || '';
+          } else if (eventData.type === 'stderr') {
+            stderr += eventData.text || eventData.data || '';
+          } else if (eventData.type === 'result') {
+            // Grab the exit code when the command finishes
+            exitCode = eventData.exitCode ?? eventData.code ?? 0;
+          }
+        } catch (e) {
+          // Silently ignore incomplete JSON chunks
+        }
+      }
     }
 
-    return data.stdout || '';
+    // 4. Pass stderr back to the server.ts router if the command failed
+    if (exitCode !== 0) {
+      throw new Error(`Container Command Failed (Code ${exitCode}):\n${stderr || 'Unknown Error'}`);
+    }
+
+    return stdout.trim();
   }
+  // private async execContainerCommand(sandboxId: string, cmd: string[]): Promise<string> {
+  //   // this is the port responsible for running commands
+  //   const response = await fetch(`${this.apiUrl}/api/sandboxes/${sandboxId}/endpoints/44772`, {
+  //     method: 'POST',
+  //     headers: { 'Content-Type': 'application/json' },
+  //     body: JSON.stringify({ 
+  //       command: cmd,
+  //       // tty: false, // Prevents the engine from hanging while waiting for interactive input
+  //      })
+  //   });
+
+  //   if (!response.ok) {
+  //     throw new Error(`OpenSandbox Engine rejected command: ${response.statusText}`);
+  //   }
+
+  //   // 3. The STREAM FIX: OpenSandbox returns Server-Sent Events, not JSON!
+  //   // Because our VFS commands (ls, base64, rm) execute instantly and exit, 
+  //   // we can safely await the full text block and parse the SSE chunks.
+  //   const text = await response.text();
+  //   let stdout = '';
+
+
+  //   const lines = text.split('\n');
+  //   for (const line of lines) {
+  //     if (line.startsWith('data: ')) {
+  //       try {
+  //         const eventData = JSON.parse(line.substring(6));
+          
+  //         // OpenSandbox categorizes stream chunks by 'type'
+  //         if (eventData.type === 'stdout') {
+  //            // Fallback to .data if .text isn't present depending on engine version
+  //           stdout += eventData.text || eventData.data || '';
+  //         } else if (eventData.type === 'stderr') {
+  //           console.error(`[Container Stderr]`, eventData.text || eventData.data);
+  //         }
+  //       } catch (e) {
+  //         // Silently ignore incomplete JSON chunks
+  //       }
+  //     }
+  //   }
+
+  //   return stdout.trim();
+  // }
 
   /**
    * Lists all files and directories in a given path

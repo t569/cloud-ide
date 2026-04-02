@@ -3,8 +3,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { VscClose, VscAdd, VscTrash, VscSearch } from 'react-icons/vsc';
 
 // Utilities (Ensure these exist in your project)
-import { DynamicPackageIcon, BaseImageIcon } from './utils/packageIcons';
-import { parsePackageString } from './utils/packageParser';
+import { DynamicPackageIcon, BaseImageIcon } from '../utils/packageIcons';
+import { parsePackageString } from '../utils/packageParser';
 
 // Terminal Integration
 import { TerminalComponent } from '../terminal/components/Terminal';

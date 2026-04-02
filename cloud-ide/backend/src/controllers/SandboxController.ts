@@ -309,7 +309,53 @@ export class SandboxController {
   };
 
   /**
-   * DELETE /api/v1/sandboxes/:sandboxId
+   * POST /api/v1/sandboxes/:sandboxId PAUSE A SANDBOX
+   */
+  public pauseSession = async (req: Request, res: Response): Promise<void> => {
+    const { sessionId } = req.params;
+
+    try {
+      const session = await this.sessionRepo.get(sessionId);
+      if (!session || !session.openSandboxId) {
+        res.status(404).json({ error: 'Active session not found.' });
+        return;
+      }
+
+      // 1. Tell the Sandbox Engine to freeze the VM
+      await this.sandboxDriver.pause(session.openSandboxId);
+
+      // 2. Emit event so DB marks Session as "Paused"
+      this.systemEvents.emit('sandbox:paused', sessionId);
+
+      res.status(200).json({ message: 'Session paused successfully' });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+  /**
+   * POST /api/v1/sessions/:sessionId/ports
+   * Body: { port: 8081 }
+   */
+  public exposePort = async (req: Request, res: Response): Promise<void> => {
+    const { sessionId } = req.params;
+    const { port } = req.body;
+
+    try {
+      const session = await this.sessionRepo.get(sessionId);
+      if (!session || !session.openSandboxId) throw new Error("No active sandbox for this session.");
+
+      // Driver calls OpenSandbox Gateway
+      const previewUrl = await this.sandboxDriver.exposePort(session.openSandboxId, port);
+      
+      res.status(200).json({ port, url: previewUrl });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  
+  /**
+   * DELETE /api/v1/sessions/:sessionId
    */
   public stopSession = async (req: Request, res: Response): Promise<void> => {
     const { sandboxId } = req.params;

@@ -4,7 +4,7 @@
 
 
 // we can then add any type
-export type InstallStepType = 'apt' | 'npm' | 'pip' | 'shell';
+export type InstallStepType = 'apt' | 'npm' | 'pip' | 'cargo' | 'go' | 'ruby' | 'maven' | 'zig' | 'shell';
 
 
 // each build step should define an isolated workflow for a particular path
@@ -14,6 +14,7 @@ export interface BuildStep {
   
   // Data for the step
   packages?: string[];    // Used if type is 'apt', 'npm', or 'pip'
+  // wwe pass in the type to the name e.g. numpy==1.0.0 for pip, or express@4.17.1 for npm, and for apt we can just pass the package
   command?: string;       // Used if type is 'shell'
   
   // Environment Isolation

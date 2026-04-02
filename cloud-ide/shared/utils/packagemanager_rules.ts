@@ -1,12 +1,5 @@
 import { BuildStep } from '../types/env';
 
-// export interface PackageManagerRule {
-//   watchFiles: string[]; // Files the SyncDaemon should track
-//   compileDocker: (step: BuildStep) => string; // The mini-compiler for DockerGenerator
-//   installCommand: (packages: string[], isGlobal?:boolean) => string;  // this is to be run while the container is still active
-//   flags?: string []; // this is used to determinr the various commands we will use
-// }
-
 export interface PackageManagerRule {
   watchFiles: string[];
   installCommand: (packages: string[], isGlobal?: boolean, version?: string) => string;

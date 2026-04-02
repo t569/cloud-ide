@@ -81,7 +81,7 @@ export class StageOrchestrator {
     return {
       stages: [builderStage, runtimeStage],
       globalEnv: config.env || {},
-      bootUpAsRoot: config.bootUpAsRoot ?? true
+      bootUpAsRoot: config.bootUpAsRoot ?? true  // resolve to true if undefined, defaulting to root for better compatibility with various base images and build steps
     };
   }
 

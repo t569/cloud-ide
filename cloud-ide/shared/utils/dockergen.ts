@@ -242,7 +242,12 @@ export class DockerGenerator {
         currentPath = target;
       }
 
-      const rawCmd = this.translateStepWithBuildKit(step);
+
+      // RUN OUR INDIVIDUAL STEP COMMANDS WITH BUILDKIT CACHING LOGIC INTEGRATED
+      // TODO: add the flag for caching
+
+      
+      const rawCmd = this.translateStep(step, flags);
 
       // we wrap the code with the requires secrets
       // TODO: make this more robust
@@ -283,6 +288,7 @@ export class DockerGenerator {
   }
 
   // Detects the OS family based on the image name and provides the right setup tools
+  // TODO: we need to make this more dynamic and robust, maybe even inject custom setup scripts from the user config in case they have a custom image with unique requirements
   private static getSystemSetup(baseImage: string): string {
     const isAlpine = baseImage.includes('alpine');
 
@@ -304,30 +310,14 @@ export class DockerGenerator {
     && echo "devuser ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers\n\n`;
     }
   }
-  // TODO: integrate this into package manager rules
-  // Abstracted to a new method to inject BuildKit caching natively
-  private static translateStepWithBuildKit(step: BuildStep): string {
-    const pkgs = step.packages?.join(' ') || '';
-    
-    switch (step.type) {
-      case 'apt':
-        // BuildKit Cache + Auto Cleanup in the same layer
-        return `--mount=type=cache,target=/var/cache/apt,sharing=locked \\\n` +
-               `    --mount=type=cache,target=/var/lib/apt,sharing=locked \\\n` +
-               `    apt-get update && apt-get install -y --no-install-recommends ${pkgs}`;
-      case 'npm':
-        const globalFlag = step.isGlobal ? '-g' : '';
-        return `--mount=type=cache,target=/root/.npm,sharing=locked \\\n` +
-               `    npm install ${globalFlag} ${pkgs}`;
-      case 'pip':
-        return `--mount=type=cache,target=/root/.cache/pip,sharing=locked \\\n` +
-               `    pip install --no-cache-dir ${pkgs}`;
-      case 'shell':
-        return `${step.command}`;
-      default:
-        throw new Error(`Unsupported step type: ${step.type}`);
-    }
+
+
+  private static translateStep(step: BuildStep, flags?: string[]): string {
+
+    const rule = PackageManagerRules[step.type];
+    if(!rule) throw new Error(`Compilation Error: Unsupported step type ${step.type}`);
+
+
+    return `RUN ${rule.getBuildCommand(step, flags)}`;
   }
-
-
 }

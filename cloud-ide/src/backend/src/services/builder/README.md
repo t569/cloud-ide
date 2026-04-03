@@ -107,4 +107,4 @@ If you are looking to:
 * Modify how Multi-Stage routing works.
 * Update BuildKit compilation syntax.
 
-👉 **[Read the Pipeline Engine Documentation here](./pipeline/README.md)**
+👉 **[Read the Pipeline Engine Documentation here](../../../../pipeline/README.md)**

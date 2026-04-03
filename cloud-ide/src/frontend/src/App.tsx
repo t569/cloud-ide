@@ -219,3 +219,123 @@
 //   );
 // }
 
+/// src/App.tsx
+import React, { useState } from 'react';
+import { FileIcon } from '@frontend/common/FileIcon';
+
+// 1. Import your actual registry maps!
+// Adjust the import path based on your monorepo setup
+import { FILE_NAME_MAP, EXTENSION_MAP } from '@cloud-ide/shared/types/constants/iconRegistry';
+
+// 2. Dynamically generate our test files from the registry keys
+const exactMatches = Object.keys(FILE_NAME_MAP).map(name => ({
+  name: name,
+  category: 'Exact Match'
+}));
+
+const extensionMatches = Object.keys(EXTENSION_MAP).map(ext => ({
+  // We attach 'main.' or 'index.' just to make it look like a real file
+  name: ['json', 'yaml', 'yml', 'toml'].includes(ext) ? `config.${ext}` : `main.${ext}`,
+  category: 'Extension'
+}));
+
+const edgeCases = [
+  { name: 'unknown.wtf', category: 'VS Code Fallback' },
+  { name: 'test.spec.tsx', category: 'Complex Extension' },
+  { name: 'NO_EXTENSION_FILE', category: 'No Extension Fallback' }
+];
+
+const ALL_FILES = [...exactMatches, ...extensionMatches, ...edgeCases];
+
+export default function App() {
+  const [activeFile, setActiveFile] = useState<string | null>(ALL_FILES[0].name);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // Simple filter so you can quickly find 'rust' or 'python' in the massive list
+  const filteredFiles = ALL_FILES.filter(f => 
+    f.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const activeFileData = ALL_FILES.find(f => f.name === activeFile);
+
+  return (
+    <div className="min-h-screen bg-[#1e1e1e] text-[#cccccc] font-sans flex items-center justify-center p-8">
+      
+      <div className="flex gap-8 w-full max-w-5xl h-[800px]">
+        {/* Left Sidebar: File Explorer */}
+        <div className="w-80 bg-[#252526] border border-[#3c3f41] rounded-lg shadow-2xl flex flex-col overflow-hidden">
+          
+          <div className="px-4 py-3 bg-[#2d2d2d] border-b border-[#3c3f41] flex flex-col gap-2">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+              Explorer: Registry Stress Test ({ALL_FILES.length} items)
+            </span>
+            <input 
+              type="text" 
+              placeholder="Filter files..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-[#1e1e1e] border border-[#3c3f41] rounded px-2 py-1 text-xs text-white outline-none focus:border-[#4EC9B0]"
+            />
+          </div>
+
+          {/* The Scrollable File Tree */}
+          <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-[#4b4d4f]">
+            {filteredFiles.map((file) => (
+              <div 
+                key={file.name}
+                onClick={() => setActiveFile(file.name)}
+                className={`flex items-center gap-3 px-4 py-1.5 cursor-pointer transition-colors ${
+                  activeFile === file.name 
+                    ? 'bg-[#37373d] text-white' 
+                    : 'hover:bg-[#2a2d2e]'
+                }`}
+              >
+                <FileIcon fileName={file.name} size={18} />
+                <span className="text-sm font-jetbrains truncate flex-1">
+                  {file.name}
+                </span>
+              </div>
+            ))}
+            
+            {filteredFiles.length === 0 && (
+              <div className="p-4 text-xs text-gray-500 text-center">No files found.</div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Panel: Resolution Inspector */}
+        <div className="flex-1 bg-[#252526] border border-[#3c3f41] rounded-lg shadow-2xl p-6 flex flex-col items-center justify-center relative overflow-hidden">
+          
+          {/* A cool decorative background logo */}
+          <div className="absolute opacity-5 pointer-events-none transform scale-[10]">
+             {activeFile && <FileIcon fileName={activeFile} size={100} />}
+          </div>
+
+          {activeFile && activeFileData ? (
+            <div className="flex flex-col items-center text-center gap-6 z-10">
+              <div className="p-8 bg-[#1e1e1e]/80 backdrop-blur-sm rounded-2xl border border-[#3c3f41] shadow-2xl">
+                <FileIcon fileName={activeFile} size={96} />
+              </div>
+              
+              <div className="bg-[#1e1e1e]/80 backdrop-blur-sm px-6 py-4 rounded-lg border border-[#3c3f41]">
+                <h2 className="text-3xl font-bold text-white font-jetbrains mb-2">
+                  {activeFile}
+                </h2>
+                <div className="flex items-center justify-center gap-2">
+                  <span className={`text-xs px-2 py-1 rounded font-bold uppercase ${
+                    activeFileData.category === 'Exact Match' ? 'bg-purple-900/50 text-purple-400 border border-purple-500/30' :
+                    activeFileData.category === 'Extension' ? 'bg-blue-900/50 text-blue-400 border border-blue-500/30' :
+                    'bg-orange-900/50 text-orange-400 border border-orange-500/30'
+                  }`}>
+                    {activeFileData.category}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+    </div>
+  );
+}

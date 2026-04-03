@@ -1,97 +1,31 @@
-// src/components/env-manager/PackageSearchWidget.tsx
-
-// Search a registry for packages
-import { useState, useEffect, use } from 'react';
-import { searchRegistry, PackageSearchResult } from '../../services/package-registry/';
+// src/components/env-manager/widgets/PackageSearchWidget.tsx
+import React from 'react';
 import { InstallStepType } from '@cloud-ide/shared/types/env';
-
 import { RegistryIcon } from '../icons/RegistryIcon';
 import { PackageIcon } from '../icons/PackageIcon';
-
 import { VscError } from 'react-icons/vsc';
+import { usePackageSearchWidget } from '@frontend/env-manager/hooks/usePackageSearchWidget';
 
 interface PackageSearchWidgetProps {
-  fixedType?: InstallStepType; // Locks the registry if passed from a parent
-  onSelect?: (pkgName: string, version?: string) => void; // Overrides the default copy-to-clipboard behavior
-  hideHeader?: boolean; // Cleans up the UI for inline embedding
+  fixedType?: InstallStepType;
+  onSelect?: (pkgName: string, version?: string) => void;
+  hideHeader?: boolean;
 }
 
 export const PackageSearchWidget = ({ fixedType, onSelect, hideHeader }: PackageSearchWidgetProps) => {
-  const [query, setQuery] = useState('');
-  const [type, setType] = useState<InstallStepType>(fixedType || 'npm');
-  const [results, setResults] = useState<PackageSearchResult[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [isOpen, setIsOpen] = useState(false);
-  
-  const [error, setError] = useState<string | null>(null);
-
-
-  // Sync type if the parent changes the fixedType (e.g., changing dropdown in BuildStepCard)
-  useEffect(() => {
-    if (fixedType) {
-      setType(fixedType);
-      setQuery(''); // Clear search when registry changes
-      setResults([]);
-    }
-  }, [fixedType]);
-
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(async () => {
-      if (query.length > 1) {
-        setIsSearching(true);
-        setError(null); // Clear previous errors on new keystroke
-        
-        try {
-          // 1. Call our new decoupled facade
-          const data = await searchRegistry(query, type);
-          setResults(data);
-          setIsOpen(true);
-        } catch (err: any) {
-          // 2. Catch the RegistryError and update the UI state
-          setResults([]);
-          setIsOpen(false);
-          if (err.name === 'RegistryError') {
-            setError(err.message);
-          } else {
-            setError('An unexpected error occurred while searching.');
-          }
-        } finally {
-          setIsSearching(false);
-        }
-
-      } else {
-        setResults([]);
-        setIsOpen(false);
-        setError(null);
-      }
-    }, 400);
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [query, type]);
-
-
-
-  const handleAction = (pkgName: string, version?: string) => {
-    if (onSelect) {
-      // Inline Mode: Pass the selection back to the DependencyManager
-      onSelect(pkgName, version);
-    } else {
-      // Standalone Mode: Copy to clipboard
-      const textToCopy = version && query.includes('@') ? `${pkgName}@${version}` 
-                       : version && query.includes('==') ? `${pkgName}==${version}`
-                       : pkgName;
-      navigator.clipboard.writeText(textToCopy);
-    }
-    
-    setIsOpen(false);
-    setQuery('');
-  };
+  const {
+    query, setQuery,
+    type, setType,
+    results, isSearching,
+    isOpen, setIsOpen,
+    error, setError,
+    handleAction
+  } = usePackageSearchWidget({ fixedType, onSelect });
 
   return (
     <div className={`relative z-10 font-sans ${!hideHeader ? 'mb-6 p-4 bg-[#252526] border border-vscode-border rounded-lg shadow-sm' : ''}`}>
       {!hideHeader && <h3 className="text-sm font-semibold text-gray-200 mb-3">Registry Explorer</h3>}
       
-      {/* If there's an error, change the border to red! */}
       <div className={`flex items-center bg-vscode-bg border rounded transition ${error ? 'border-red-500/50' : 'border-vscode-border focus-within:border-vscode-accent'} ${hideHeader ? 'h-full' : ''}`}>
         
         <div className={`flex items-center pl-3 ${fixedType ? 'pr-3 border-r border-vscode-border opacity-80' : 'pr-1'}`}>
@@ -100,23 +34,12 @@ export const PackageSearchWidget = ({ fixedType, onSelect, hideHeader }: Package
           {!fixedType && (
             <select 
               value={type}
-              onChange={(e) => {
-                setType(e.target.value as InstallStepType);
-                setQuery('');
-                setError(null); // Clear error when switching registries
-              }}
+              onChange={(e) => setType(e.target.value as InstallStepType)}
               className="bg-transparent text-vscode-accent font-bold font-jetbrains text-sm p-2 outline-none appearance-none cursor-pointer"
             >
-              <option value="npm" className="bg-vscode-bg text-gray-200">NPM (npmjs.com)</option>
-              <option value="pip" className="bg-vscode-bg text-gray-200">PyPI (pypi.org)</option>
-              <option value="cargo" className="bg-vscode-bg text-gray-200">Cargo (crates.io)</option>
-              <option value="apt" className="bg-vscode-bg text-gray-200">APT Cache</option>
-              <option value="go" className="bg-vscode-bg text-gray-200">Go Modules</option>
-              <option value="ruby" className="bg-vscode-bg text-gray-200">RubyGems</option>
-              <option value="maven" className="bg-vscode-bg text-gray-200">Maven Central</option>
-              <option value="gradle" className="bg-vscode-bg text-gray-200">Gradle</option>
-              <option value="zig" className="bg-vscode-bg text-gray-200">Zig Build</option>
-              <option value="shell" className="bg-vscode-bg text-gray-200">Shell Cmd</option>
+              {['npm', 'pip', 'cargo', 'apt', 'go', 'ruby', 'maven', 'gradle', 'zig', 'shell'].map(t => (
+                <option key={t} value={t} className="bg-vscode-bg text-gray-200 uppercase">{t}</option>
+              ))}
             </select>
           )}
         </div>
@@ -129,9 +52,7 @@ export const PackageSearchWidget = ({ fixedType, onSelect, hideHeader }: Package
             onKeyDown={(e) => {
               if (e.key === 'Enter' && onSelect && query) {
                 e.preventDefault();
-                onSelect(query);
-                setQuery('');
-                setIsOpen(false);
+                handleAction(query);
               }
             }}
             placeholder={`Search ${type}...`} 
@@ -145,9 +66,9 @@ export const PackageSearchWidget = ({ fixedType, onSelect, hideHeader }: Package
         </div>
       </div>
 
-      {/* NEW: Error Notification Panel */}
+      {/* Error Notification Panel */}
       {error && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-[#2d0a0a] border border-red-500/30 rounded shadow-2xl z-50 p-3 flex items-start gap-2 animate-in fade-in slide-in-from-top-2">
+        <div className="absolute top-full left-0 right-0 mt-2 bg-[#2d0a0a] border border-red-500/30 rounded shadow-2xl z-50 p-3 flex items-start gap-2">
           <VscError className="text-red-400 mt-0.5 flex-shrink-0" size={16} />
           <div>
             <span className="block text-xs font-bold text-red-400 font-jetbrains mb-0.5">Registry Error</span>

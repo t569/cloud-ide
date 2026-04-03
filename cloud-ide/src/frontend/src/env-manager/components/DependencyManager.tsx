@@ -7,18 +7,13 @@
 // This component is designed to be flexible for different package managers
 //  (npm, pip, etc.) based on the stepType prop.
 
-
 // src/components/env-manager/components/DependencyManager.tsx
-import React, { useRef } from 'react';
+import React from 'react';
 import { InstallStepType } from '@cloud-ide/shared/types/env';
-
 import { PackageSearchWidget } from './widgets/PackageSearchWidget';
-import { PackageIcon } from 'lucide-react';
+import { PackageIcon } from './icons/PackageIcon'; // Assuming your custom icon component
 import { VscFileCode, VscClose } from 'react-icons/vsc';
-
-// Import our new brains
-import { useDependencyParser } from '../hooks/useDependencyParser';
-import { useDependencyList } from '../hooks/useDependencyList';
+import { useDependencyActions } from '../hooks/useDependencyActions';
 
 interface DependencyManagerProps {
   stepType: InstallStepType;
@@ -27,32 +22,20 @@ interface DependencyManagerProps {
 }
 
 export const DependencyManager = ({ stepType, packages, onChange }: DependencyManagerProps) => {
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // All logic, refs, and state are handled here
+  const { 
+    handleAdd, 
+    handleRemove, 
+    handleFileUpload, 
+    triggerFileUpload,
+    fileInputRef,
+    isParsing,
+    parseError,
+    acceptedExtensions 
+  } = useDependencyActions(stepType, packages, onChange);
 
-  // 1. Initialize our hooks
-  const { handleAdd, handleRemove, handleBulkAdd } = useDependencyList(stepType, packages, onChange);
-  const { parseFile, isParsing, parseError, acceptedExtensions, setParseError } = useDependencyParser(stepType);
-
-  // 2. Minimal UI Event Handler
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    
-    try {
-      const importedPkgs = await parseFile(file);
-      handleBulkAdd(importedPkgs);
-    } catch (error) {
-      // The hook manages the error string, so we don't strictly need an alert here anymore unless you want a toast!
-    } finally {
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
-  };
-
-  // 3. Pure JSX Return
   return (
     <div className="flex flex-col gap-3 font-sans">
-      
-      {/* Input Row */}
       <div className="flex gap-2 items-stretch h-10">
         <div className="flex-1">
           <PackageSearchWidget 
@@ -62,22 +45,18 @@ export const DependencyManager = ({ stepType, packages, onChange }: DependencyMa
           />
         </div>
 
-        {/* File Import Button */}
         <button 
           type="button" 
-          onClick={() => {
-            setParseError(null); // Clear old errors when clicking
-            fileInputRef.current?.click();
-          }}
+          onClick={triggerFileUpload}
           disabled={isParsing}
           className="px-3 bg-vscode-tab hover:bg-[#3c3f41] border border-vscode-border rounded text-vscode-textDim flex items-center gap-2 transition disabled:opacity-50"
-          title={`Import ${stepType === 'npm' ? 'package.json' : stepType === 'pip' ? 'requirements.txt' : 'dependencies file'}`}
         >
           <VscFileCode size={16} />
           <span className="text-sm hidden sm:inline">
             {isParsing ? 'Parsing...' : 'Import'}
           </span>
         </button>
+        
         <input 
           type="file" 
           ref={fileInputRef} 
@@ -87,12 +66,10 @@ export const DependencyManager = ({ stepType, packages, onChange }: DependencyMa
         />
       </div>
 
-      {/* Error State for File Upload */}
       {parseError && (
         <span className="text-red-400 text-xs px-1">{parseError}</span>
       )}
 
-      {/* Removable Badges Area */}
       {packages.length > 0 && (
         <div className="flex flex-wrap gap-2 p-2 bg-[#1e1e1e]/50 border border-vscode-border rounded-md min-h-[40px]">
           {packages.map((pkg, i) => (

@@ -1,11 +1,12 @@
-// src/components/env-manager/BuildStepCard.tsx
-
-import { useEffect } from 'react';
-import { useWatch, Control, UseFormRegister, UseFormSetValue } from 'react-hook-form';
-import { EnvironmentConfig, InstallStepType } from '@cloud-ide/shared/types/env';
+// src/components/env-manager/components/BuildStepCard.tsx
+import React from 'react';
+import { Control, UseFormRegister, UseFormSetValue } from 'react-hook-form';
+import { EnvironmentConfig } from '@cloud-ide/shared/types/env';
+import { SUPPORTED_INSTALL_STEPS } from '@cloud-ide/shared/types/env';
 
 import { StepIcon } from './icons/StepIcon';
-import { DependencyManager } from './DependencyManager'; // Import the new manager
+import { DependencyManager } from './DependencyManager';
+import { useBuildStepForm } from '../hooks/useBuildStepForm';
 
 interface BuildStepCardProps {
   index: number;
@@ -16,31 +17,10 @@ interface BuildStepCardProps {
 }
 
 export const BuildStepCard = ({ index, control, register, setValue, onRemove }: BuildStepCardProps) => {
-  const stepType = useWatch({
-    control,
-    name: `buildSteps.${index}.type`
-  }) as InstallStepType;
+  // 1. Attach the form brains
+  const { stepType, packageList, handlePackagesChange } = useBuildStepForm(index, control, setValue);
 
-  // Watch the packages array directly
-  const packages = useWatch({
-    control,
-    name: `buildSteps.${index}.packages`
-  }) as string[] | undefined;
-
-  const packageList = packages || [];
-
-  // Wipe packages when the stepType changes so npm packages don't end up in pip
-  useEffect(() => {
-    if (stepType !== 'shell') {
-      setValue(`buildSteps.${index}.packages`, []);
-    }
-  }, [stepType, index, setValue]);
-
-  // Wrapper function to pass to DependencyManager
-  const handlePackagesChange = (newPackages: string[]) => {
-    setValue(`buildSteps.${index}.packages`, newPackages, { shouldDirty: true });
-  };
-
+  // 2. Pure UI Return
   return (
     <div className="p-4 border border-vscode-border rounded mb-4 bg-vscode-sidebar text-white shadow-lg flex flex-col gap-4">
       
@@ -55,9 +35,11 @@ export const BuildStepCard = ({ index, control, register, setValue, onRemove }: 
             {...register(`buildSteps.${index}.type`)} 
             className="p-1.5 border border-vscode-border rounded bg-vscode-tab text-vscode-textDim font-medium cursor-pointer focus:border-vscode-accent outline-none"
           >
-            {/* TODO: we need to make this more dynamic as we add more types, maybe with a config file or something */}
-            {['apt', 'npm', 'pip', 'cargo', 'go', 'gradle', 'ruby', 'maven', 'zig', 'shell'].map(t => (
-              <option key={t} value={t} className="bg-vscode-tab text-white">{t}</option>
+            {/* Using the centralized constant instead of a hardcoded array */}
+            {SUPPORTED_INSTALL_STEPS.map(t => (
+              <option key={t} value={t} className="bg-vscode-tab text-white">
+                {t}
+              </option>
             ))}
           </select>
         </div>
@@ -78,7 +60,7 @@ export const BuildStepCard = ({ index, control, register, setValue, onRemove }: 
         className="p-2 border border-vscode-border rounded w-full bg-vscode-bg text-white placeholder:text-vscode-textDim/50 focus:border-vscode-accent outline-none font-jetbrains text-sm" 
       />
 
-      {/* Conditional Rendering: Shell Command vs. The New Dependency Manager */}
+      {/* Conditional Rendering: Shell Command vs. Dependency Manager */}
       {stepType === 'shell' ? (
         <textarea 
           {...register(`buildSteps.${index}.command`)} 
@@ -88,7 +70,6 @@ export const BuildStepCard = ({ index, control, register, setValue, onRemove }: 
       ) : (
         <div className="flex flex-col gap-3 border-t border-vscode-border pt-3">
           
-          {/* THE NEW INLINE MANAGER */}
           <DependencyManager 
             stepType={stepType}
             packages={packageList}

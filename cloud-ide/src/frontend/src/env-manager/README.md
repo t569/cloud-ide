@@ -2,6 +2,16 @@
 
 The Frontend Environment Manager is the visual orchestrator of the Cloud IDE's Infrastructure as Code (IaC) experience. It provides a highly decoupled, modular interface that allows developers to define, edit, and visualize linear build pipelines before they are compiled into JSON manifests and dispatched to the backend.
 
+## 📸 The Environment Architect
+
+The primary interface provides a synchronized, split-view experience. As developers construct their pipeline visually on the left, the resulting IaC payload is generated in real-time on the right.
+
+![Environment Architect](./imgs/env_manager.png)
+
+*(Above: The Environment Architect interface demonstrating the Base Image Setup, the visual Build Pipeline for a TensorFlow installation via `pip`, and the synchronized `schema.json` output.)*
+
+---
+
 ## 🏗️ Architectural Philosophy
 
 The module strictly adheres to a **separation of concerns**, completely decoupling UI rendering from state management. 
@@ -53,3 +63,12 @@ The environment manager is styled to feel like a native, premium desktop applica
 2. **Preview:** The `JsonPreviewWidget` reflects the underlying data structure in real-time.
 3. **Compilation:** The `useEnvManager` hook compiles the visual state into the strict, linear JSON array format.
 4. **Execution:** The validated JSON payload is handed off to the backend `StageOrchestrator` to begin the physical Docker container generation.
+
+
+## Current TODOs Here:
+[x] Basic Environment Manager UI
+[ ] Setup the backend database proxy (check backend/server.ts)
+[ ] Setup the section to proxy saved environment from backend database
+
+# Should eventually look like this:
+![Environment Architect Finished](./imgs/env_manager_goal.png)

@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useWatch, Control, UseFormRegister, UseFormSetValue } from 'react-hook-form';
-import { EnvironmentConfig, InstallStepType } from '@cloud-ide/shared/types/env';
+import { EnvironmentConfig, INSTALL_STEPS, InstallStepType } from '@cloud-ide/shared/types/env';
 
 import { StepIcon } from './icons/StepIcon';
 import { DependencyManager } from './DependencyManager'; // Import the new manager
@@ -56,7 +56,7 @@ export const BuildStepCard = ({ index, control, register, setValue, onRemove }: 
             className="p-1.5 border border-vscode-border rounded bg-vscode-tab text-vscode-textDim font-medium cursor-pointer focus:border-vscode-accent outline-none"
           >
             {/* TODO: we need to make this more dynamic as we add more types, maybe with a config file or something */}
-            {['apt', 'npm', 'pip', 'cargo', 'go', 'gradle', 'ruby', 'maven', 'zig', 'shell'].map(t => (
+            {INSTALL_STEPS.map(t => (
               <option key={t} value={t} className="bg-vscode-tab text-white">{t}</option>
             ))}
           </select>

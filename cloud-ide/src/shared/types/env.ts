@@ -49,7 +49,6 @@ export const baseAliases: Record<string, string[]> = {
       'golang': ['go', 'golang']
     }
 
-
 /* EXAMPLE SCHEMA
 
 for package version, include it on the name e.g tensorflow==1.0.0

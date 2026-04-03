@@ -12,6 +12,8 @@ export interface PackageSearchResult {
   exactMatch?: boolean;
 }
 
+
+
 export interface IRegistry {
   /**
    * Searches the package registry.

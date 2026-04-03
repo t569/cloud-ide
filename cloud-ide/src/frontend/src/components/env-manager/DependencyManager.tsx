@@ -44,6 +44,8 @@ export const DependencyManager = ({ stepType, packages, onChange }: DependencyMa
     onChange(packages.filter(p => p !== pkgToRemove));
   };
 
+  // TODO: (make more robust) Handle file uploads to import dependencies
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;

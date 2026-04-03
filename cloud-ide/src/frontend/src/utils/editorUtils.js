@@ -13,8 +13,10 @@ export const getLanguageFromExtension = (filename) => {
     case 'json': return 'json';
     case 'py': case 'ipynb': case 'pyc': return 'python';
     case 'rs': return 'rust';
+    case 'rb': return 'ruby';
     case 'cpp': case 'cc': case 'cxx': case 'hpp': return 'cpp';
     case 'c': case 'h': return 'c';
+    case 'cs': return 'csharp';
     case 'java': case 'jar': case 'class': return 'java';
     case 'sh': case 'bash': case 'zsh': return 'shell';
     case 'md': return 'markdown';

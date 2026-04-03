@@ -1,0 +1,90 @@
+// frontend/src/components/EnvironmentManager/BuildStepEditor.jsx
+import React, { useState } from 'react';
+import { VscTrash, VscAdd } from 'react-icons/vsc';
+import { DynamicPackageIcon } from '../../utils/packageIcons';
+
+export function BuildStepEditor({ step, index, onUpdate, onRemove, baseImage }) {
+  const [newPkgInput, setNewPkgInput] = useState('');
+
+  const handleAddPackage = () => {
+    if (!newPkgInput.trim()) return;
+    
+    // Prevent duplicates in this step
+    if (step.packages?.includes(newPkgInput.trim())) return;
+
+    const updatedPackages = [...(step.packages || []), newPkgInput.trim()];
+    onUpdate(index, { ...step, packages: updatedPackages });
+    setNewPkgInput('');
+  };
+
+  const handleRemovePackage = (pkgToRemove) => {
+    const updatedPackages = step.packages.filter(p => p !== pkgToRemove);
+    onUpdate(index, { ...step, packages: updatedPackages });
+  };
+
+  return (
+    <div className="border border-vscode-border rounded mb-4 bg-[#252526]">
+      <div className="flex justify-between items-center p-2 border-b border-vscode-border bg-[#2d2d2d]">
+        <input 
+          className="bg-transparent text-white font-bold text-sm focus:outline-none w-1/2"
+          value={step.name}
+          onChange={(e) => onUpdate(index, { ...step, name: e.target.value })}
+        />
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-400 font-mono uppercase bg-black/30 px-2 py-1 rounded">{step.type}</span>
+          <button onClick={() => onRemove(index)} className="text-gray-400 hover:text-red-400"><VscTrash /></button>
+        </div>
+      </div>
+
+      <div className="p-3">
+        {/* Step Configuration (Global, Target Path) */}
+        {step.type !== 'shell' && step.type !== 'apt' && (
+          <div className="mb-3 flex items-center gap-2">
+            <label className="text-xs text-gray-400 flex items-center gap-1 cursor-pointer">
+              <input 
+                type="checkbox" 
+                checked={step.isGlobal !== false} 
+                onChange={(e) => onUpdate(index, { ...step, isGlobal: e.target.checked })}
+              />
+              Global Install
+            </label>
+          </div>
+        )}
+
+        {/* Package Manager Input */}
+        {step.type !== 'shell' ? (
+          <div>
+            <div className="flex gap-2 mb-3">
+              <input 
+                className="flex-1 bg-vscode-input text-white border border-vscode-border rounded px-2 py-1 text-sm"
+                placeholder={`Add package (e.g., react@18.0.0)`}
+                value={newPkgInput}
+                onChange={(e) => setNewPkgInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddPackage()}
+              />
+              <button onClick={handleAddPackage} className="bg-vscode-accent px-3 rounded text-white"><VscAdd /></button>
+            </div>
+            
+            <div className="flex flex-wrap gap-2">
+              {step.packages?.map(pkg => (
+                <div key={pkg} className="flex items-center gap-2 bg-[#1e1e1e] border border-vscode-border px-2 py-1 rounded text-xs text-gray-300">
+                  <DynamicPackageIcon name={pkg} size={12} type={step.type === 'apt' ? 'system' : 'language'} baseImage={baseImage} />
+                  <span>{pkg}</span>
+                  <button onClick={() => handleRemovePackage(pkg)} className="hover:text-red-400 ml-1">×</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <textarea 
+            className="w-full bg-vscode-input text-white border border-vscode-border rounded px-2 py-2 text-sm font-mono"
+            placeholder="curl -L https://example.com/install.sh | bash"
+            value={step.command || ''}
+            onChange={(e) => onUpdate(index, { ...step, command: e.target.value })}
+            rows={3}
+          />
+        )}
+      </div>
+    </div>
+  );
+}

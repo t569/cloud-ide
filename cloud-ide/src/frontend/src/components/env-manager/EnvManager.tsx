@@ -3,10 +3,8 @@ import { EnvironmentConfig } from '@cloud-ide/shared/types/env';
 
 // Import our newly decoupled components
 import { JsonPreviewWidget } from './widgets/JsonPreviewWidget';
-import { PackageSearch } from './PackageSearch';
 import { BuildPipeline } from './BuildPipeline';
 import { BaseImageIcon } from './icons/BaseImageIcon';
-import { PackageSearchWidget } from './widgets/PackageSearchWidget';
 
 export const EnvManager = () => {
   const { control, handleSubmit, watch, register, setValue } = useForm<EnvironmentConfig>({

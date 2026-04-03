@@ -9,7 +9,7 @@
 
 
 import React, { useEffect, useState } from 'react';
-import { parsePackageString } from '../utils/packageParser';
+import { parsePackageString } from '../../utils/packageParser'; // A utility to extract the package name for icon lookup
 import { StepIcon } from './StepIcon'; // Import the tool icons
 import { set } from 'react-hook-form';
 

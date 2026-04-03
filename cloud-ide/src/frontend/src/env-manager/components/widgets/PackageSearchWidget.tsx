@@ -2,7 +2,7 @@
 
 // Search a registry for packages
 import { useState, useEffect, use } from 'react';
-import { searchRegistry, PackageSearchResult } from '../services/package-registry/';
+import { searchRegistry, PackageSearchResult } from '../../services/package-registry/';
 import { InstallStepType } from '@cloud-ide/shared/types/env';
 
 import { RegistryIcon } from '../icons/RegistryIcon';

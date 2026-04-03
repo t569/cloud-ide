@@ -1,7 +1,7 @@
 import React from 'react';
 import { useForm, SubmitHandler } from 'react-hook-form';
 import { EnvironmentConfig } from '@cloud-ide/shared/types/env';
-import { exportEnvironmentConfig } from './services/exportApi';
+import { exportEnvironmentConfig } from '../services/api/exportApi';
 
 // Import our newly decoupled components
 import { JsonPreviewWidget } from './widgets/JsonPreviewWidget';

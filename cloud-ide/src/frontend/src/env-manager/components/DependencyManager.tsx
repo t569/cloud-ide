@@ -17,7 +17,7 @@ import { PackageIcon } from './icons/PackageIcon';
 import { VscFileCode, VscClose } from 'react-icons/vsc';
 
 // for parsing uploaded files
-import { DependencyParserRegistry } from './utils/parsers/DependecyParserRegistry';
+import { DependencyParserRegistry } from '../utils/parsers/DependecyParserRegistry';
 
 interface DependencyManagerProps {
   stepType: InstallStepType;

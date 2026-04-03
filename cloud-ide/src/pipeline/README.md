@@ -6,7 +6,7 @@ This system is completely decoupled from our API controllers, control plane, and
 
 ## 📁 Directory Structure
 
-\`\`\`text
+```text
 pipeline/
 ├── types/
 │   └── stage.ts                # Interfaces for DockerStages and Artifact Transfers
@@ -20,7 +20,7 @@ pipeline/
 │   └── DockerfileAssembler.ts  # Compiles the final text and maps BuildKit caches
 ├── StageOrchestrator.ts        # Splits linear steps into Builder vs Runtime stages
 └── ContextManager.ts           # Tracks WORKDIR, ENV, and User state during compilation
-\`\`\`
+```
 
 ---
 
@@ -57,7 +57,7 @@ If we migrate away from OpenSandbox or need to support a secondary cloud provide
 3. Use the `.inject()` method to push your custom daemons, `CMD` overrides, or environment variables into the `runtime` stage of the manifest.
 4. Register it in the `MiddlewareEngine` inside the `GeneratorService`.
 
-\`\`\`typescript
+```typescript
 // Example Implementation
 export class DatadogTracingInjector implements PipelineInjector {
   name = 'DatadogTracing';
@@ -76,7 +76,7 @@ export class DatadogTracingInjector implements PipelineInjector {
     return manifest;
   }
 }
-\`\`\`
+```
 
 ### Fixing Redundant `cd` Commands
 If the output Dockerfile is producing unnecessary directory hopping, check the `ContextManager.ts` implementation inside `DockerfileAssembler.buildStage()`. The Context Manager is responsible for ensuring `WORKDIR` is only injected when the `targetPath` explicitly changes from the previous step.

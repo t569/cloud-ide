@@ -1,7 +1,6 @@
 // src/frontend/src/components/env-manager/services/package-registry/index.ts
 
 import { RegistryFactory } from "./Registryfactory";
-import { RegistryError } from "./RegistryError";
 import { InstallStepType } from "@cloud-ide/shared/types/env";
 import { PackageSearchResult } from "./IRegistry";
 

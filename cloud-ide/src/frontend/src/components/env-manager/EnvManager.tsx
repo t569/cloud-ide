@@ -1,5 +1,7 @@
-import { useForm } from 'react-hook-form';
+import React from 'react';
+import { useForm, SubmitHandler } from 'react-hook-form';
 import { EnvironmentConfig } from '@cloud-ide/shared/types/env';
+import { exportEnvironmentConfig } from './services/exportApi';
 
 // Import our newly decoupled components
 import { JsonPreviewWidget } from './widgets/JsonPreviewWidget';
@@ -7,6 +9,10 @@ import { BuildPipeline } from './BuildPipeline';
 import { BaseImageIcon } from './icons/BaseImageIcon';
 
 export const EnvManager = () => {
+  const [isExporting, setIsExporting] = React.useState(false);
+  const [exportError, setExportError] = React.useState<string | null>(null);
+
+
   const { control, handleSubmit, watch, register, setValue } = useForm<EnvironmentConfig>({
     defaultValues: {
       id: '',
@@ -19,9 +25,32 @@ export const EnvManager = () => {
   const currentConfig = watch();
   const baseImage = watch('baseImage');
 
-  const onSubmit = (data: EnvironmentConfig) => {
-    console.log("Final JSON:", JSON.stringify(data, null, 2));
-    alert("Environment Configuration Generated!");
+  // const onSubmit = (data: EnvironmentConfig) => {
+  //   console.log("Final JSON:", JSON.stringify(data, null, 2));
+  //   alert("Environment Configuration Generated!");
+  // };
+
+
+  // SuBMISSION HANDLER WITH API CALL
+  const onSubmit: SubmitHandler<EnvironmentConfig> = async (data) => {
+    setIsExporting(true);
+    setExportError(null);
+
+
+    try {
+      // Send to the backend
+      const response = await exportEnvironmentConfig(data);
+      
+      // Success! You could redirect the user or show a success toast here
+      console.log('✅ Export Successful:', response);
+      alert('Environment successfully exported and built!');
+
+    } catch (error) {
+      console.error('❌ Export Error:', error);
+      setExportError((error as Error).message);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   return (
@@ -81,6 +110,15 @@ export const EnvManager = () => {
         {/* Right Column: Sticky Interactive Preview */}
         <JsonPreviewWidget config={currentConfig} />
 
+        {/* Optional Loading Overlay for UX */}
+      {isExporting && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+          <div className="bg-[#252526] p-6 rounded-lg border border-vscode-border shadow-2xl flex flex-col items-center gap-3">
+            <div className="w-8 h-8 border-4 border-vscode-accent border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-vscode-textDim font-jetbrains text-sm">Compiling Environment...</p>
+          </div>
+        </div>
+        )}
       </form>
     </div>
   );

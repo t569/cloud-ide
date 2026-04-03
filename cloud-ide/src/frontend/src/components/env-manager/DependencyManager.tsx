@@ -10,11 +10,14 @@
 
 import React, { useRef } from 'react';
 import { InstallStepType } from '@cloud-ide/shared/types/env';
-import { parseDependencyFile } from './utils/fileParser';
+// import { parseDependencyFile } from './utils/fileParser';
 
 import { PackageSearchWidget } from './widgets/PackageSearchWidget';
 import { PackageIcon } from './icons/PackageIcon';
 import { VscFileCode, VscClose } from 'react-icons/vsc';
+
+// for parsing uploaded files
+import { DependencyParserRegistry } from './utils/parsers/DependecyParserRegistry';
 
 interface DependencyManagerProps {
   stepType: InstallStepType;
@@ -50,13 +53,23 @@ export const DependencyManager = ({ stepType, packages, onChange }: DependencyMa
     const file = e.target.files?.[0];
     if (!file) return;
     
-    const importedPkgs = await parseDependencyFile(file, stepType);
-    const updatedList = Array.from(new Set([...packages, ...importedPkgs]));
-    onChange(updatedList);
-    
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
+    try {
+      // We pass the file and the stepType (e.g., 'pip') to our new Registry
+      const importedPkgs = await DependencyParserRegistry.parseFile(file, stepType);
+      
+      // Deduplicate and update state
+      const updatedList = Array.from(new Set([...packages, ...importedPkgs]));
+      onChange(updatedList);
 
+    } catch (error) {
+      // Here you could trigger a toast notification or set an error state
+      console.error((error as Error).message);
+      alert((error as Error).message); 
+    } finally {
+      // Reset the file input so the user can upload the same file again if needed
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
   return (
     <div className="flex flex-col gap-3 font-sans">
       
@@ -86,7 +99,7 @@ export const DependencyManager = ({ stepType, packages, onChange }: DependencyMa
           type="file" 
           ref={fileInputRef} 
           className="hidden" 
-          accept={stepType === 'npm' ? '.json' : '.txt'}
+          accept={DependencyParserRegistry.getAcceptedExtensions(stepType)}
           onChange={handleFileUpload} 
         />
       </div>

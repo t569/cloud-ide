@@ -66,9 +66,9 @@ The environment manager is styled to feel like a native, premium desktop applica
 
 
 ## Current TODOs Here:
-[x] Basic Environment Manager UI
-[ ] Setup the backend database proxy (check backend/server.ts)
-[ ] Setup the section to proxy saved environment from backend database
+ - [x] Basic Environment Manager UI
+ - [ ] Setup the backend database proxy (check backend/server.ts)
+ - [ ] Setup the section to proxy saved environment from backend database
 
 # Should eventually look like this:
 ![Environment Architect Finished](./imgs/env_manager_goal.png)

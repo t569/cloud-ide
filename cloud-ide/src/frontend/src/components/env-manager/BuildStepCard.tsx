@@ -1,9 +1,11 @@
+// src/components/env-manager/BuildStepCard.tsx
+
 import { useEffect } from 'react';
 import { useWatch, Control, UseFormRegister, UseFormSetValue } from 'react-hook-form';
 import { EnvironmentConfig, InstallStepType } from '@cloud-ide/shared/types/env';
 
 import { StepIcon } from './icons/StepIcon';
-import { PackageIcon } from './icons/PackageIcon';
+import { DependencyManager } from './DependencyManager'; // Import the new manager
 
 interface BuildStepCardProps {
   index: number;
@@ -19,6 +21,7 @@ export const BuildStepCard = ({ index, control, register, setValue, onRemove }: 
     name: `buildSteps.${index}.type`
   }) as InstallStepType;
 
+  // Watch the packages array directly
   const packages = useWatch({
     control,
     name: `buildSteps.${index}.packages`
@@ -26,17 +29,19 @@ export const BuildStepCard = ({ index, control, register, setValue, onRemove }: 
 
   const packageList = packages || [];
 
-  // 3. EFFECT: Wipe packages when the stepType changes
+  // Wipe packages when the stepType changes so npm packages don't end up in pip
   useEffect(() => {
-    // We only wipe it if it's not a shell step (since shell doesn't use the packages array anyway)
     if (stepType !== 'shell') {
       setValue(`buildSteps.${index}.packages`, []);
     }
   }, [stepType, index, setValue]);
 
+  // Wrapper function to pass to DependencyManager
+  const handlePackagesChange = (newPackages: string[]) => {
+    setValue(`buildSteps.${index}.packages`, newPackages, { shouldDirty: true });
+  };
 
   return (
-    // Changed to use your VS Code Sidebar color and a subtle border
     <div className="p-4 border border-vscode-border rounded mb-4 bg-vscode-sidebar text-white shadow-lg flex flex-col gap-4">
       
       {/* Header: Tool Icon, Type Selector, and Remove Button */}
@@ -48,11 +53,9 @@ export const BuildStepCard = ({ index, control, register, setValue, onRemove }: 
 
           <select 
             {...register(`buildSteps.${index}.type`)} 
-            // Using IDE colors for the dropdown
             className="p-1.5 border border-vscode-border rounded bg-vscode-tab text-vscode-textDim font-medium cursor-pointer focus:border-vscode-accent outline-none"
           >
-            {/* TODO: we need to route this dynamically from InstallStepType enum */}
-            {['apt', 'npm', 'pip', 'cargo', 'go', 'ruby', 'maven', 'gradle', 'zig', 'shell'].map(t => (
+            {['apt', 'npm', 'pip', 'cargo', 'go', 'ruby', 'maven', 'zig', 'shell'].map(t => (
               <option key={t} value={t} className="bg-vscode-tab text-white">{t}</option>
             ))}
           </select>
@@ -70,64 +73,41 @@ export const BuildStepCard = ({ index, control, register, setValue, onRemove }: 
       {/* Step Name Input */}
       <input 
         {...register(`buildSteps.${index}.name`)} 
-        placeholder="Step Name (e.g., Install Global Python Tools)" 
-        // Explicitly using the IDE background and text colors
-        className="p-2 border border-vscode-border rounded w-full bg-vscode-bg text-white placeholder:text-vscode-textDim/50 focus:border-vscode-accent outline-none" 
+        placeholder="Step Name (e.g., Install Global Dependencies)" 
+        className="p-2 border border-vscode-border rounded w-full bg-vscode-bg text-white placeholder:text-vscode-textDim/50 focus:border-vscode-accent outline-none font-jetbrains text-sm" 
       />
 
-      {/* Conditional Rendering: Shell Command vs. Package Management */}
+      {/* Conditional Rendering: Shell Command vs. The New Dependency Manager */}
       {stepType === 'shell' ? (
         <textarea 
           {...register(`buildSteps.${index}.command`)} 
           placeholder="Enter shell command..." 
-          className="p-2 border border-vscode-border rounded font-mono text-sm w-full h-24 bg-vscode-bg text-white placeholder:text-vscode-textDim/50 focus:border-vscode-accent outline-none"
+          className="p-2 border border-vscode-border rounded font-jetbrains text-sm w-full h-24 bg-vscode-bg text-white placeholder:text-vscode-textDim/50 focus:border-vscode-accent outline-none"
         />
       ) : (
         <div className="flex flex-col gap-3 border-t border-vscode-border pt-3">
-          <div className="flex flex-col gap-2">
-            <input 
-              key={stepType} // Reset input when type changes
-              {...register(`buildSteps.${index}.packages` as const, {
-                setValueAs: (v) => {
-                  if (Array.isArray(v)) return v;
-                  return v ? v.split(',').map((s: string) => s.trim()).filter(Boolean) : [];
-                }
-              })} 
-              defaultValue={packageList.join(', ')}
-              placeholder="Packages (comma separated, e.g. fastapi, uvicorn)" 
-              className="p-2 border border-vscode-border rounded w-full bg-vscode-bg text-white placeholder:text-vscode-textDim/50 focus:border-vscode-accent outline-none"
-            />
-
-            {/* Individual Package Badges - Styled like IDE Tabs */}
-            {packageList.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-1">
-                {packageList.map((pkg, i) => (
-                  <div 
-                    key={`${pkg}-${i}`} 
-                    className="flex items-center gap-2 bg-vscode-tab border border-vscode-border rounded-md px-2.5 py-1 text-sm text-vscode-textDim shadow-sm"
-                  >
-                    <PackageIcon name={pkg} type={stepType} size={14} />
-                    <span className="font-mono">{pkg}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          
+          {/* THE NEW INLINE MANAGER */}
+          <DependencyManager 
+            stepType={stepType}
+            packages={packageList}
+            onChange={handlePackagesChange}
+          />
 
           {/* Footer Config: Global Toggle and Target Path */}
-          <div className="flex gap-6 items-center bg-vscode-bg/50 p-2 rounded mt-1 border border-vscode-border">
+          <div className="flex gap-6 items-center bg-vscode-bg/50 p-2 rounded border border-vscode-border mt-1">
             <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-vscode-textDim">
               <input 
                 type="checkbox" 
                 {...register(`buildSteps.${index}.isGlobal`)} 
-                className="w-4 h-4 rounded border-vscode-border bg-vscode-bg text-vscode-accent focus:ring-0"
+                className="w-4 h-4 rounded border-vscode-border bg-vscode-bg focus:ring-0"
               />
               Global Install
             </label>
             <input 
               {...register(`buildSteps.${index}.targetPath`)} 
               placeholder="Target Path (e.g. /workspace/api)" 
-              className="p-1 border-b border-vscode-border bg-transparent text-sm flex-1 text-vscode-textDim placeholder:text-vscode-textDim/30 outline-none focus:border-vscode-accent"
+              className="p-1 border-b border-vscode-border bg-transparent text-sm flex-1 text-vscode-textDim placeholder:text-vscode-textDim/30 outline-none focus:border-vscode-accent font-jetbrains"
             />
           </div>
         </div>

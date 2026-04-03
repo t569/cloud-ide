@@ -1,20 +1,28 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
 @import "tailwindcss";
+
 
 /* in case you havent downloaded the jetbrains font on your browser */
 
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+
 @theme {
+  /* VS Code inspired color palette */
   --color-vscode-bg: #1e1e1e;
   --color-vscode-sidebar: #252526;
   --color-vscode-tab: #2d2d2d;
   --color-vscode-border: #333333;
   --color-vscode-accent: #007acc;
   --color-vscode-textDim: #cccccc;
+
+  /* Font Overrides */
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-jetbrains: 'JetBrains Mono', monospace;
+
 }
 
 body {
   margin: 0;
-  font-family: 'Inter', sans-serif; /* Beautiful UI font */
+  font-family: var(--font-mono);
   background-color: var(--color-vscode-bg);
   color: white;
 }

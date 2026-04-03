@@ -55,7 +55,8 @@ export const BuildStepCard = ({ index, control, register, setValue, onRemove }: 
             {...register(`buildSteps.${index}.type`)} 
             className="p-1.5 border border-vscode-border rounded bg-vscode-tab text-vscode-textDim font-medium cursor-pointer focus:border-vscode-accent outline-none"
           >
-            {['apt', 'npm', 'pip', 'cargo', 'go', 'ruby', 'maven', 'zig', 'shell'].map(t => (
+            {/* TODO: we need to make this more dynamic as we add more types, maybe with a config file or something */}
+            {['apt', 'npm', 'pip', 'cargo', 'go', 'gradle', 'ruby', 'maven', 'zig', 'shell'].map(t => (
               <option key={t} value={t} className="bg-vscode-tab text-white">{t}</option>
             ))}
           </select>

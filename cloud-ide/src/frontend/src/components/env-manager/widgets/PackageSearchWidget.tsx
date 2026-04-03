@@ -1,12 +1,14 @@
 // src/components/env-manager/PackageSearchWidget.tsx
 
 // Search a registry for packages
-import { useState, useEffect } from 'react';
-import { searchRegistry, PackageSearchResult } from '../services/packageApi';
+import { useState, useEffect, use } from 'react';
+import { searchRegistry, PackageSearchResult } from '../services/package-registry/';
 import { InstallStepType } from '@cloud-ide/shared/types/env';
 
 import { RegistryIcon } from '../icons/RegistryIcon';
 import { PackageIcon } from '../icons/PackageIcon';
+
+import { VscError } from 'react-icons/vsc';
 
 interface PackageSearchWidgetProps {
   fixedType?: InstallStepType; // Locks the registry if passed from a parent
@@ -21,6 +23,9 @@ export const PackageSearchWidget = ({ fixedType, onSelect, hideHeader }: Package
   const [isSearching, setIsSearching] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   
+  const [error, setError] = useState<string | null>(null);
+
+
   // Sync type if the parent changes the fixedType (e.g., changing dropdown in BuildStepCard)
   useEffect(() => {
     if (fixedType) {
@@ -34,18 +39,37 @@ export const PackageSearchWidget = ({ fixedType, onSelect, hideHeader }: Package
     const delayDebounceFn = setTimeout(async () => {
       if (query.length > 1) {
         setIsSearching(true);
-        const data = await searchRegistry(query, type);
-        setResults(data);
-        setIsSearching(false);
-        setIsOpen(true);
+        setError(null); // Clear previous errors on new keystroke
+        
+        try {
+          // 1. Call our new decoupled facade
+          const data = await searchRegistry(query, type);
+          setResults(data);
+          setIsOpen(true);
+        } catch (err: any) {
+          // 2. Catch the RegistryError and update the UI state
+          setResults([]);
+          setIsOpen(false);
+          if (err.name === 'RegistryError') {
+            setError(err.message);
+          } else {
+            setError('An unexpected error occurred while searching.');
+          }
+        } finally {
+          setIsSearching(false);
+        }
+
       } else {
         setResults([]);
         setIsOpen(false);
+        setError(null);
       }
     }, 400);
 
     return () => clearTimeout(delayDebounceFn);
   }, [query, type]);
+
+
 
   const handleAction = (pkgName: string, version?: string) => {
     if (onSelect) {
@@ -67,19 +91,19 @@ export const PackageSearchWidget = ({ fixedType, onSelect, hideHeader }: Package
     <div className={`relative z-10 font-sans ${!hideHeader ? 'mb-6 p-4 bg-[#252526] border border-vscode-border rounded-lg shadow-sm' : ''}`}>
       {!hideHeader && <h3 className="text-sm font-semibold text-gray-200 mb-3">Registry Explorer</h3>}
       
-      <div className={`flex items-center bg-vscode-bg border border-vscode-border rounded transition focus-within:border-vscode-accent ${hideHeader ? 'h-full' : ''}`}>
+      {/* If there's an error, change the border to red! */}
+      <div className={`flex items-center bg-vscode-bg border rounded transition ${error ? 'border-red-500/50' : 'border-vscode-border focus-within:border-vscode-accent'} ${hideHeader ? 'h-full' : ''}`}>
         
-        {/* Registry Icon Context */}
         <div className={`flex items-center pl-3 ${fixedType ? 'pr-3 border-r border-vscode-border opacity-80' : 'pr-1'}`}>
           <RegistryIcon type={type} size={18} />
           
-          {/* Only show the dropdown if it's NOT fixed by a parent */}
           {!fixedType && (
             <select 
               value={type}
               onChange={(e) => {
                 setType(e.target.value as InstallStepType);
                 setQuery('');
+                setError(null); // Clear error when switching registries
               }}
               className="bg-transparent text-vscode-accent font-bold font-jetbrains text-sm p-2 outline-none appearance-none cursor-pointer"
             >
@@ -90,19 +114,18 @@ export const PackageSearchWidget = ({ fixedType, onSelect, hideHeader }: Package
               <option value="go" className="bg-vscode-bg text-gray-200">Go Modules</option>
               <option value="ruby" className="bg-vscode-bg text-gray-200">RubyGems</option>
               <option value="maven" className="bg-vscode-bg text-gray-200">Maven Central</option>
+              <option value="gradle" className="bg-vscode-bg text-gray-200">Gradle</option>
               <option value="zig" className="bg-vscode-bg text-gray-200">Zig Build</option>
               <option value="shell" className="bg-vscode-bg text-gray-200">Shell Cmd</option>
             </select>
           )}
         </div>
 
-        {/* Search Input */}
         <div className="flex-1 relative">
           <input 
             type="text" 
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            // Allow "Enter" key for manual comma-separated additions if passed down
             onKeyDown={(e) => {
               if (e.key === 'Enter' && onSelect && query) {
                 e.preventDefault();
@@ -111,7 +134,7 @@ export const PackageSearchWidget = ({ fixedType, onSelect, hideHeader }: Package
                 setIsOpen(false);
               }
             }}
-            placeholder={`Search ${type}... (or comma-separated)`} 
+            placeholder={`Search ${type}...`} 
             className="w-full p-2 pl-3 bg-transparent text-gray-200 font-jetbrains text-sm outline-none placeholder-vscode-textDim/50"
           />
           {isSearching && (
@@ -121,6 +144,17 @@ export const PackageSearchWidget = ({ fixedType, onSelect, hideHeader }: Package
           )}
         </div>
       </div>
+
+      {/* NEW: Error Notification Panel */}
+      {error && (
+        <div className="absolute top-full left-0 right-0 mt-2 bg-[#2d0a0a] border border-red-500/30 rounded shadow-2xl z-50 p-3 flex items-start gap-2 animate-in fade-in slide-in-from-top-2">
+          <VscError className="text-red-400 mt-0.5 flex-shrink-0" size={16} />
+          <div>
+            <span className="block text-xs font-bold text-red-400 font-jetbrains mb-0.5">Registry Error</span>
+            <span className="block text-xs text-red-300/80 font-sans">{error}</span>
+          </div>
+        </div>
+      )}
 
       {/* Floating Results Panel */}
       {isOpen && results.length > 0 && (

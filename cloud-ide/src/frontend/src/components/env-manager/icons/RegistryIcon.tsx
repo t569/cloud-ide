@@ -2,7 +2,8 @@
 import React from 'react';
 import { 
   SiNpm, SiPypi, SiRust, SiUbuntu, 
-  SiGo, SiRubygems, SiApachemaven, SiZig 
+  SiGo, SiRubygems, SiApachemaven, SiZig, 
+  SiGradle
 } from 'react-icons/si';
 import { VscTerminalCmd } from 'react-icons/vsc';
 import { InstallStepType } from '@cloud-ide/shared/types/env';
@@ -21,6 +22,7 @@ export const RegistryIcon = ({ type, size = 18 }: RegistryIconProps) => {
     go: <SiGo color="#00ADD8" title="Go Modules" />,
     ruby: <SiRubygems color="#E9573F" title="RubyGems" />,
     maven: <SiApachemaven color="#C71A36" title="Maven Central" />,
+    gradle: <SiGradle color="#02303A" title="Gradle Plugin Portal" />,
     zig: <SiZig color="#F7A41D" title="Zig Build System" />,
     shell: <VscTerminalCmd color="#cccccc" title="Custom Shell Command" />
   };

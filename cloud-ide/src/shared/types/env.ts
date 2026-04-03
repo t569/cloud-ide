@@ -4,7 +4,14 @@
 
 
 // we can then add any type
-export type InstallStepType = 'apt' | 'npm' | 'pip' | 'cargo' | 'go' | 'ruby' | 'maven' | 'zig' | 'shell';
+export const INSTALL_STEPS = [
+  'apt', 'npm', 'pip',
+  'cargo', 'go', 'ruby',
+  'maven', 'gradle', 'zig', 'shell'
+] as const; 
+
+
+export type InstallStepType = typeof INSTALL_STEPS[number];
 
 
 // each build step should define an isolated workflow for a particular path

@@ -13,6 +13,14 @@ export const INSTALL_STEPS = [
 
 export type InstallStepType = typeof INSTALL_STEPS[number];
 
+// REDUNDANT with SUPPORTED_INSTALL_STEPS, 
+// but this file should be the single source of truth for types, 
+// so we can import this into the frontend and backend and remove the one in constants/env
+// This is now the single source of truth for your UI dropdowns
+export const SUPPORTED_INSTALL_STEPS: InstallStepType[] = [
+  'apt', 'npm', 'pip', 'cargo', 'go', 'gradle', 'ruby', 'maven', 'zig', 'shell'
+];
+
 
 // each build step should define an isolated workflow for a particular path
 export interface BuildStep {

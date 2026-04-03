@@ -8,16 +8,17 @@
 //  (npm, pip, etc.) based on the stepType prop.
 
 
+// src/components/env-manager/components/DependencyManager.tsx
 import React, { useRef } from 'react';
 import { InstallStepType } from '@cloud-ide/shared/types/env';
-// import { parseDependencyFile } from './utils/fileParser';
 
 import { PackageSearchWidget } from './widgets/PackageSearchWidget';
-import { PackageIcon } from './icons/PackageIcon';
+import { PackageIcon } from 'lucide-react';
 import { VscFileCode, VscClose } from 'react-icons/vsc';
 
-// for parsing uploaded files
-import { DependencyParserRegistry } from '../utils/parsers/DependecyParserRegistry';
+// Import our new brains
+import { useDependencyParser } from '../hooks/useDependencyParser';
+import { useDependencyList } from '../hooks/useDependencyList';
 
 interface DependencyManagerProps {
   stepType: InstallStepType;
@@ -28,56 +29,32 @@ interface DependencyManagerProps {
 export const DependencyManager = ({ stepType, packages, onChange }: DependencyManagerProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleAdd = (pkgString: string, version?: string) => {
-    // If a version string is passed, format it. Otherwise, split by commas for manual entry.
-    let newPkgs: string[] = [];
-    if (version) {
-       // Append version syntax based on registry format
-       const formatted = stepType === 'pip' ? `${pkgString}==${version}` : `${pkgString}@${version}`;
-       newPkgs = [formatted];
-    } else {
-       newPkgs = pkgString.split(',').map(p => p.trim()).filter(Boolean);
-    }
+  // 1. Initialize our hooks
+  const { handleAdd, handleRemove, handleBulkAdd } = useDependencyList(stepType, packages, onChange);
+  const { parseFile, isParsing, parseError, acceptedExtensions, setParseError } = useDependencyParser(stepType);
 
-    const updatedList = Array.from(new Set([...packages, ...newPkgs])); // Deduplicate
-    onChange(updatedList);
-  };
-
-  const handleRemove = (pkgToRemove: string) => {
-    onChange(packages.filter(p => p !== pkgToRemove));
-  };
-
-  // TODO: (make more robust) Handle file uploads to import dependencies
-
+  // 2. Minimal UI Event Handler
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     
     try {
-      // We pass the file and the stepType (e.g., 'pip') to our new Registry
-      const importedPkgs = await DependencyParserRegistry.parseFile(file, stepType);
-      
-      // Deduplicate and update state
-      const updatedList = Array.from(new Set([...packages, ...importedPkgs]));
-      onChange(updatedList);
-
+      const importedPkgs = await parseFile(file);
+      handleBulkAdd(importedPkgs);
     } catch (error) {
-      // Here you could trigger a toast notification or set an error state
-      console.error((error as Error).message);
-      alert((error as Error).message); 
+      // The hook manages the error string, so we don't strictly need an alert here anymore unless you want a toast!
     } finally {
-      // Reset the file input so the user can upload the same file again if needed
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
+
+  // 3. Pure JSX Return
   return (
     <div className="flex flex-col gap-3 font-sans">
       
-      {/* Input Row: Reused Widget + File Upload */}
+      {/* Input Row */}
       <div className="flex gap-2 items-stretch h-10">
-        
         <div className="flex-1">
-          {/* HERE IS THE MAGIC: We pass the parent stepType to lock the widget! */}
           <PackageSearchWidget 
             fixedType={stepType} 
             hideHeader={true} 
@@ -88,21 +65,32 @@ export const DependencyManager = ({ stepType, packages, onChange }: DependencyMa
         {/* File Import Button */}
         <button 
           type="button" 
-          onClick={() => fileInputRef.current?.click()}
-          className="px-3 bg-vscode-tab hover:bg-[#3c3f41] border border-vscode-border rounded text-vscode-textDim flex items-center gap-2 transition"
+          onClick={() => {
+            setParseError(null); // Clear old errors when clicking
+            fileInputRef.current?.click();
+          }}
+          disabled={isParsing}
+          className="px-3 bg-vscode-tab hover:bg-[#3c3f41] border border-vscode-border rounded text-vscode-textDim flex items-center gap-2 transition disabled:opacity-50"
           title={`Import ${stepType === 'npm' ? 'package.json' : stepType === 'pip' ? 'requirements.txt' : 'dependencies file'}`}
         >
           <VscFileCode size={16} />
-          <span className="text-sm hidden sm:inline">Import</span>
+          <span className="text-sm hidden sm:inline">
+            {isParsing ? 'Parsing...' : 'Import'}
+          </span>
         </button>
         <input 
           type="file" 
           ref={fileInputRef} 
           className="hidden" 
-          accept={DependencyParserRegistry.getAcceptedExtensions(stepType)}
+          accept={acceptedExtensions}
           onChange={handleFileUpload} 
         />
       </div>
+
+      {/* Error State for File Upload */}
+      {parseError && (
+        <span className="text-red-400 text-xs px-1">{parseError}</span>
+      )}
 
       {/* Removable Badges Area */}
       {packages.length > 0 && (

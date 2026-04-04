@@ -2,7 +2,7 @@
 
 /**
  * Handles communication to and from an execution environment 
- * (either Docker backend or local WASM REPL).
+ * (either Docker backend or local WASM REPL or local sandbox whatever you want pookie).
  */
 
 export interface ITransportStream {

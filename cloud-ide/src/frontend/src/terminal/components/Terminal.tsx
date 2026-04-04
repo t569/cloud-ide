@@ -92,29 +92,43 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
     pipeline.use(new CommandSnifferMiddleware(eventBus)); // <--- Connect the sniffer
 
 
-    // --- READ-ONLY MODE (Docker Build Logs) ---
-    if (isReadOnly || !transport) {
-      xterm.options.disableStdin = true;
-      return; // Stop here. We don't wire up inputs or transports.
-    }
+    // We need to define a workflow to allow for readonly terminals
 
-    // --- INTERACTIVE MODE (OpenSandbox IDE) ---
-    xterm.options.disableStdin = false;
+    // 1. If there's no transport at all, we can't do anything. Stop here.
+    if(!transport) return;
+
+    // Lock or unlock the keyboard based on the prop
+    xterm.options.disableStdin = isReadOnly;
 
     // A. Pipeline: Backend -> Middleware -> Screen
+    // This always happens, we need to see what our backend is telling us
     transport.onData((rawData: string) => {
       const sanitizedData = pipeline.processIncoming(rawData);
       if (sanitizedData) xterm.write(sanitizedData);
     });
 
-    // B. Pipeline: Screen (Typing) -> Middleware -> Transport
-    const onDataDisposable = xterm.onData((data) => {
-      const sanitizedOutgoing = pipeline.processOutgoing(data);
-      inputHandler.handleInput(
-        sanitizedOutgoing,
-        transport,
-      );
-    });
+    // 4. ONLY Pipeline: Screen (Typing) -> Middleware -> Transport
+    let onDataDisposable: { dispose: () => void } | undefined;
+    let onSelectionDisposable: { dispose: () => void } | undefined;
+
+
+    // ------ INTERACTIVE MODE ------ //
+    if (!isReadOnly) {
+      onDataDisposable = xterm.onData((data) => {
+        const sanitizedOutgoing = pipeline.processOutgoing(data);
+        inputHandler.handleInput(sanitizedOutgoing, transport);
+      });
+
+      onSelectionDisposable = xterm.onSelectionChange(() => {
+        const selection = xterm.getSelection();
+        if (selection) inputHandler.handleCopy(selection);
+      });
+
+      inputHandler.onSignal('SIGINT', () => transport.write('\x03'));
+      inputHandler.onSignal('EOF', () => transport.write('\x04'));
+    }
+
+    
 
     // C. Handle Resizing
     const onResizeDisposable = xterm.onResize(({ cols, rows }) => {
@@ -124,17 +138,9 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
       }
     });
 
-    // D. Register OS Signals
-    inputHandler.onSignal('SIGINT', () => transport.write('\x03'));
-    inputHandler.onSignal('EOF', () => transport.write('\x04'));
-
-    // E. Copy & Paste
-    const onSelectionDisposable = xterm.onSelectionChange(() => {
-      const selection = xterm.getSelection();
-      if (selection) inputHandler.handleCopy(selection);
-    });
-
+    // D. Handle Pasting
     const handleDOMPaste = async (e: ClipboardEvent) => {
+      if (isReadOnly) return; // Prevent pasting into a read-only stream
       e.preventDefault();
       const pastedText = await inputHandler.handlePaste();
       if (pastedText) {
@@ -146,12 +152,12 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
     terminalElement?.addEventListener('paste', handleDOMPaste);
 
     return () => {
-      onDataDisposable.dispose();
+      onDataDisposable?.dispose();
       onResizeDisposable.dispose();
-      onSelectionDisposable.dispose();
+      onSelectionDisposable?.dispose();
       terminalElement?.removeEventListener('paste', handleDOMPaste);
     };
-  }, [xterm, transport, isReadOnly]);
+  }, [xterm, transport, isReadOnly, eventBus]);
 
   // 2. Dynamic Container Styling
   return (

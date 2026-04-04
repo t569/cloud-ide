@@ -2,13 +2,13 @@
 
 // to find out more about our structure, check out shared/types/builder.t
 
-import { IDEEnvironmentConfig } from '@cloud-ide/shared'; 
+import { EnvironmentConfig } from '@cloud-ide/shared'; 
 
 export interface EnvironmentRecord {
   id: string;  
    // CRITICAL: The literal Docker tag OpenSandbox will use (e.g., 'drago/node-env:v1')        
   imageName: string;        
-  builderConfig?: IDEEnvironmentConfig; // Strictly bound to builder.ts!
+  builderConfig?: EnvironmentConfig; // Strictly bound to builder.ts!
   createdAt: number;
 
   // this section is for environments that track specific repos

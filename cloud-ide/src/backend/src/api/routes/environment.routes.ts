@@ -1,15 +1,16 @@
 // backend/src/api/EnvironmentRoutes.ts
 import { Router, Request, Response } from 'express';
-import { IEnvironmentRepository } from '../database/interfaces/IEnvironmentRepository';
-import { ISessionRepository } from '../database/interfaces/ISessionRepository';
+import { IEnvironmentRepository } from '../../database/interfaces/IEnvironmentRepository';
+import { ISessionRepository } from '../../database/interfaces/ISessionRepository';
 
 // Import our Core Tools
-import { ConfigParser } from '@cloud-ide/shared';
-import { DockerBuilder } from '../services/DockerBuilder'; // Adjust path if needed
-import { DockerGenerator } from '@cloud-ide/shared'; // The class that turns Config into a Dockerfile string
+import { Validator } from '@cloud-ide/shared';
+import { DockerGeneratorService } from 'src/services/builder';
+import { ExecutorService } from 'src/services/builder';
+
 
 // Import Models
-import { EnvironmentRecord } from '../database/models';
+import { EnvironmentRecord } from '../../database/models';
 
 export function createEnvironmentRouter(envRepo: IEnvironmentRepository, sessionRepo: ISessionRepository) {
   const router = Router();
@@ -48,13 +49,21 @@ export function createEnvironmentRouter(envRepo: IEnvironmentRepository, session
   // POST: Create a new custom environment from the frontend builder
   router.post('/', async (req: Request, res: Response) => {
     const newEnv: EnvironmentRecord = req.body;
+
+    let validatedConfigStr: string;
+
     
     // 1. Validate the Configuration early
     let validatedConfig;
     try {
       const rawConfigString = JSON.stringify(newEnv.builderConfig);
-      validatedConfig = ConfigParser.parseAndValidate(rawConfigString);
+
+      validatedConfigStr = Validator.parseAndValidate(rawConfigString, {return_a_string: true});
+
+      // set the env's build config
       newEnv.builderConfig = validatedConfig;
+
+
     } catch (err: any) {
       // If validation fails, we return a standard 400 JSON response and stop execution
       res.status(400).json({ 
@@ -70,14 +79,34 @@ export function createEnvironmentRouter(envRepo: IEnvironmentRepository, session
     res.setHeader('Transfer-Encoding', 'chunked');
 
     try {
-      // 3. Generate the Dockerfile string from the validated config
-      const dockerfileContent = DockerGenerator.generate(validatedConfig);
+      // MOD:
 
-      // 4. Initialize the Builder and pass the Express Response object (`res`)
-      const builder = new DockerBuilder(newEnv.id, dockerfileContent);
-      
-      // This will take time, but the frontend will see the logs streaming in real-time
-      const finalImageName = await builder.buildAndStreamLogs(res);
+      // 3. Define the target image tag for the local Docker daemon
+      const finalImageName = `cloud-ide-${newEnv.id}:latest`;
+
+
+      // 4. Execute the build pipeline and wrap the Event Emitter in a Promise
+      await new Promise<void>((resolve, reject) => {
+        // streamBuild internally calls DockerGeneratorService.generateDockerfile()
+        const logStream = ExecutorService.streamBuild(validatedConfigStr, finalImageName);
+
+        // Stream standard logs directly to the frontend chunked response
+        logStream.on('data', (chunk) => {
+          res.write(chunk);
+        });
+
+        // Handle successful completion
+        logStream.on('success', (msg) => {
+          res.write(`\r\n\x1b[1;32m[Docker]\x1b[0m ${msg}\r\n`);
+          resolve(); 
+        });
+
+        // Handle fatal build errors
+        logStream.on('error', (errMsg) => {
+          reject(new Error(errMsg)); // Sends to the outer catch block
+        });
+      })
+
 
       // 5. Finalize the Database Record
       newEnv.imageName = finalImageName; // CRITICAL: Link the generated Docker tag so OpenSandbox can find it!

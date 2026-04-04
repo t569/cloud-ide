@@ -8,16 +8,20 @@ import { config } from './config/env';
 
 // Import our Transports (REST Controllers)
 import { SandboxController } from './controllers/SandboxController';
-import { createEnvironmentRouter } from './api/EnvironmentRoutes';
+
 
 // File Routers
 import { createFileSystemRouter } from './api/FileSystemRoutes';
+import { createEnvironmentRouter } from './api/routes/environment.routes';
 
 // Import our database functionality
 import { EventEmitter } from 'events';
 import { JsonEnvironmentRepository } from './database/json/JsonEnvironmentRepository';
 import { JsonSessionRepository } from './database/json/JsonSessionRepository';
 import { PersistenceLayer } from './database/PersistenceLayer';
+
+// Docker clean up services
+import { GarbageCollector } from './services/builder';
 
 const app = express();
 
@@ -43,6 +47,9 @@ app.post('/api/sessions/start', sandboxController.startSession);
 app.delete('/api/sessions/:sessionId', sandboxController.stopSession);
 app.post('/api/sessions/:sessionId/pause', sandboxController.pauseSession);
 app.use('/api/environment', createEnvironmentRouter(envRepo, sessionRepo));
+
+// GARBAGE COLLECTION: RUNS IN THE BACKGROUND
+GarbageCollector.init();
 
 // NEW: Mount the Virtual File System routes
 app.use('/api/fs', createFileSystemRouter());

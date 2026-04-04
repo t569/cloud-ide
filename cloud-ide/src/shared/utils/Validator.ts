@@ -8,6 +8,18 @@
 // shared/utils/Validator.ts
 import { EnvironmentConfig, BuildStep, baseAliases } from '../types/env';
 
+// GENERAL SETTINGS
+export interface ValidationSettings {
+      return_a_string?: boolean;
+      // add other configs here
+}
+
+// Register any settings here
+type ValidationResult <T extends ValidationSettings> = 
+T['return_a_string'] extends true? string: EnvironmentConfig;
+
+
+
 export class Validator {
   
   // ==========================================
@@ -33,11 +45,18 @@ export class Validator {
    */
   private static readonly SENSITIVE_KEY_REGEX = /TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL|AUTH|API/i;
 
-
+  
   // ==========================================
   // PUBLIC ENTRY POINT
   // ==========================================
-  public static parseAndValidate(rawJson: string): EnvironmentConfig {
+  public static parseAndValidate<T extends ValidationSettings>(
+    rawJson: string,
+    settings?: T
+  ): ValidationResult<T>{
+
+    // Set internal defaults for the logic
+    const { return_a_string = false } = settings || {};
+
     let config: EnvironmentConfig;
     
     try {
@@ -67,7 +86,12 @@ export class Validator {
     this.validateEnvSecurity(config.env);
     this.validateSteps(config);
 
-    return config;
+     // Return logic
+    const result = return_a_string ? JSON.stringify(config) : config;
+    
+    // 'as any' is a safe compromise here because the Generic 'ValidationResult' 
+    // handles the external type safety perfectly for the consumer.
+    return result as ValidationResult<T>;
   }
 
 

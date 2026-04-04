@@ -1,15 +1,23 @@
 // shared/utils/services/GeneratorService.ts
 
-import { EnvironmentConfig, BuildStep } from '../../../../shared/types/env';
+// FILE VALIDATOR
 import { Validator } from '../../../../shared/utils/Validator';
+
+// CONTEXT MANAGER
 import { StageOrchestrator } from '../../../../pipeline/StageOrchestrator';
+
+// MIDDLEWARES
 import { MiddlewareEngine } from '../../../../pipeline/middleware/MiddlewareEngine';
 import { SecurityUserInjector } from '../../../../pipeline/middleware/injectors/SecurityUserInjector';
 import { OpenSandboxInjector } from '../../../../pipeline/middleware/injectors/OpenSandboxInjector';
+
+// ASSEMBLER
 import { DockerfileAssembler } from '../../../../pipeline/assembler/DockerfileAssembler';
 
 // utils
 import { optimizeLayers } from '@cloud-ide/shared'
+
+
 export class DockerGeneratorService {
   
   /**

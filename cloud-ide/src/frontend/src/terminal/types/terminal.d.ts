@@ -41,3 +41,41 @@ export interface ITerminalConfig {
   fontSize?: number;
   useWasmRepl?: boolean; // Toggles the local browser-ide environment [cite: 5]
 }
+
+/**
+ * Defines the strict mapping between Terminal events and their expected payloads.
+ * This acts as the central registry for the Event Bus, ensuring 100% type safety
+ * when emitting or listening to events across the application.
+ */
+
+export interface TerminalEventPayloads {
+  /** * Fired immediately when a user submits a command (e.g., hitting Enter), 
+   * before backend execution begins. 
+   */
+  'COMMAND_START': { command: string };
+
+
+  /** * Fired whenever the terminal backend pushes standard output or error logs 
+   * to the screen. Useful for parsing output streams for specific patterns.
+   */
+  'COMMAND_OUTPUT': { output: string };
+
+
+  /** * Fired when the active working directory of the terminal changes. 
+   */
+  'DIRECTORY_CHANGE': { path: string };
+}
+
+/**
+ * A union type of all valid event names, automatically derived from the keys of 
+ * TerminalEventPayloads. (e.g., 'COMMAND_START' | 'COMMAND_OUTPUT' | 'DIRECTORY_CHANGE')
+ */
+export type TerminalEventType = keyof TerminalEventPayloads;
+
+/**
+ * The core contract for extending the Terminal's functionality.
+ * Plugins encapsulate automated behaviors or UI side-effects (like knowledge graph 
+ * building or file icon rendering) without modifying the core terminal component.
+ */
+
+

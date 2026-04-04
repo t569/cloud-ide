@@ -2,7 +2,8 @@
 
 // this is the final terminal component encapsulating the hook from src/terminal/hooks/useTerminal.ts
 
-import React, { useEffect, useRef, useImperativeHandle, forwardRef, useMemo } from 'react';
+import React, { useEffect, useRef,
+               useImperativeHandle, forwardRef, useMemo } from 'react';
 import { useTerminal } from '../hooks/useTerminal';
 
 // Core Logic
@@ -18,12 +19,20 @@ import {
   IInputHandler, 
   ITerminalConfig 
 } from '../types/terminal';
-import { THEMES } from './theme';
+
+// Themes
+import { resolveTheme, BuiltInTheme } from './theme';
+import { ITheme } from '@xterm/xterm';
+
+// Terminal Event Handler
 import { ITerminalPlugin, TerminalEventBus } from '../core/TerminalEventBus';
+
+
 
 // 1. COMBINING PROPS AND CONFIG
 // We extend your ITerminalConfig so the parent can pass styling AND the backend transport
-export interface TerminalProps extends ITerminalConfig {
+export interface TerminalProps extends Omit<ITerminalConfig, 'theme'> {
+  theme?: BuiltInTheme | ITheme;        // A theme we knwo or a completely new theme
   transport?: ITransportStream | null; // Injected dependency (e.g., SessionStream)
   isReadOnly?: boolean;                // True for Docker build logs, False for IDE
   plugins?: ITerminalPlugin[];          // Inject plugins for our terminal
@@ -45,12 +54,8 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
   plugins=[] 
 }, ref) => {
   
-  // Logic to ensure we pass an ITheme object, not a string
-  // we map the string to the list
-  const resolvedTheme = typeof theme === 'string' 
-    ? (THEMES[theme] || THEMES.dark) 
-    : theme;
-
+  // Theme Resolution
+  const resolvedTheme = useMemo(() => resolveTheme(theme), [theme]);
  
   // Pass the config down to your xterm.js wrapper
   const { terminalRef, xterm } = useTerminal({ theme: resolvedTheme, fontFamily, fontSize});
@@ -148,8 +153,15 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
     };
   }, [xterm, transport, isReadOnly]);
 
+  // 2. Dynamic Container Styling
   return (
-    <div style={{ width: '100%', height: '100%', padding: '10px', backgroundColor: theme === 'light' ? '#ffffff' : '#1e1e1e' }}>
+    <div style={{ 
+      width: '100%', 
+      height: '100%', 
+      padding: '10px', 
+      // Safely fall back to black if the theme object is missing a background string
+      backgroundColor: resolvedTheme.background || '#000000' 
+    }}>
       <div ref={terminalRef} style={{ width: '100%', height: '100%' }} />
     </div>
   );

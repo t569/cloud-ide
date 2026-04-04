@@ -47,6 +47,14 @@ export const useTerminal = ({theme, fontFamily, fontSize}: TerminalUIProps) => {
     };
   }, []);
 
+  // This runs whenever the theme prompt changes
+  useEffect(() => {
+    if(xterm) {
+      xterm.options.theme = theme;
+    }
+  }, [theme, xterm]);   
+
+
   // Return the state variable directly, no 'xtermRef' involved
   return { terminalRef, xterm };
 };

@@ -105,7 +105,10 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
     // B. Pipeline: Screen (Typing) -> Middleware -> Transport
     const onDataDisposable = xterm.onData((data) => {
       const sanitizedOutgoing = pipeline.processOutgoing(data);
-      inputHandler.handleInput(sanitizedOutgoing, transport);
+      inputHandler.handleInput(
+        sanitizedOutgoing,
+        transport,
+      );
     });
 
     // C. Handle Resizing

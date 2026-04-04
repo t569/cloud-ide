@@ -20,7 +20,12 @@ export class InputManager {
   /**
    * Routes input from the terminal UI to either signal handlers or the transport layer.
    */
-  public handleInput(data: string, transport: ITransportStream | null): void {
+  public handleInput(
+    data: string,
+    transport: ITransportStream | null,
+  ): void {
+
+
     // Intercept Ctrl+C (ASCII \x03)
     if (data === '\x03') {
       this.emitSignal('SIGINT');
@@ -33,6 +38,7 @@ export class InputManager {
       return;
     }
 
+  
     // Standard typing: pass it straight to the transport layer (Docker or WASM)
     if (transport) {
       transport.write(data);

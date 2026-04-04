@@ -2,13 +2,14 @@
 
 // this is the final terminal component encapsulating the hook from src/terminal/hooks/useTerminal.ts
 
-import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
+import React, { useEffect, useRef, useImperativeHandle, forwardRef, useMemo } from 'react';
 import { useTerminal } from '../hooks/useTerminal';
 
 // Core Logic
 import { InputManager } from '../core/InputManager';
 import { MiddlewarePipeline } from '../core/MiddlewarePipeline';
 import { WindowsClearFix } from '../core/middlewares/WindowsClearFix';
+import { CommandSnifferMiddleware } from '../core/middlewares/CommandSnifferMiddleware';
 
 // Strict Types
 import { 
@@ -18,12 +19,14 @@ import {
   ITerminalConfig 
 } from '../types/terminal';
 import { THEMES } from './theme';
+import { ITerminalPlugin, TerminalEventBus } from '../core/TerminalEventBus';
 
 // 1. COMBINING PROPS AND CONFIG
 // We extend your ITerminalConfig so the parent can pass styling AND the backend transport
 export interface TerminalProps extends ITerminalConfig {
   transport?: ITransportStream | null; // Injected dependency (e.g., SessionStream)
   isReadOnly?: boolean;                // True for Docker build logs, False for IDE
+  plugins?: ITerminalPlugin[];          // Inject plugins for our terminal
 }
 
 export interface TerminalHandle {
@@ -37,9 +40,9 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
   theme = 'dark',
   fontFamily = ' "JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
   fontSize = 14,
-  useWasmRepl,
   transport,
-  isReadOnly = false
+  isReadOnly = false,
+  plugins=[] 
 }, ref) => {
   
   // Logic to ensure we pass an ITheme object, not a string
@@ -50,7 +53,7 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
 
  
   // Pass the config down to your xterm.js wrapper
-  const { terminalRef, xterm } = useTerminal({ theme: resolvedTheme, fontFamily, fontSize });
+  const { terminalRef, xterm } = useTerminal({ theme: resolvedTheme, fontFamily, fontSize});
   
   // 2. STRICTLY TYPED REFS
   const inputHandlerRef = useRef<IInputHandler>(new InputManager());
@@ -62,13 +65,27 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
     clear: () => xterm?.clear()
   }));
 
+  // Initialise the Event Bus once per terminal instance
+  const eventBus = useMemo(() => {
+    const bus = new TerminalEventBus();
+    plugins.forEach(plugin => bus.registerPlugin(plugin));
+    return bus;
+  }, [plugins]);
+
+
+
   useEffect(() => {
     if (!xterm) return;
 
     const inputHandler = inputHandlerRef.current;
     const pipeline = pipelineRef.current as MiddlewarePipeline; 
+
+    // Clear existing middlewares if re-running effect to prevent duplicates
+    pipeline.clear(); // Add a clear() method to your MiddlewarePipeline class
     
     pipeline.use(new WindowsClearFix());
+    pipeline.use(new CommandSnifferMiddleware(eventBus)); // <--- Connect the sniffer
+
 
     // --- READ-ONLY MODE (Docker Build Logs) ---
     if (isReadOnly || !transport) {

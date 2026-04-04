@@ -37,4 +37,7 @@ export class MiddlewarePipeline {
         return this.middlewares.reduce((currentData, mw) => mw.processOutgoing(currentData), data);
     }
 
+    public clear(): void {
+        this.middlewares = [];
+    }
 }

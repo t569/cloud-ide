@@ -66,11 +66,33 @@ export interface TerminalEventPayloads {
    */
   'DIRECTORY_CHANGE': { path: string };
 
-  /** *  Fired when we run commands on the terminal. A standardized event for plugins to request React UI renders
+  /**
+   * A standardized event emitted by plugins to request dynamic React UI renders.
+   * * This acts as the bridge between the raw terminal text stream (the canvas) 
+   * and the interactive IDE workspace (React). When a plugin detects actionable 
+   * context (like a recognized file name, a clickable link, or a suggested git command), 
+   * it broadcasts this payload so that listening React components (like the Context Widget) 
+   * can render the appropriate UI elements on top of or adjacent to the terminal.
    */
   'UI_CONTEXT_SUGGESTED': { 
+    /** * The unique identifier of the plugin that emitted this suggestion 
+     * (e.g., 'FileIconPlugin' or 'GitConflictPlugin'). 
+     * Useful for debugging, analytics, or allowing the UI to filter out specific plugins.
+     */
     sourcePlugin: string; 
+
+    /** * The category of the suggested context, which dictates how the listening 
+     * React UI should render the elements.
+     * - `files`: Instructs the UI to render clickable file icons (to open in the editor).
+     * - `actions`: Instructs the UI to render executable command buttons (e.g., 'Resolve Conflict').
+     * - `links`: Instructs the UI to render clickable URL anchor tags.
+     */
     type: 'files' | 'actions' | 'links'; 
+
+    /** * The array of actionable string items detected by the plugin.
+     * * **Architectural Note:** Passing an empty array (`[]`) is the strict standard 
+     * signal to instruct the React UI to clear its state and unmount the widget.
+     */
     items: string[]; 
   };
 }

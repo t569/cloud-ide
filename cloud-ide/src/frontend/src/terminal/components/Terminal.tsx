@@ -27,6 +27,52 @@ import { ITheme } from '@xterm/xterm';
 // Terminal Event Handler
 import { ITerminalPlugin, TerminalEventBus } from '../core/TerminalEventBus';
 
+/**
+ * ============================================================================
+ * ☁️ CLOUD IDE: TERMINAL ARCHITECTURE & IMPLEMENTATION GUIDE
+ * ============================================================================
+ * * This module provides a highly decoupled, event-driven terminal interface 
+ * powered by xterm.js. It is designed using the Ports and Adapters (Hexagonal) 
+ * architecture to strictly separate the UI rendering from the backend execution 
+ * environments (e.g., OpenSandbox, Docker, local WASM).
+ * * --- CORE LAYERS ---
+ * * 1. Presentation Layer (The "Dumb" UI)
+ * - `Terminal.tsx`: The React wrapper. Handles DOM mounting and CSS.
+ * - `useTerminal.ts`: Manages the xterm.js instance, WebGL GPU rendering, 
+ * and quality-of-life addons (Search, WebLinks, Serialize).
+ * * 2. Event Kernel (The Plugin System)
+ * - `TerminalEventBus.ts`: A strictly-typed Pub/Sub system. 
+ * Plugins (like knowledge graph builders or UI updaters) listen here 
+ * to react to terminal events asynchronously without blocking the main UI thread.
+ * * 3. Protocol Layer (Data Mutation)
+ * - `MiddlewarePipeline.ts`: Sanitizes data between the UI and the backend. 
+ * - `CommandSnifferMiddleware.ts`: Intercepts keystrokes to broadcast complete 
+ * commands to the EventBus when the user presses Enter.
+ * * 4. Infrastructure Layer (The PTY Bridge)
+ * - `ITransportStream`: The master interface. The UI only speaks to this.
+ * - `WebSocketTransport.ts`: The production implementation. Handles binary 
+ * ArrayBuffers, exponential backoff reconnection, and multiplexed JSON 
+ * control messages (like terminal resizing).
+ * * * --- IMPLEMENTATION CHECKLIST FOR PARENT COMPONENTS ---
+ * * To implement this terminal in a workspace, follow this lifecycle:
+ * * [ ] 1. Boot the Sandbox: Call the backend REST API (`POST /api/v1/sandboxes`) 
+ * to provision the environment and retrieve the `execdPort`.
+ * * [ ] 2. Initialize Transport: Instantiate `new WebSocketTransport(wsUrl)` 
+ * using the returned port, and call `transport.connect()`.
+ * * [ ] 3. Mount the UI: Pass the connected transport into `<TerminalComponent />`. 
+ * If tailing build logs, set `isReadOnly={true}`.
+ * * [ ] 4. Manage State (Refresh Protection): 
+ * - On Mount: Read from `localStorage` and call `ref.current.write()`.
+ * - On Unmount/Refresh: Call `ref.current.serializeState()` and save 
+ * it back to `localStorage` using the `beforeunload` event.
+ * * --- ADDING NEW AUTOMATED EVENTS ---
+ * Do not modify the React components to add side-effects. Instead:
+ * 1. Define the exact event payload in `TerminalEventPayloads` (`TerminalEventBus.ts`).
+ * 2. Create a new class implementing `ITerminalPlugin`.
+ * 3. Pass it into the `plugins` array prop on the `<TerminalComponent />`.
+ * ============================================================================
+ */
+
 
 
 // 1. COMBINING PROPS AND CONFIG
@@ -41,6 +87,10 @@ export interface TerminalProps extends Omit<ITerminalConfig, 'theme'> {
 export interface TerminalHandle {
   write: (data: string) => void;
   clear: () => void;
+
+  findNext: (keyword: string) => void;
+  findPrevious: (keyword: string) => void;
+  serializeState: () => string | undefined;
 }
 
 // TerminalProps encapsulates ITerminalConfig
@@ -58,7 +108,7 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
   const resolvedTheme = useMemo(() => resolveTheme(theme), [theme]);
  
   // Pass the config down to your xterm.js wrapper
-  const { terminalRef, xterm } = useTerminal({ theme: resolvedTheme, fontFamily, fontSize});
+  const { terminalRef, xterm, searchAddon, serializeAddon } = useTerminal({ theme: resolvedTheme, fontFamily, fontSize});
   
   // 2. STRICTLY TYPED REFS
   const inputHandlerRef = useRef<IInputHandler>(new InputManager());
@@ -67,7 +117,12 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
   // Expose manual write/clear methods to the parent (for our EnvManager build logs)
   useImperativeHandle(ref, () => ({
     write: (data: string) => xterm?.write(data),
-    clear: () => xterm?.clear()
+    clear: () => xterm?.clear(),
+
+    findNext: (keyword: string) => searchAddon?.findNext(keyword),
+    findPrevious: (keyword: string) => searchAddon?.findPrevious(keyword),
+    serializeState: () => serializeAddon?.serialize()
+
   }));
 
   // Initialise the Event Bus once per terminal instance

@@ -11,6 +11,8 @@ import { WebglAddon } from '@xterm/addon-webgl';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { SearchAddon } from '@xterm/addon-search';
 import { SerializeAddon } from '@xterm/addon-serialize';
+import { IdeLinkProvider } from '../providers/IdeLinkProvider';
+import { TerminalEventBus } from '../core/TerminalEventBus';
 import '@xterm/xterm/css/xterm.css'; 
 
 
@@ -19,8 +21,9 @@ interface TerminalUIProps {
   fontFamily: string;
   fontSize: number;
   initialState?: string;  // serialisation restore (for saving sessions)
+  eventBus: TerminalEventBus; // this is to pass LinkProvider
 }
-export const useTerminal = ({theme, fontFamily, fontSize, initialState}: TerminalUIProps) => {
+export const useTerminal = ({theme, fontFamily, fontSize, initialState, eventBus}: TerminalUIProps) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   // We use state here so the React component knows when the terminal is ready
   const [xterm, setXterm] = useState<Terminal | null>(null);
@@ -58,6 +61,9 @@ export const useTerminal = ({theme, fontFamily, fontSize, initialState}: Termina
     term.loadAddon(searchAddon);
     term.loadAddon(serializeAddon);
     term.loadAddon(webLinksAddon); // Automatically makes URLs clickable!
+
+    // Register our custom link click handler
+    term.registerLinkProvider(new IdeLinkProvider(term, eventBus));
     term.open(terminalRef.current);
 
     // 4. Attach to DOM
@@ -95,7 +101,7 @@ export const useTerminal = ({theme, fontFamily, fontSize, initialState}: Termina
       window.removeEventListener('resize', handleResize);
       term.dispose(); 
     };
-  }, []);   // Run once on mount
+  }, [eventBus]);   // Run once on mount
 
 
   // This runs whenever the theme prompt changes

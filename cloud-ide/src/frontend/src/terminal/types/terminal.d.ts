@@ -65,6 +65,14 @@ export interface TerminalEventPayloads {
   /** * Fired when the active working directory of the terminal changes. 
    */
   'DIRECTORY_CHANGE': { path: string };
+
+  /** *  Fired when we run commands on the terminal. A standardized event for plugins to request React UI renders
+   */
+  'UI_CONTEXT_SUGGESTED': { 
+    sourcePlugin: string; 
+    type: 'files' | 'actions' | 'links'; 
+    items: string[]; 
+  };
 }
 
 /**

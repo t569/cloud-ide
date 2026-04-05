@@ -82,6 +82,7 @@ export interface TerminalProps extends Omit<ITerminalConfig, 'theme'> {
   transport?: ITransportStream | null; // Injected dependency (e.g., SessionStream)
   isReadOnly?: boolean;                // True for Docker build logs, False for IDE
   plugins?: ITerminalPlugin[];          // Inject plugins for our terminal
+  eventBus?: TerminalEventBus           // accepts a terminal event bus for listening on our terminal
 }
 
 export interface TerminalHandle {
@@ -90,6 +91,9 @@ export interface TerminalHandle {
 
   findNext: (keyword: string) => void;
   findPrevious: (keyword: string) => void;
+
+  // Remember to implement local storage for this in parent component
+  // for more info look at dev/TerminalApp.tsx
   serializeState: () => string | undefined;
 }
 
@@ -101,7 +105,8 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
   fontSize = 14,
   transport,
   isReadOnly = false,
-  plugins=[] 
+  plugins=[],
+  eventBus: externalEventBus
 }, ref) => {
   
   // Theme Resolution
@@ -122,15 +127,16 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
     findNext: (keyword: string) => searchAddon?.findNext(keyword),
     findPrevious: (keyword: string) => searchAddon?.findPrevious(keyword),
     serializeState: () => serializeAddon?.serialize()
+  
 
   }));
-
+  
   // Initialise the Event Bus once per terminal instance
   const eventBus = useMemo(() => {
-    const bus = new TerminalEventBus();
+    const bus = externalEventBus || new TerminalEventBus();
     plugins.forEach(plugin => bus.registerPlugin(plugin));
     return bus;
-  }, [plugins]);
+  }, [plugins, externalEventBus]);
 
 
 

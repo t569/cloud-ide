@@ -47,16 +47,18 @@ export class TerminalEventBus {
   public on<K extends TerminalEventType>(
     event: K,
     callback: (payload: TerminalEventPayloads[K]) => void
-  ) {
+  ): () => void { // <-- Explicitly tell TS this returns a void function
+    
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
     
-    // Safely add the callback to the map
     this.listeners.get(event)!.add(callback);
 
-    // Return the unsubscribe function
-    return () => this.listeners.get(event)!.delete(callback);
+    // ADD CURLY BRACES HERE: Force the return type to be void
+    return () => {
+      this.listeners.get(event)!.delete(callback);
+    };
   }
 
   /**

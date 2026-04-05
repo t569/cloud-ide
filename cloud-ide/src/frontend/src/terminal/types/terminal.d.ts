@@ -9,8 +9,9 @@ export interface ITransportStream {
   connect(): Promise<void>;
   disconnect(): void;
   write(data: string): void;
-  onData(callback: (data: string) => void): void;
-  onError(callback: (error: Error) => void): void;
+  onData(callback: (data: string) => void): void;   // this is connected to our middleware
+  onError(callback: (error: Error) => void): void;  // this is connected to our middleware
+  resize?(cols: number, rows: number): void;
 }
 
 /**

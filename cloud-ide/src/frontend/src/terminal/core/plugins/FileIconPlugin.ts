@@ -12,7 +12,7 @@ export class FileIconPlugin implements ITerminalPlugin {
     const extensions = Object.keys(EXTENSION_MAP).map(escapeRegex);
     
     // Matches exact files (dockerfile) OR words ending in valid extensions (app.tsx)
-    const pattern = `\\b(${exactNames.join('|')})\\b|\\b[\\w-]+\\.(${extensions.join('|')})\\b`;
+    const pattern = `(?<!\\w)(${exactNames.join('|')})\\b|\\b[\\w-]+\\.(${extensions.join('|')})\\b`;
     this.regex = new RegExp(pattern, 'gi');
   }
 

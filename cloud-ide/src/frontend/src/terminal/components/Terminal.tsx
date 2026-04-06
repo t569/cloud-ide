@@ -262,15 +262,17 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
 
   // 2. Dynamic Container Styling
   return (
-    <div style={{ 
-      width: '100%', 
-      height: '100%', 
-      padding: '10px', 
-      boxSizing: 'border-box',
-      // Safely fall back to black if the theme object is missing a background string
-      backgroundColor: resolvedTheme.background || '#000000' 
-    }}>
-      <div ref={terminalRef} style={{ width: '100%', height: '100%' }} />
-    </div>
+    // THE FIX: Single flattened div. overflow: 'hidden' traps the canvas perfectly.
+    <div 
+      ref={terminalRef} 
+      style={{ 
+        width: '100%', 
+        height: '100%', 
+        padding: '10px', 
+        boxSizing: 'border-box', 
+        overflow: 'hidden', 
+        backgroundColor: resolvedTheme.background || '#000000' 
+      }} 
+    />
   );
 });

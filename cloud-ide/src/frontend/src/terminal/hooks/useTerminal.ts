@@ -111,18 +111,34 @@ export const useTerminal = ({
       term.write(initialState);
     }
     
-    setTimeout(() => fitAddon.fit(), 0);
-
     setXterm(term); // Trigger the re-render
 
-    const handleResize = () => fitAddon.fit();
-    window.addEventListener('resize', handleResize);
+    // ==========================================
+    // THE FIX: Bulletproof Dimension Math
+    // ==========================================
+    // ResizeObserver watches the exact pixel height of the container, not the window.
+    // requestAnimationFrame prevents browser loop errors.
+    const resizeObserver = new ResizeObserver(() => {
+      requestAnimationFrame(() => {
+        if (term.element && terminalRef.current) {
+          try {
+            fitAddon.fit();
+          } catch (e) {
+            // Failsafe in case xterm unmounts mid-frame
+          }
+        }
+      });
+    });
+
+    if (terminalRef.current) {
+      resizeObserver.observe(terminalRef.current);
+    }
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect(); // <--- Clean up the observer
       term.dispose(); 
     };
-  }, [eventBus]);   // Run once on mount
+  }, [eventBus]);
 
 
   // This runs whenever the theme prompt changes
@@ -140,3 +156,8 @@ export const useTerminal = ({
           serializeAddon: serializeAddonRef.current
          };
 };
+
+// BUGS:
+// when i right click, then menu goes off the screen and is cut
+// when we boot it, we get 2 bash 1 terminals
+// 

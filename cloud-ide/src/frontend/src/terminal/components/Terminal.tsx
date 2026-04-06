@@ -111,9 +111,23 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
   
   // Theme Resolution
   const resolvedTheme = useMemo(() => resolveTheme(theme), [theme]);
- 
+  
+
+  // Initialise the Event Bus once per terminal instance
+  const eventBus = useMemo(() => {
+    const bus = externalEventBus || new TerminalEventBus();
+    plugins.forEach(plugin => bus.registerPlugin(plugin));
+    return bus;
+  }, [plugins, externalEventBus]);
+
+
   // Pass the config down to your xterm.js wrapper
-  const { terminalRef, xterm, searchAddon, serializeAddon } = useTerminal({ theme: resolvedTheme, fontFamily, fontSize});
+  const { terminalRef, xterm, searchAddon, serializeAddon } = useTerminal({ 
+    theme: resolvedTheme,
+    fontFamily,
+    fontSize,
+    eventBus
+  });
   
   // 2. STRICTLY TYPED REFS
   const inputHandlerRef = useRef<IInputHandler>(new InputManager());
@@ -131,14 +145,6 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
 
   }));
   
-  // Initialise the Event Bus once per terminal instance
-  const eventBus = useMemo(() => {
-    const bus = externalEventBus || new TerminalEventBus();
-    plugins.forEach(plugin => bus.registerPlugin(plugin));
-    return bus;
-  }, [plugins, externalEventBus]);
-
-
 
   useEffect(() => {
     if (!xterm) return;
@@ -151,6 +157,30 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
     
     pipeline.use(new WindowsClearFix());
     pipeline.use(new CommandSnifferMiddleware(eventBus)); // <--- Connect the sniffer
+
+
+    // ==========================================
+    // NEW: CUSTOM KEYBOARD SHORTCUTS (Search UI)
+    // ==========================================
+    xterm.attachCustomKeyEventHandler((e) => {
+      // Intercept Ctrl+F (Windows/Linux) or Cmd+F (Mac) on keydown
+      if ((e.ctrlKey || e.metaKey) && e.code === 'KeyF' && e.type === 'keydown') {
+        e.preventDefault(); // Stop the browser's native search bar from appearing
+        
+        // Broadcast the event to the Search Widget
+        eventBus.emit('UI_TOGGLE_SEARCH', { isVisible: true });
+        
+        return false; // Tell xterm.js we handled this keystroke (do not write to buffer)
+      }
+      
+      // Allow the user to press ESC to close the search widget while focused on the terminal
+      if (e.code === 'Escape' && e.type === 'keydown') {
+        eventBus.emit('UI_TOGGLE_SEARCH', { isVisible: false });
+      }
+
+      return true; // Let all other keys pass through normally
+    });
+
 
 
     // We need to define a workflow to allow for readonly terminals

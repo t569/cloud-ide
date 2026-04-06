@@ -95,6 +95,11 @@ export interface TerminalEventPayloads {
      */
     items: string[]; 
   };
+
+  /**
+   * A signal to the React Ui to mount/unmount the search widget
+   */
+  'UI_TOGGLE_SEARCH': { isVisible?: boolean };
 }
 
 /**

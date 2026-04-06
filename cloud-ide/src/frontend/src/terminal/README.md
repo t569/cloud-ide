@@ -89,11 +89,11 @@ When a user runs a dev server (like Vite or React) inside their container, the t
 
 ```typescript
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { TerminalTabs, TerminalSession } from '@/terminal/components/TerminalTabs';
-import { WebSocketTransport } from '@/terminal/transport/WebSocketTransport';
-import { TerminalEventBus } from '@/terminal/core/TerminalEventBus';
-import { FileIconPlugin } from '@/terminal/core/plugins/FileIconPlugin';
-import { LinkSnifferPlugin } from '@/terminal/core/plugins/LinkSnifferPlugin';
+import { TerminalTabs, TerminalSession } from '@frontend/terminal/components/TerminalTabs';
+import { WebSocketTransport } from '@frontend/terminal/transport/WebSocketTransport';
+import { TerminalEventBus } from '@frontend/terminal/core/TerminalEventBus';
+import { FileIconPlugin } from '@frontend/terminal/core/plugins/FileIconPlugin';
+import { LinkSnifferPlugin } from '@frontend/terminal/core/plugins/LinkSnifferPlugin';
 
 interface IdeWorkspaceProps {
   sandboxId: string; // The unique ID of the container environment

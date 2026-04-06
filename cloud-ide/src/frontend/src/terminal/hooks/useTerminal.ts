@@ -5,7 +5,7 @@
 */
 
 import { useEffect, useRef, useState } from 'react';
-import { ITheme, Terminal } from '@xterm/xterm';
+import { FontWeight, ITheme, Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -22,8 +22,23 @@ interface TerminalUIProps {
   fontSize: number;
   initialState?: string;  // serialisation restore (for saving sessions)
   eventBus: TerminalEventBus; // this is to pass LinkProvider
+  // FIX: Make these optional and properly typed so we don't need 'as any' in Terminal.tsx
+  lineHeight?: number;
+  cursorBlink?: boolean;
+  cursorStyle?: 'block' | 'underline' | 'bar';
+  fontWeight?: FontWeight;
 }
-export const useTerminal = ({theme, fontFamily, fontSize, initialState, eventBus}: TerminalUIProps) => {
+export const useTerminal = ({
+  theme,
+  fontFamily,
+  fontSize,
+  initialState,
+  eventBus,
+  lineHeight = 1.2,
+  cursorBlink = true,
+  cursorStyle = 'block',
+  fontWeight = '500'
+  }: TerminalUIProps) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   // We use state here so the React component knows when the terminal is ready
   const [xterm, setXterm] = useState<Terminal | null>(null);
@@ -39,10 +54,13 @@ export const useTerminal = ({theme, fontFamily, fontSize, initialState, eventBus
 
     // 1. Core initialisation
     const term = new Terminal({
-      cursorBlink: true,
+      theme: theme,
       fontFamily: fontFamily,
       fontSize: fontSize,
-      theme: theme
+      lineHeight: lineHeight,
+      cursorBlink: cursorBlink,
+      cursorStyle: cursorStyle,
+      fontWeight: fontWeight
     });
 
 
@@ -64,7 +82,6 @@ export const useTerminal = ({theme, fontFamily, fontSize, initialState, eventBus
 
     // Register our custom link click handler
     term.registerLinkProvider(new IdeLinkProvider(term, eventBus));
-    term.open(terminalRef.current);
 
     // 4. Attach to DOM
     term.open(terminalRef.current);

@@ -2,6 +2,7 @@
 
 // this is the final terminal component encapsulating the hook from src/terminal/hooks/useTerminal.ts
 
+import '@xterm/xterm/css/xterm.css';
 import React, { useEffect, useRef,
                useImperativeHandle, forwardRef, useMemo } from 'react';
 import { useTerminal } from '../hooks/useTerminal';
@@ -101,7 +102,7 @@ export interface TerminalHandle {
 export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
   // default values 
   theme = 'dark',
-  fontFamily = ' "JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
+  fontFamily = ' "JetBrains Mono", Consolas, Menlo, Monaco, "Courier New", monospace',
   fontSize = 14,
   transport,
   isReadOnly = false,
@@ -126,8 +127,13 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
     theme: resolvedTheme,
     fontFamily,
     fontSize,
-    eventBus
-  });
+    eventBus,
+    // --- ADD THESE NEW POLISH SETTINGS ---
+    lineHeight: 1.2,        // Adds vertical breathing room between lines
+    cursorBlink: true,      // Makes the cursor blink like a real terminal
+    cursorStyle: 'block',   // Options: 'block', 'underline', or 'bar'
+    fontWeight: '500'       // Makes the text slightly crisper
+  }); // Temporarily use 'as any' to bypass TS if your hook interface doesn't have these yet
   
   // 2. STRICTLY TYPED REFS
   const inputHandlerRef = useRef<IInputHandler>(new InputManager());

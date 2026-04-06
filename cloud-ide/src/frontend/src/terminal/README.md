@@ -189,6 +189,132 @@ export const ProductionWorkspace = ({ sandboxId }: IdeWorkspaceProps) => {
   );
 };
 ```
+## Implementation Guide: Extending the terminal with middlewares and plugins
+
+## Extensibility: Middlewares & Plugins
+
+The terminal is designed to be infinitely extensible without ever touching the core `Terminal.tsx` React component. You can add features in two ways: **Middlewares** (synchronous data mutation) and **Plugins** (asynchronous event listeners).
+
+### 1. How to Write a Middleware
+**Use Case:** You need to intercept, modify, or block raw text flowing between the backend and the terminal screen. Examples: Syntax highlighting, stripping bad ANSI codes, or vim-mode keystroke interception.
+
+#### Step 1: Create the Middleware Class
+Create a new file in `frontend/src/terminal/core/middlewares/`. Your class must implement the `ITerminalMiddleware` interface.
+
+```typescript
+// frontend/src/terminal/core/middlewares/SecretRedactorMiddleware.ts
+import { ITerminalMiddleware } from '../../types/terminal';
+
+export class SecretRedactorMiddleware implements ITerminalMiddleware {
+  name = 'SecretRedactorMiddleware';
+
+  /**
+   * Data coming FROM the backend, headed to the SCREEN.
+   */
+  processIncoming(data: string): string {
+    // Example: Mask API keys before they render on the user's screen
+    if (data.includes('sk-live-')) {
+      return data.replace(/sk-live-[a-zA-Z0-9]+/, 'sk-live-********');
+    }
+    return data;
+  }
+
+  /**
+   * Data coming FROM the keyboard, headed to the BACKEND.
+   */
+  processOutgoing(data: string): string {
+    // Example: Prevent the user from typing 'rm -rf /'
+    if (data === 'rm -rf /\r') {
+      console.warn('Blocked destructive command.');
+      return '\r\necho "Command blocked by IDE policy"\r\n';
+    }
+    return data;
+  }
+}
+```
+#### Step 2: Register the Middleware
+Open `frontend/src/terminal/core/TerminalRegistry.ts` and add your new class to the `getDefaultMiddlewares` array. The pipeline will automatically pick it up for all new terminal sessions.
+
+```typescript
+// Inside TerminalRegistry.ts
+import { SecretRedactorMiddleware } from './middlewares/SecretRedactorMiddleware';
+
+static getDefaultMiddlewares(eventBus: TerminalEventBus): ITerminalMiddleware[] {
+  return [
+    new WindowsClearFix(),
+    new CommandSnifferMiddleware(eventBus),
+    new SecretRedactorMiddleware() // <--- Activated!
+  ];
+}
+```
+### 2. How to Write a Plugin
+**Use Case:** You need to perform background tasks, trigger UI updates, or track state without blocking the terminal's typing speed. Plugins do not mutate text; they listen to the `TerminalEventBus`. Examples: Knowledge graph building, triggering confetti on a successful build, or custom contextual suggestions.
+
+#### Step 1: Create the Plugin Class
+Create a new file in `frontend/src/terminal/core/plugins/`. It must implement `ITerminalPlugin` and its `initialize` method.
+
+```typescript
+// frontend/src/terminal/core/plugins/BuildSuccessPlugin.ts
+import { ITerminalPlugin, TerminalEventBus } from '../TerminalEventBus';
+
+export class BuildSuccessPlugin implements ITerminalPlugin {
+  name = 'BuildSuccessPlugin';
+
+  initialize(eventBus: TerminalEventBus): void {
+    // 1. Listen for full commands sniffed by the CommandSnifferMiddleware
+    eventBus.on('COMMAND_EXECUTED', (payload) => {
+      const { command } = payload;
+      
+      // 2. React to specific commands
+      if (command.startsWith('npm run build')) {
+        console.log('[BuildSuccessPlugin] Build started! Tracking progress...');
+        
+        // Example: Emit a custom event to the Context HUD to show a "Build Active" badge
+        eventBus.emit('UI_CONTEXT_SUGGESTED', {
+          type: 'links',
+          items: ['Build Viewer']
+        });
+      }
+    });
+
+    // You can also listen to general UI events
+    eventBus.on('UI_TOGGLE_SEARCH', (payload) => {
+      // e.g., Pause background polling while the user is searching
+    });
+  }
+}
+```
+#### Step 2: Define New Event Payloads (Optional)
+If your plugin needs to broadcast a brand new type of event, add it to the strict type definitions in `TerminalEventBus.ts` so the rest of the app gets TypeScript autocomplete.
+
+```typescript
+// Inside TerminalEventBus.ts
+export interface TerminalEventPayloads {
+  // ... existing events
+  'CUSTOM_PLUGIN_EVENT': { data: string; timestamp: number };
+}
+```
+#### Step 3: Register the Plugin
+Just like middlewares, open `frontend/src/terminal/core/TerminalRegistry.ts` and add your plugin to the factory method.
+
+```typescript
+// Inside TerminalRegistry.ts
+import { BuildSuccessPlugin } from './plugins/BuildSuccessPlugin';
+
+static getDefaultPlugins(): ITerminalPlugin[] {
+  return [
+    new FileIconPlugin(),
+    new LinkSnifferPlugin(),
+    new BuildSuccessPlugin() // <--- Activated!
+  ];
+}
+```
+
+### The Golden Rule of Extension
+
+*   **Use a Middleware** if it needs to change what the user **sees** or change what the server **receives**.
+*   **Use a Plugin** if it needs to **react** to what happens or update external React UI.
+
 
 ## Renders
 
@@ -256,5 +382,39 @@ export const BuildLogViewer = () => {
 
 to give us this:
 ![Build Log Terminal](./imgs/build_log_terminal.png)
+
+# 🗺️ Project Roadmap & TODO
+
+### ✅ Phase 1: Core Engine & Rendering (Completed)
+- [x] Integrate **xterm.js** with React via custom `useTerminal` hook.
+- [x] Enable **WebglAddon** for hardware-accelerated GPU rendering.
+- [x] Implement **ResizeObserver** for bulletproof, dimension-aware canvas fitting.
+- [x] Establish the **TerminalHandle** imperative API boundary.
+
+### ✅ Phase 2: UI & Multiplexing (Completed)
+- [x] Build **TerminalTabs** session manager (VS Code style).
+- [x] Implement the **"Canvas Retention Hack"** (`visibility: hidden` + `position: absolute`) to keep background terminals alive.
+- [x] Build floating **Context Menu** with Focus Protection and Snapshot Copying.
+- [x] Build floating **Search Widget** with auto-focus and keybindings.
+- [x] Build dismissible **Context HUD** for surfacing actionable terminal data.
+
+### ✅ Phase 3: Architecture & Extensibility (Completed)
+- [x] Establish the **Hexagonal Architecture** (Ports and Adapters).
+- [x] Implement **TerminalEventBus** for isolated Pub/Sub communication per tab.
+- [x] Build **MiddlewarePipeline** for intercepting / sanitizing I/O streams.
+- [x] Build **TerminalRegistry** factory to manage plugin/middleware instantiation.
+- [x] Implement **UI Plugins** (`FileIconPlugin`, `LinkSnifferPlugin`).
+- [x] Implement **URL Proxy routing** for Cloud IDE localhost intercepts.
+
+### ⏳ Phase 4: Backend Integration (Next Up)
+- [ ] Build **`WebSocketTransport.ts`** (Frontend): Implement the production transport layer with binary `ArrayBuffer` support, exponential backoff, and auto-reconnection.
+- [ ] Build **`execd` Daemon** (Backend): Create the Node.js WebSocket server inside the container.
+- [ ] Integrate **`node-pty`** (Backend): Spawn real Linux bash shells and pipe the streams to the WebSocket.
+- [ ] **Handle Resize Events**: Send JSON control messages from the frontend `ResizeObserver` to update the backend `node-pty` column/row limits.
+
+### ⏳ Phase 5: State & Ecosystem (Planned)
+- [ ] **Session Persistence**: Use `SerializeAddon` to save the active terminal buffer to `localStorage` or the backend, restoring it seamlessly on browser refreshes.
+- [ ] **Complete `RepoGraphPlugin`**: Finalize the agentic tracking system to map executed commands into a version-controlled knowledge graph for the IDE's AI assistant.
+- [ ] **Global IDE Wiring**: Connect the Context HUD `onFileClick` events to the global state manager (e.g., Redux/Zustand) to automatically open files in the main code editor.
 
 

@@ -102,6 +102,10 @@ export interface TerminalHandle {
   scrollToBottom: () => void;
 }
 
+// Multiple WebGL spawning error fix
+const EMPTY_PLUGINS: ITerminalPlugin[] = [];
+
+
 // TerminalProps encapsulates ITerminalConfig
 export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
   // default values 
@@ -110,7 +114,7 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
   fontSize = 14,
   transport,
   isReadOnly = false,
-  plugins=[],
+  plugins= EMPTY_PLUGINS,
   eventBus: externalEventBus
 }, ref) => {
   

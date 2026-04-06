@@ -190,11 +190,13 @@ export const ProductionWorkspace = ({ sandboxId }: IdeWorkspaceProps) => {
 };
 ```
 
-# For observation purposes, our current terminal looks like this:
+## Renders
+
+### For observation purposes, our current terminal looks like this:
 
 ![Terminal Tabs default](./imgs/terminal_look.png)
 
-# We also have an example of a readonly terminal to stream build logs e.g.
+### We also have an example of a readonly terminal to stream build logs e.g.
 
 ```typescript
 // frontend/src/BuildLogViewer.tsx

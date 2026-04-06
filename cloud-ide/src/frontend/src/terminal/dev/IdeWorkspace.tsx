@@ -95,9 +95,10 @@
 
 
 // frontend/src/IdeWorkspace.tsx
-import React, { useMemo } from 'react';
-import { TerminalComponent } from '../../terminal/components/Terminal';
+import React, { useMemo, useRef } from 'react';
+import { TerminalComponent, TerminalHandle } from '../../terminal/components/Terminal';
 import { TerminalContextWidget } from '../../terminal/components/TerminalContextWidget';
+import { TerminalSearchWidget } from '../components/TerminalSearchWidget';
 import { TerminalEventBus } from '../../terminal/core/TerminalEventBus';
 import { FileIconPlugin } from '../../terminal/core/plugins/FileIconPlugin';
 
@@ -113,6 +114,7 @@ interface IdeWorkspaceProps {
 
 // 3. APPLY THE INTERFACE TO THE COMPONENT
 export const IdeWorkspace = ({ transport, sandboxId }: IdeWorkspaceProps) => {
+  const terminalRef = useRef<TerminalHandle>(null);
   // 1. The Central Nervous System: Create it once per workspace
   const sharedEventBus = useMemo(() => new TerminalEventBus(), []);
 
@@ -152,7 +154,14 @@ export const IdeWorkspace = ({ transport, sandboxId }: IdeWorkspaceProps) => {
         onLinkClick={handleLinkClick}
       />
 
+      {/* Terminal Area - MUST be relative so the Search Widget can absolute position itself inside */}
       <div className="flex-1 overflow-hidden relative">
+        {/* The Floating Search UI */}
+        <TerminalSearchWidget 
+          terminalRef={terminalRef} 
+          eventBus={sharedEventBus} 
+        />
+        
         {/* 3B. Pass the EXACT SAME bus to the Terminal so plugins can emit to it */}
         <TerminalComponent 
           theme="dark" 

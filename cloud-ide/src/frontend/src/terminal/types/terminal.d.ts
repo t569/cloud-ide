@@ -19,7 +19,11 @@ export interface ITransportStream {
  * Perfect for intercepting and fixing the Windows 24-line clear bug[cite: 2].
  */
 export interface ITerminalMiddleware {
+  /** Uniquely identifies the middleware for debugging and pipeline management */
+  name: string; 
+  /** Manipulates/processes data from backend/WASM before it hits the UI */
   processIncoming(data: string): string; 
+  /** Manipulates/processes data coming from the UI before it hits the backend */
   processOutgoing(data: string): string;
 }
 

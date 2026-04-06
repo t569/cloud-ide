@@ -11,13 +11,22 @@
  */
 
 import React, { useMemo, useRef, useState } from 'react';
+
+// WIDGETS
 import { TerminalComponent, TerminalHandle } from './Terminal';
 import { TerminalContextWidget } from './TerminalContextWidget';
 import { TerminalSearchWidget } from './TerminalSearchWidget';
 import { TerminalContextMenu } from './TerminalContextMenu';
+
+// EVENT HANDLER
 import { TerminalEventBus } from '../core/TerminalEventBus';
+
+// PLUGINS
+import { TerminalRegistry } from '../core/TerminalRegistry';
 import { FileIconPlugin } from '../core/plugins/FileIconPlugin';
 import { LinkSnifferPlugin } from '../core/plugins/LinkSnifferPluggin'; 
+
+// TRANSPORT LAYER
 import { ITransportStream } from '../types/terminal';
 
 /**
@@ -51,11 +60,11 @@ export const TerminalPanel = ({ transport, isActive, onFileClick, onLinkClick }:
   // per panel. This guarantees that file/link events sniffed in this terminal 
   // do not bleed into the UI of other active tabs.
   const isolatedEventBus = useMemo(() => new TerminalEventBus(), []);
-  
-  const plugins = useMemo(() => [
-    new FileIconPlugin(),
-    new LinkSnifferPlugin()
-  ], []);
+
+  // register all the plugins in our registry
+  const plugins = useMemo(() => 
+    TerminalRegistry.getDefaultPlugins()
+  , []);
 
   // State to control the floating custom right-click menu
   const [contextMenu, setContextMenu] = useState({ isVisible: false, x: 0, y: 0, selectedText: '' });

@@ -4,9 +4,9 @@
 // for more information about what middleware are see core/MiddlearePipeline.ts
 
 
-import { IMiddleware } from '../MiddlewarePipeline';
+import { ITerminalMiddleware } from '../../types/terminal';
 
-export class WindowsClearFix implements IMiddleware {
+export class WindowsClearFix implements ITerminalMiddleware {
   public name = 'WindowsClearFix';
 
   public processIncoming(data: string): string {

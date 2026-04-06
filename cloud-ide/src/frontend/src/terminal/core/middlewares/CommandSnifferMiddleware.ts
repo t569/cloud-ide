@@ -1,12 +1,15 @@
 // terminal/core/middlewares/CommandSnifferMiddleware.ts
-import { IMiddleware } from '../MiddlewarePipeline';
+import { ITerminalMiddleware } from "@frontend/terminal/types/terminal";
 import { TerminalEventBus } from '../TerminalEventBus';
 
-export class CommandSnifferMiddleware implements IMiddleware {
+export class CommandSnifferMiddleware implements ITerminalMiddleware {
     name = 'CommandSniffer';
+    private eventBus: TerminalEventBus;
+
+
     private currentCommand = '';
 
-    constructor(private bus: TerminalEventBus) {}
+    constructor(private bus: TerminalEventBus) { this.eventBus = bus; }
 
     processOutgoing(data: string): string {
         // As the user types, build the command string

@@ -28,6 +28,9 @@ import { ITheme } from '@xterm/xterm';
 // Terminal Event Handler
 import { ITerminalPlugin, TerminalEventBus } from '../core/TerminalEventBus';
 
+// Plugins
+import { TerminalRegistry } from '../core/TerminalRegistry';
+
 /**
  * ============================================================================
  * ☁️ CLOUD IDE: TERMINAL ARCHITECTURE & IMPLEMENTATION GUIDE
@@ -168,8 +171,9 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
     // Clear existing middlewares if re-running effect to prevent duplicates
     pipeline.clear(); // Add a clear() method to your MiddlewarePipeline class
     
-    pipeline.use(new WindowsClearFix());
-    pipeline.use(new CommandSnifferMiddleware(eventBus)); // <--- Connect the sniffer
+    // Use all the registered middlewares
+    const activeMiddlewares = TerminalRegistry.getDefaultMiddlewares(eventBus);
+    activeMiddlewares.forEach(middleware => pipeline.use(middleware));
 
 
     // ==========================================

@@ -6,24 +6,18 @@
 * for more info about our backend stream please check ./terminal/transport
 */ 
 
-export interface IMiddleware {
-    name: string;
+import { ITerminalMiddleware } from "../types/terminal";
 
-    // Manipulates/processes data from backend/WASM before it hits the Ui
-    processIncoming(data: string): string;
+export class MiddlewarePipeline implements ITerminalMiddleware{
 
-    // Manipulates/processes data coming from the UI before it hits the backend
-    processOutgoing(data: string):string;
+    name = 'CoreMiddlewarePipeline';
 
-}
-
-export class MiddlewarePipeline {
     // list of all or available middlewares
-    private middlewares: IMiddleware[] = [];
+    private middlewares: ITerminalMiddleware[] = [];
 
 
     // Registers a new middleware plugin into the pipleine
-    public use(middleware: IMiddleware):void{
+    public use(middleware: ITerminalMiddleware):void{
         this.middlewares.push(middleware);
     }
 

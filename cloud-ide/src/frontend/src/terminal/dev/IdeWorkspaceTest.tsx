@@ -1,63 +1,54 @@
 // frontend/src/terminal/dev/IdeWorkspaceTest.tsx
-import React, { useMemo, useEffect, useRef } from 'react';
-import { TerminalComponent, TerminalHandle } from '../components/Terminal';
-import { TerminalContextWidget } from '../components/TerminalContextWidget';
-import { TerminalEventBus } from '../core/TerminalEventBus';
-import { FileIconPlugin } from '../core/plugins/FileIconPlugin';
-import { LinkSnifferPlugin } from '../core/plugins/LinkSnifferPluggin';
+import React, { useState, useEffect, useRef } from 'react';
+import { TerminalTabs, TerminalSession } from '../components/TerminalTabs'; // NEW IMPORT
 import { ITransportStream } from '../types/terminal';
 
 // ==========================================
-// 1. THE MOCK TRANSPORT (Simulates Backend Logs)
+// 1. THE MOCK TRANSPORT (Same as before)
 // ==========================================
 class MockTriggerTransport implements ITransportStream {
   private dataListeners: ((data: string) => void)[] = [];
+  
+  constructor(private name: string) {} // Added name so tabs look different!
 
   async connect(): Promise<void> {
     setTimeout(() => {
-      this.broadcast('\r\n\x1b[36m[System]\x1b[0m Welcome to the Context Widget Test Harness.');
-      this.broadcast('\r\n\x1b[33mHint: Type anything and press ENTER to simulate a build process.\x1b[0m');
+      this.broadcast(`\r\n\x1b[36m[System]\x1b[0m Welcome to ${this.name}.`);
       this.broadcast('\r\n~/cloud-ide $ ');
     }, 100);
   }
 
-  disconnect(): void {
-    this.dataListeners = [];
-  }
-
-  onData(callback: (data: string) => void): void {
-    this.dataListeners.push(callback);
-  }
-
+  disconnect(): void { this.dataListeners = []; }
+  onData(callback: (data: string) => void): void { this.dataListeners.push(callback); }
   onError(): void {}
+  private broadcast(data: string) { this.dataListeners.forEach(cb => cb(data)); }
 
-  private broadcast(data: string) {
-    this.dataListeners.forEach(cb => cb(data));
-  }
-
+  // this is a hack for backspace ONLY for testing
+  // we wont use this in production
   write(data: string): void {
-    // Local echo so we see what we type
+    // ==========================================
+    // THE FIX: Handle Backspace (\x7f)
+    // ==========================================
+    if (data === '\x7f') {
+      this.broadcast('\b \b'); // Move left, erase with space, move left again
+      return;
+    }
+
+    // Local echo so we see regular typing
     this.broadcast(data);
 
     // When the user hits Enter (\r), trigger the mock logs!
     if (data === '\r') {
       this.broadcast('\r\n\x1b[36m> Executing mock build...\x1b[0m');
       
-      // Simulate standard output with files scattered throughout
       setTimeout(() => this.broadcast('\r\nCompiling \x1b[32msrc/App.tsx\x1b[0m...'), 200);
       setTimeout(() => this.broadcast('\r\nUpdating \x1b[32mdockerfile\x1b[0m...'), 400);
       setTimeout(() => this.broadcast('\r\nWARN: Missing dependencies in \x1b[33mpackage.json\x1b[0m!'), 600);
       setTimeout(() => this.broadcast('\r\nERR: Failed to parse \x1b[31mtailwind.config.js\x1b[0m.'), 800);
-      setTimeout(() => this.broadcast('\r\nGenerating \x1b[32mREADME.md\x1b[0m...'), 1000);
-      setTimeout(() => this.broadcast('\r\nGenerating \x1b[32mkome.bat\x1b[0m...'), 1000);
-      setTimeout(() => this.broadcast('\r\nGenerating \x1b[32m.gitignore\x1b[0m...'), 1000);
       
-      // NEW: Simulate a dev server starting!
       setTimeout(() => this.broadcast('\r\n\x1b[32m➜\x1b[0m  Local:   \x1b[36mhttp://localhost:5173/\x1b[0m'), 1100);
-      setTimeout(() => this.broadcast('\r\n\x1b[32m➜\x1b[0m  Network: \x1b[36mhttp://127.0.0.1:5173/\x1b[0m'), 1150);
 
-      // Return the prompt
-      setTimeout(() => this.broadcast('\r\n~/cloud-ide $ '), 1300);
+      setTimeout(() => this.broadcast(`\r\n~/cloud-ide $ `), 1300);
     }
   }
 }
@@ -66,58 +57,55 @@ class MockTriggerTransport implements ITransportStream {
 // 2. THE TEST HARNESS COMPONENT
 // ==========================================
 export const IdeWorkspaceTest = () => {
-  const terminalRef = useRef<TerminalHandle>(null);
+  const [sessions, setSessions] = useState<TerminalSession[]>([]);
+  
+  // NEW: A flag to protect against React 18 Strict Mode double-mounting
+  const hasBooted = useRef(false); 
 
-  // A. Create the shared Event Bus
-  const sharedEventBus = useMemo(() => new TerminalEventBus(), []);
+  const addTab = () => {
+    // Note: We use the length of the PREVIOUS state to ensure numbers are always accurate
+    setSessions(prev => {
+      const newId = `term-${Date.now()}`;
+      const newTitle = `bash-${prev.length + 1}`;
+      const transport = new MockTriggerTransport(newTitle);
+      
+      transport.connect();
+      return [...prev, { id: newId, title: newTitle, transport }];
+    });
+  };
 
-  // B. Initialize the Mock Transport
-  const mockTransport = useMemo(() => new MockTriggerTransport(), []);
-
-  // C. Initialize plugins (Added LinkSnifferPlugin!)
-  const plugins = useMemo(() => [
-    new FileIconPlugin(),
-    new LinkSnifferPlugin()
-  ], []);
-
-  // Connect transport on mount
   useEffect(() => {
-    mockTransport.connect();
-    return () => mockTransport.disconnect();
-  }, [mockTransport]);
+    // ONLY run this once, even if React forces a double-mount!
+    if (!hasBooted.current) {
+      hasBooted.current = true;
+      addTab();
+    }
+  }, []);
 
-  // Click handler for Files
-  const handleContextClick = (fileName: string) => {
-    alert(`[IDE Action Triggered]\n\nYou clicked: ${fileName}\n\nIn the real app, this would open the file tab!`);
+  const closeTab = (idToClose: string) => {
+    setSessions(prev => {
+      const sessionToClose = prev.find(s => s.id === idToClose);
+      if (sessionToClose) sessionToClose.transport.disconnect(); // Kill the backend connection!
+      return prev.filter(s => s.id !== idToClose);
+    });
   };
 
-  // NEW: Click handler for Links
-  const handleLinkClick = (url: string) => {
-    alert(`[IDE Action Triggered]\n\nYou clicked: ${url}\n\nIn the real app, this would dynamically proxy the port and open the Preview Pane!`);
-  };
+  const handleFileClick = (fileName: string) => alert(`Opening: ${fileName}`);
+  const handleLinkClick = (url: string) => alert(`Proxying: ${url}`);
 
   return (
-    <div style={{ padding: '40px', backgroundColor: '#000', height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+    <div style={{ padding: '40px', backgroundColor: '#000', height: '100vh', display: 'flex', justifyItems: 'center', alignItems: 'center' }}>
       
-      <div style={{ width: '900px', display: 'flex', flexDirection: 'column', borderRadius: '8px', overflow: 'hidden', border: '1px solid #333', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
+      <div style={{ width: '900px', height: '600px', display: 'flex', flexDirection: 'column', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}>
         
-        {/* TOP: The Context Widget (Now handles files AND links) */}
-        <TerminalContextWidget 
-          eventBus={sharedEventBus} 
-          onFileClick={handleContextClick} 
-          onLinkClick={handleLinkClick} // Pass the new handler
+        {/* We replaced the single terminal with our new Multiplexer! */}
+        <TerminalTabs 
+          initialSessions={sessions}
+          onAddTab={addTab}
+          onCloseTab={closeTab}
+          onFileClick={handleFileClick}
+          onLinkClick={handleLinkClick}
         />
-
-        {/* BOTTOM: The Terminal (Runs plugins and emits COMMAND_OUTPUT) */}
-        <div style={{ height: '500px', backgroundColor: '#1e1e1e' }}>
-          <TerminalComponent 
-            ref={terminalRef}
-            theme="dark" 
-            transport={mockTransport} 
-            plugins={plugins}
-            eventBus={sharedEventBus} 
-          />
-        </div>
 
       </div>
     </div>

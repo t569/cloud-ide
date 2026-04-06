@@ -31,16 +31,31 @@ export const TerminalPanel = ({ transport, isActive, onFileClick, onLinkClick }:
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault(); 
     const rect = e.currentTarget.getBoundingClientRect();
+    
+    // 1. Get raw coordinates relative to the terminal container
+    let clickX = e.clientX - rect.left;
+    let clickY = e.clientY - rect.top;
 
-    // SNAPSHOT FIX: Grab the text *before* the menu opens and steals focus
+    // 2. Define the approximate size of the menu (w-48 is 192px, height is ~140px)
+    const MENU_WIDTH = 192;
+    const MENU_HEIGHT = 140;
+
+    // 3. COLLISION MATH: Flip the menu up or left if it hits the container boundaries!
+    if (clickX + MENU_WIDTH > rect.width) {
+      clickX -= MENU_WIDTH; // Shift left
+    }
+    
+    if (clickY + MENU_HEIGHT > rect.height) {
+      clickY -= MENU_HEIGHT; // Shift up
+    }
+
     const currentSelection = terminalRef.current?.getSelection() || '';
-
 
     setContextMenu({
       isVisible: true,
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-      selectedText: currentSelection // save the selected text safely
+      x: clickX,
+      y: clickY,
+      selectedText: currentSelection 
     });
   };
 

@@ -80,7 +80,7 @@ export const TerminalTabs = ({
       </div>
 
       {/* === TERMINAL PANELS === */}
-      <div className="flex-1 overflow-hidden relative">
+      <div className="flex-1 overflow-hidden relative min-h-0">
         {initialSessions.length === 0 ? (
           <div className="flex h-full items-center justify-center text-gray-500 font-mono text-sm">
             No active terminals. Click '+' to start a session.

@@ -96,13 +96,17 @@ export interface TerminalHandle {
   // Remember to implement local storage for this in parent component
   // for more info look at dev/TerminalApp.tsx
   serializeState: () => string | undefined;
+  
+  // for copy and paste
+  getSelection: () => string;
+  scrollToBottom: () => void;
 }
 
 // TerminalProps encapsulates ITerminalConfig
 export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
   // default values 
   theme = 'dark',
-  fontFamily = ' "JetBrains Mono", Consolas, Menlo, Monaco, "Courier New", monospace',
+  fontFamily = '"JetBrains Mono", Consolas, Menlo, Monaco, "Courier New", monospace',
   fontSize = 14,
   transport,
   isReadOnly = false,
@@ -140,15 +144,14 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
   const pipelineRef = useRef<ITerminalMiddleware>(new MiddlewarePipeline());
 
   // Expose manual write/clear methods to the parent (for our EnvManager build logs)
-  useImperativeHandle(ref, () => ({
+ useImperativeHandle(ref, () => ({
     write: (data: string) => xterm?.write(data),
     clear: () => xterm?.clear(),
-
     findNext: (keyword: string) => searchAddon?.findNext(keyword),
     findPrevious: (keyword: string) => searchAddon?.findPrevious(keyword),
-    serializeState: () => serializeAddon?.serialize()
-  
-
+    serializeState: () => serializeAddon?.serialize(),
+    getSelection: () => xterm?.getSelection() || '', // <--- ADDED
+    scrollToBottom: () => xterm?.scrollToBottom() 
   }));
   
 
@@ -237,11 +240,12 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
 
     // D. Handle Pasting
     const handleDOMPaste = async (e: ClipboardEvent) => {
-      if (isReadOnly) return; // Prevent pasting into a read-only stream
+      if (isReadOnly) return;
       e.preventDefault();
       const pastedText = await inputHandler.handlePaste();
       if (pastedText) {
          inputHandler.handleInput(pastedText, transport);
+         xterm?.scrollToBottom(); // <--- Snaps viewport to the bottom on paste
       }
     };
 
@@ -262,6 +266,7 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
       width: '100%', 
       height: '100%', 
       padding: '10px', 
+      boxSizing: 'border-box',
       // Safely fall back to black if the theme object is missing a background string
       backgroundColor: resolvedTheme.background || '#000000' 
     }}>

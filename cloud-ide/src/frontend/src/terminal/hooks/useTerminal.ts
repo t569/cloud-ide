@@ -60,7 +60,11 @@ export const useTerminal = ({
       lineHeight: lineHeight,
       cursorBlink: cursorBlink,
       cursorStyle: cursorStyle,
-      fontWeight: fontWeight
+      fontWeight: fontWeight,
+      macOptionClickForcesSelection: true,
+      convertEol: true,
+      scrollback: 5000,     // now buffer is increased from 1000 to 5000 lines
+      scrollOnUserInput: true   // Forces viewport down when typing
     });
 
 

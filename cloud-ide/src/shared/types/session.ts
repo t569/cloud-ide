@@ -12,3 +12,10 @@ export interface SessionRecord {
     connectedAt: number;
     lastPingAt: number;         // We will use this to determine when to puase an idle sandbox
 }
+
+// Payload expected when a frontend requests to connect to the IDE
+export interface SessionConnectRequest {
+  environmentId: string;
+  repoUrl?: string;
+  branch?: string;
+}

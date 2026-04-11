@@ -1,12 +1,34 @@
 // backend/src/services/sandbox/SandboxManager.ts
 
+// this imports our engine functions from our rust backend precompiled binary
+
+// TODO: modify the docs
+/**
+ * DEPRECIATED DOCS
+ * For Local Development (Fast Compile, Unoptmized):
+ * npx napi build --platform --cargo-cwd src-rust
+ * 
+ * For Production (Slow Compile, Highly Optimized):
+ * npm napi build --platform --release --cargo-cwd src-rust
+ * 
+ * 
+ * What actually happens when you run that command?
+  NAPI reads your package.json and tells Cargo to start building.
+
+  Cargo runs build.rs, which downloads the C headers for Node.js.
+
+  Cargo compiles your lib.rs and the OpenSandbox HTTP engine.
+
+  Finally, NAPI takes the resulting .so, .dylib, or .dll file from the Rust target folder, renames it to index.node, 
+  and moves it to the root of your backend directory.
+ */
 import { 
   bootSandbox, 
   pauseSandbox, 
   destroySandbox, 
   getSandboxStatus,
   getSandboxIp
-} from '../../../index.node'; 
+} from '../../../src-rust/src/api/index';
 
 import { SandboxSpec, SandboxRecord } from '@cloud-ide/shared/types/sandbox';
 import { ISandboxRepository } from '../../database/interfaces/ISandboxRepository';

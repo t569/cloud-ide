@@ -24,6 +24,8 @@ impl OpenSandboxProvider {
 
 #[async_trait]
 impl SandboxEngine for OpenSandboxProvider {
+
+    // DEFAULT BOOT FUNCTIONS
     async fn boot(&self, spec: &JsSandboxSpec) -> Result<JsSandboxStatus, String> {
         // Extract dynamically provided limits or fall back to defaults
         let cpu = spec.resource_limits.as_ref().and_then(|r| r.cpu_count).unwrap_or(1.0);
@@ -62,6 +64,8 @@ impl SandboxEngine for OpenSandboxProvider {
         })
     }
 
+
+    // GET GET_STATUS/ http://opensandbox_url/sandboxes/sandbox_id
     async fn get_status(&self, sandbox_id: &str) -> Result<JsSandboxStatus, String> {
         let res = self.client.get(format!("{}/sandboxes/{}", self.api_url, sandbox_id))
             .send()
@@ -94,6 +98,8 @@ impl SandboxEngine for OpenSandboxProvider {
         })
     }
 
+
+    // POST PAUSE/ http://opensandbox_url/sandboxes/sandbox_id/pause
     async fn pause(&self, sandbox_id: &str) -> Result<bool, String> {
         let res = self.client.post(format!("{}/sandboxes/{}/pause", self.api_url, sandbox_id))
             .send()
@@ -103,6 +109,8 @@ impl SandboxEngine for OpenSandboxProvider {
         Ok(res.status().is_success())
     }
 
+
+    // DELETE DESTROY/ https://opensandbox_url/sandboxes/sandbox_id
     async fn destroy(&self, sandbox_id: &str) -> Result<bool, String> {
         let res = self.client.delete(format!("{}/sandboxes/{}", self.api_url, sandbox_id))
             .send()
@@ -113,6 +121,8 @@ impl SandboxEngine for OpenSandboxProvider {
         Ok(res.status().is_success() || res.status().as_u16() == 404)
     }
 
+
+    // POST EXEC/ https://opensandbox_url:44772/exec
     async fn exec(&self, internal_ip: &str, payload: &crate::ExecPayload) -> Result<String, String> {
         // Route directly to the container's internal execd daemon bypassing the main API
         let execd_url = format!("http://{}:44772/exec", internal_ip);

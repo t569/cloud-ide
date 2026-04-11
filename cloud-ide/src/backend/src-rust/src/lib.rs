@@ -39,7 +39,7 @@ fn get_state() -> &'static DashMap<String, String> {
 // ==========================================
 // NAPI DATA STRUCTURES (Mirrors sandbox.ts)
 // ==========================================
-
+#[derive(Debug)]
 #[napi(object)]
 pub struct JsVolumeMount {
     pub name: String,
@@ -48,12 +48,14 @@ pub struct JsVolumeMount {
     pub read_only: Option<bool>,
 }
 
+#[derive(Debug)]
 #[napi(object)]
 pub struct JsNetworkPolicySpec {
     pub allow_outbound_domains: Vec<String>,
     pub block_all_oter_traffic: bool, // Matching the typo in your TS file to prevent parsing errors
 }
 
+#[derive(Debug)]
 #[napi(object)]
 pub struct JsResourceLimits {
     pub cpu_count: Option<f64>,
@@ -61,6 +63,7 @@ pub struct JsResourceLimits {
 }
 
 // Maps perfectly to SandboxSpec
+#[derive(Debug)]
 #[napi(object)]
 pub struct JsSandboxSpec {
     pub image_tag: String,
@@ -72,6 +75,7 @@ pub struct JsSandboxSpec {
 }
 
 // Maps perfectly to SandboxStatus
+#[derive(Debug)]
 #[napi(object)]
 pub struct JsSandboxStatus {
     pub sandbox_id: String,
@@ -82,6 +86,7 @@ pub struct JsSandboxStatus {
     pub preview_urls: Option<HashMap<String, String>>,
 }
 
+#[derive(Debug)]
 #[napi(object)]
 pub struct ExecPayload {
     pub command: String,

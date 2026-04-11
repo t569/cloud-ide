@@ -2,6 +2,9 @@
 
 pub mod opensandbox;
 
+// our custom tests
+pub mod test;
+
 use async_trait::async_trait;
 use crate::{ExecPayload, JsSandboxSpec, JsSandboxStatus};
 

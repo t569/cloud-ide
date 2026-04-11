@@ -22,16 +22,13 @@
   Finally, NAPI takes the resulting .so, .dylib, or .dll file from the Rust target folder, renames it to index.node, 
   and moves it to the root of your backend directory.
  */
-import { 
-  bootSandbox, 
-  pauseSandbox, 
-  destroySandbox, 
-  getSandboxStatus,
-  getSandboxIp
-} from '../../../src-rust/src/api/index';
-
-import { SandboxSpec, SandboxRecord } from '@cloud-ide/shared/types/sandbox';
+import { RustEngineAPI } from '../../types/engine';
+import { SandboxSpec, SandboxRecord, SandboxStatus } from '@cloud-ide/shared/types/sandbox';
 import { ISandboxRepository } from '../../database/interfaces/ISandboxRepository';
+
+// Safely cast the C-binary to our strict TS interface
+const rustEngine = require('../../../index.node') as RustEngineAPI;
+
 
 /**
  * @class SandboxManager
@@ -56,22 +53,24 @@ export class SandboxManager {
     try {
       // 1. Cross the FFI boundary. 
       // Rust returns a structured object: { sandboxId, ipAddress, state }
-      const rustStatus = await bootSandbox(spec.imageTag);
+      const rustStatus: SandboxStatus = await rustEngine.bootSandbox(spec);
 
-      // 2. Construct the database record
+      // 2. Map the response to the exact SandboxRecord schema
       const record: SandboxRecord = {
         sandboxId: rustStatus.sandboxId,
         environmentId: spec.imageTag,
-        state: 'RUNNING', 
-        ipAddress: rustStatus.ipAddress, // Crucial for direct TCP/WebSocket routing
-        volumeMounts: [], 
+        state: rustStatus.state, 
+        ipAddress: rustStatus.ipAddress, 
+        execdPort: rustStatus.execdPort, 
+        volumeMounts: spec.volumes ? spec.volumes.map(v => v.mountPath) : [], 
         createdAt: Date.now(),
       };
 
+
       // 3. Persist to the database so we survive backend server restarts
       await this.sandboxRepo.save(record);
-
       return record;
+
     } catch (error: any) {
       console.error(`\x1b[31m[Rust Engine Fault]\x1b[0m`, error.message);
       throw new Error("Failed to provision infrastructure.");
@@ -89,7 +88,7 @@ export class SandboxManager {
     console.log(`[SandboxManager] Requesting Rust to pause ${sandboxId}...`);
     
     try {
-      const success = await pauseSandbox(sandboxId);
+      const success = await rustEngine.pauseSandbox(sandboxId);
       if (success) {
          await this.sandboxRepo.updateState(sandboxId, 'PAUSED');
       }
@@ -111,7 +110,7 @@ export class SandboxManager {
     console.log(`[SandboxManager] Requesting Rust to destroy ${sandboxId}...`);
 
     try {
-      const success = await destroySandbox(sandboxId);
+      const success = await rustEngine.destroySandbox(sandboxId);
       if (success) {
          await this.sandboxRepo.delete(sandboxId);
       }
@@ -120,17 +119,5 @@ export class SandboxManager {
       console.error(`\x1b[31m[Rust Engine Fault]\x1b[0m Failed to destroy:`, error.message);
       throw new Error(`Failed to destroy sandbox ${sandboxId}`);
     }
-  }
-
-  /**
-   * @method getInternalIp
-   * @description A synchronous, zero-latency lookup used by the Edge Proxy to route 
-   * incoming terminal WebSockets directly to the active OpenSandbox container.
-   * * @param {string} sandboxId - The unique ID of the active sandbox.
-   * @returns {string | null} The internal IP address, or null if the sandbox is off/missing.
-   */
-  public getInternalIp(sandboxId: string): string | null {
-    // This instantly reads from the Rust DashMap without async overhead.
-    return getSandboxIp(sandboxId); 
   }
 }

@@ -1,19 +1,19 @@
 {
   "compilerOptions": {
     "target": "ES2020",
-    "module": "CommonJS",
-    "moduleResolution": "node",
+    "module": "Node16",
+    "moduleResolution": "node16", 
     "outDir": "./dist",
+    "rootDir": "../", 
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     
-    // 1. Tells TS to load built-in OS modules (child_process, crypto, etc.)
-    "types": ["node","jest"],
+    // 1. Tells TS to load built-in OS modules
+    "types": ["node", "jest"],
     
-    // 2. The Monorepo Treasure Map (Fixes the @cloud-ide/shared errors)
-    "baseUrl": ".",
+    // 2. The Monorepo Treasure Map (Modernized)
     "paths": {
       "@cloud-ide/shared": ["../shared/index.ts"],
       "@cloud-ide/shared/*": ["../shared/*"]
@@ -21,9 +21,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node dist/backend/src/server.js",
     "dev": "ts-node -r tsconfig-paths/register src/server.ts", 
     "test": "jest"
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "../shared/**/*"]
 }

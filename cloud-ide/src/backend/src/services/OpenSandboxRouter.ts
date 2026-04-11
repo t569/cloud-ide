@@ -2,6 +2,9 @@
 
 
 // this file converts our node.js requests to a format that pydantic can understand
+
+// TODO: we need to see how we integrate this with our current rust backend
+// DEPRECIATED
 import { config } from '../config/env';
 
 // --- 1. INTERNAL TYPES (What your Node App uses) ---

@@ -5,8 +5,7 @@ import { EventEmitter } from 'events';
 import { ISessionRepository, ISandboxRepository } from '../database/interfaces';
 import { SandboxManager } from '../services/sandbox/SandboxManager';
 import { SessionRecord } from '../database/models';
-
-// TODO: check around line 80
+import { config } from '../config/env';
 
 /**
  * @class SessionController
@@ -41,6 +40,15 @@ export class SessionController {
     // 1. Generate a unique ID for this browser connection
     const sessionId = `sess-${crypto.randomUUID()}`;
 
+    // 2. Get the base URL (e.g., "http://localhost:3000" or "https://api.domain.com")
+    const baseUrl = config.PUBLIC_API_URL;
+
+    // 3. Swap HTTP for WS, and HTTPS for WSS automatically!
+    const baseWsUrl = baseUrl.replace(/^http/, 'ws');
+
+    // 4. Build the final string
+    const websocketUrl = `${baseWsUrl}/v1/sessions/${sessionId}/stream`;
+
     try {
       // 2. Log the connection attempt
       const newSession: SessionRecord = {
@@ -54,8 +62,6 @@ export class SessionController {
       this.systemEvents.emit('session:connecting', newSession);
 
       // 3. THE SMART ROUTER: Do we already have a warm sandbox for this repo/user?
-      // For a real app, you'd check a combination of userId and repoUrl.
-      // Here we look for any available sandbox for this environment.
       let targetSandboxId: string;
       const existingSandboxes = await this.sandboxRepo.getSandboxesByEnvId(environmentId);
       const availableSandbox = existingSandboxes.find(sbx => sbx.state === 'RUNNING' || sbx.state === 'PAUSED');
@@ -87,10 +93,7 @@ export class SessionController {
         message: 'Session established',
         sessionId,
         sandboxId: targetSandboxId,
-        // The frontend will use this URL to establish the WebSocket terminal connection
-
-        // TODO: establish this well
-        websocketUrl: `ws://api.yourdomain.com/v1/sessions/${sessionId}/stream` 
+        websocketUrl: websocketUrl 
       });
 
     } catch (error: any) {
@@ -110,8 +113,8 @@ export class SessionController {
     const rawSessionId = req.params.sessionId;
     const sessionId = Array.isArray(rawSessionId) ? rawSessionId[0] : rawSessionId;
 
-    // Failsafe type check
-    if (sessionId || typeof sessionId !== 'string') {
+    // Failsafe type check (FIXED)
+    if (!sessionId || typeof sessionId !== 'string') {
         res.status(400).json({error: 'Invalid sessionId parameter'});
         return;
     }

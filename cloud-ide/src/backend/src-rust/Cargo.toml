@@ -1,0 +1,22 @@
+[package]
+name = "cloud-ide-engine"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"] # CRITICAL: Tells Rust to build a dynamic C-library, not a standard Rust executable
+
+[dependencies]
+napi = { version = "2.16.4", default-features = false, features = ["napi4", "async", "tokio_rt"] }
+napi-derive = "2.16.2"
+tokio = { version = "1.37", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] } # For making HTTP calls to OpenSandbox
+dashmap = "5.5.3"  # For our zero-latency IP routing table
+serde = { version = "1.0", features = ["derive"] }
+uuid = { version = "1.8", features = ["v4", "fast-rng"] }
+async-trait = "0.1.80" # Allows us to write async interfaces
+serde_json = "1.0.149"
+
+# this is for our napi_build script that runs first before compiling the library
+[build-dependencies]
+napi-build = "2.2.4"

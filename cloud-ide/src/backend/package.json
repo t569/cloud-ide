@@ -4,9 +4,10 @@
   "description": "Backend engine for the Cloud IDE",
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc",
+    "build:rust": "napi build --cwd src-rust --output-dir ../src-rust/src/api",
+    "build": "npm run build:rust && tsc",
     "start": "node dist/server.js",
-    "dev": "ts-node src/server.ts",
+    "dev": "npm run build:rust && ts-node src/server.ts",
     "test": "jest",
     "start:engine": "node ../opensandbox/boot-engine.js"
   },
@@ -23,6 +24,7 @@
     "ws": "^8.19.0"
   },
   "devDependencies": {
+    "@napi-rs/cli": "^3.6.1",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",

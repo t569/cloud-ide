@@ -2,31 +2,22 @@
 
 // this imports our engine functions from our rust backend precompiled binary
 
-// TODO: modify the docs
 /**
- * DEPRECIATED DOCS
- * For Local Development (Fast Compile, Unoptmized):
- * npx napi build --platform --cargo-cwd src-rust
- * 
- * For Production (Slow Compile, Highly Optimized):
- * npm napi build --platform --release --cargo-cwd src-rust
- * 
- * 
- * What actually happens when you run that command?
-  NAPI reads your package.json and tells Cargo to start building.
+ * When a new developer clones your repository (or when your CI/CD pipeline pulls the code to deploy it), the index.node file will be missing.
 
-  Cargo runs build.rs, which downloads the C headers for Node.js.
+They will run npm install.
 
-  Cargo compiles your lib.rs and the OpenSandbox HTTP engine.
+They will run npm run build:rust (or you can add it to a postinstall script in your package.json).
 
-  Finally, NAPI takes the resulting .so, .dylib, or .dll file from the Rust target folder, renames it to index.node, 
-  and moves it to the root of your backend directory.
+Cargo will dynamically compile a brand-new index.node file that is perfectly optimized for their specific machine and operating system.
+
  */
 import { RustEngineAPI } from '../../types/engine';
 import { SandboxSpec, SandboxRecord, SandboxStatus } from '@cloud-ide/shared/types/sandbox';
 import { ISandboxRepository } from '../../database/interfaces/ISandboxRepository';
 
 // Safely cast the C-binary to our strict TS interface
+// TODO: in our package.json build:rust command, optimise for both local dev builds and production builds
 const rustEngine = require('../../../index.node') as RustEngineAPI;
 
 

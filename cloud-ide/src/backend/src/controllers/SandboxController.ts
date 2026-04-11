@@ -216,6 +216,7 @@
 
 // backend/src/controllers/SandboxController.ts
 
+// DEPRECIATED
 import { Request, Response } from 'express';
 import { EventEmitter } from 'events';
 

@@ -2,16 +2,28 @@
 
 import { SandboxRecord, SandboxState } from '@cloud-ide/shared/types/sandbox';
 
+/**
+ * @interface ISandboxRepository
+ * @description The Infrastructure Truth. Tracks the physical compute units 
+ * actively managed by the Rust orchestrator.
+ */
 export interface ISandboxRepository {
   // Core CRUD
   save(sandbox: SandboxRecord): Promise<void>;
   get(sandboxId: string): Promise<SandboxRecord | null>;
   delete(sandboxId: string): Promise<void>;
 
-  // State Management
+  /**
+   * @description Keeps the database perfectly synchronized with the Rust 
+   * engine's state transitions (RUNNING, PAUSED, ERROR).
+   */
   updateState(sandboxId: string, state: SandboxState): Promise<void>;
 
-  // Relational Lookup: Find all sandboxes running a specific image/environment
-  // Useful for finding "warm" sandboxes to assign to new users
+  /**
+   * @description The core relational query that allows the SessionController 
+   * to find existing "warm" compute nodes and prevent duplicate provisioning.
+   */
   getSandboxesByEnvId(envId: string): Promise<SandboxRecord[]>;
+
+  list(): Promise<SandboxRecord[]>;
 }

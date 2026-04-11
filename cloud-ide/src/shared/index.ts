@@ -12,6 +12,7 @@ export { PackageManagerRules } from './utils/packagemanager_rules';
 
 // TYPES
 export { ISandboxProvider, SandboxSpec, SandboxStatus, SandboxState, VolumeMount, NetworkPolicySpec } from './types/sandbox';
+export {SessionRecord, SessionState} from './types/session';
 export { EnvironmentConfig, BuildStep, InstallStepType } from './types/env';
 export { DeveloperTool, EcosystemToolkit } from './types/ecosystem';
 export { IFileWatcher } from './types/sync';

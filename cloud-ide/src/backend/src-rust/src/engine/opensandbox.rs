@@ -30,11 +30,9 @@ impl SandboxEngine for OpenSandboxProvider {
         // Extract dynamically provided limits or fall back to defaults
         let cpu = spec.resource_limits.as_ref().and_then(|r| r.cpu_count).unwrap_or(1.0);
         let mem = spec.resource_limits.as_ref().and_then(|r| r.memory_mb).unwrap_or(512.0);
-
-        // Map environment variables
         let env_vars = spec.env_vars.clone().unwrap_or_default();
 
-        let payload = json!({
+        let payload = serde_json::json!({
             "image": { "uri": &spec.image_tag, "pullPolicy": "IfNotPresent" },
             "timeout": 3600,
             "resourceLimits": { "cpuCount": cpu.to_string(), "memoryMb": mem.to_string() },
@@ -53,15 +51,46 @@ impl SandboxEngine for OpenSandboxProvider {
         }
 
         let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+        let sandbox_id = data["id"].as_str().unwrap_or_default().to_string();
         
-        Ok(JsSandboxStatus {
-            sandbox_id: data["id"].as_str().unwrap_or_default().to_string(),
-            state: "RUNNING".to_string(), // Mapped to SandboxState in TS
-            ip_address: data["status"]["ip"].as_str().map(|s| s.to_string()),
-            execd_port: Some(44772), 
-            message: Some("Provisioned successfully via OpenSandbox".to_string()),
-            preview_urls: None,
-        })
+        // 1. If the IP is available immediately, return it.
+        if let Some(ip) = data["status"]["ip"].as_str() {
+            return Ok(JsSandboxStatus {
+                sandbox_id,
+                state: "RUNNING".to_string(),
+                ip_address: Some(ip.to_string()),
+                execd_port: Some(44772),
+                message: Some("Provisioned successfully".to_string()),
+                preview_urls: None,
+            });
+        }
+
+        // 2. If no IP yet (HTTP 202 Accepted), enter a polling loop to wait for Docker
+        let mut attempts = 0;
+        loop {
+            // Poll our own get_status method
+            if let Ok(status) = self.get_status(&sandbox_id).await {
+                if status.ip_address.is_some() && status.state == "RUNNING" {
+                    return Ok(JsSandboxStatus {
+                        sandbox_id,
+                        state: "RUNNING".to_string(),
+                        ip_address: status.ip_address,
+                        execd_port: Some(44772),
+                        message: Some("Provisioned and IP assigned successfully".to_string()),
+                        preview_urls: None,
+                    });
+                }
+            }
+
+            if attempts >= 40 { // Timeout after 20 seconds
+                return Err("Timeout waiting for Docker to assign an IP address".to_string());
+            }
+
+            // Wait 500ms before asking OpenSandbox again
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            attempts += 1;
+        }
+
     }
 
 

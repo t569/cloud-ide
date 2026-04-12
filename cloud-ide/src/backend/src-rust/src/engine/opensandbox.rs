@@ -157,9 +157,10 @@ impl SandboxEngine for OpenSandboxProvider {
     // POST EXEC/ https://opensandbox_url:44772/exec
     async fn exec(&self, sandbox_id: &str, payload: &crate::ExecPayload) -> Result<String, String> {
         // Route directly to the container's internal execd daemon bypassing the main API
-        // Updatd Fix: Route through the Control Plane Proxy instead of the direct IP
-        let execd_url = format!("{}/sandboxes/{}/exec", self.api_url, sandbox_id);
+        // Updated Fix: Route through the Control Plane Proxy instead of the direct IP
         
+        /// TODO: we need to find the exec endpoint
+        let execd_url = format!("{}/sandboxes/{}/port/44772/command", self.api_url, sandbox_id);
         let req_body = serde_json::json!({
             "cmd": ["bash", "-c", &payload.command],
             "cwd": &payload.cwd,

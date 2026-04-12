@@ -51,7 +51,7 @@ mod tests {
             Ok(true)
         }
 
-        async fn exec(&self, _internal_ip: &str, payload: &ExecPayload) -> Result<String, String> {
+        async fn exec(&self, _sandbox_id: &str, payload: &ExecPayload) -> Result<String, String> {
             if self.should_fail { return Err("Mock Exec Failure".to_string()); }
             Ok(format!("Executed '{}' in mock workspace", payload.command))
         }
@@ -113,7 +113,7 @@ mod tests {
         };
 
         // Ensure the payload passes successfully through the mock execd daemon
-        let result = engine.exec("192.168.1.100", &payload).await.unwrap();
+        let result = engine.exec("mock-sbx-123", &payload).await.unwrap();
         assert_eq!(result, "Executed 'npm run build' in mock workspace");
     }
 }

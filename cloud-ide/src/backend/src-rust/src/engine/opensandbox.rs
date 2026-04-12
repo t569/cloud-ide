@@ -26,8 +26,8 @@ impl OpenSandboxProvider {
 impl SandboxEngine for OpenSandboxProvider {
 
     // DEFAULT BOOT FUNCTIONS
+    // DEFAULT BOOT FUNCTIONS
     async fn boot(&self, spec: &JsSandboxSpec) -> Result<JsSandboxStatus, String> {
-        // Extract dynamically provided limits or fall back to defaults
         let cpu = spec.resource_limits.as_ref().and_then(|r| r.cpu_count).unwrap_or(1.0);
         let mem = spec.resource_limits.as_ref().and_then(|r| r.memory_mb).unwrap_or(512.0);
         let env_vars = spec.env_vars.clone().unwrap_or_default();
@@ -40,59 +40,51 @@ impl SandboxEngine for OpenSandboxProvider {
             "entrypoint": ["sleep", "infinity"]
         });
 
+        println!("  [RUST] Sending POST /sandboxes to provision...");
         let res = self.client.post(format!("{}/sandboxes", self.api_url))
             .json(&payload)
             .send()
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| format!("Reqwest failed: {}", e))?;
 
         if !res.status().is_success() {
             return Err(format!("Engine rejected boot: {}", res.status()));
         }
 
-        let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+        let data: serde_json::Value = res.json().await.map_err(|e| format!("JSON Parse error: {}", e))?;
         let sandbox_id = data["id"].as_str().unwrap_or_default().to_string();
-        
-        // 1. If the IP is available immediately, return it.
-        if let Some(ip) = data["status"]["ip"].as_str() {
-            return Ok(JsSandboxStatus {
-                sandbox_id,
-                state: "RUNNING".to_string(),
-                ip_address: Some(ip.to_string()),
-                execd_port: Some(44772),
-                message: Some("Provisioned successfully".to_string()),
-                preview_urls: None,
-            });
-        }
+        println!("  [RUST] Boot Accepted! Sandbox ID: {}", sandbox_id);
 
-        // 2. If no IP yet (HTTP 202 Accepted), enter a polling loop to wait for Docker
-        let mut attempts = 0;
+        let mut attempts = 1;
         loop {
-            // Poll our own get_status method
-            if let Ok(status) = self.get_status(&sandbox_id).await {
-                if status.ip_address.is_some() && status.state == "RUNNING" {
-                    return Ok(JsSandboxStatus {
-                        sandbox_id,
-                        state: "RUNNING".to_string(),
-                        ip_address: status.ip_address,
-                        execd_port: Some(44772),
-                        message: Some("Provisioned and IP assigned successfully".to_string()),
-                        preview_urls: None,
-                    });
+            // Match handles both Success and Error states explicitly now
+            match self.get_status(&sandbox_id).await {
+                Ok(status) => {
+                    println!("  [RUST] Poll {} | Internal State: {}", attempts, status.state);
+                    if status.state == "RUNNING" {
+                        return Ok(JsSandboxStatus {
+                            sandbox_id: sandbox_id.clone(),
+                            state: "RUNNING".to_string(),
+                            ip_address: Some("proxy-managed".to_string()),
+                            execd_port: Some(44772),
+                            message: Some("Provisioned successfully".to_string()),
+                            preview_urls: None,
+                        });
+                    }
+                },
+                Err(e) => {
+                    println!("  [RUST] Polling Error on attempt {}: {}", attempts, e);
                 }
             }
 
-            if attempts >= 40 { // Timeout after 20 seconds
-                return Err("Timeout waiting for Docker to assign an IP address".to_string());
+            if attempts >= 120 { 
+                return Err("Timeout waiting for OpenSandbox to report RUNNING state".to_string());
             }
 
-            // Wait 500ms before asking OpenSandbox again
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             attempts += 1;
         }
-
     }
-
 
     // GET GET_STATUS/ http://opensandbox_url/sandboxes/sandbox_id
     async fn get_status(&self, sandbox_id: &str) -> Result<JsSandboxStatus, String> {
@@ -105,16 +97,28 @@ impl SandboxEngine for OpenSandboxProvider {
             return Err(format!("Failed to fetch status: {}", res.status()));
         }
 
-        let data: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+        // Read the raw text first so we can print it if JSON mapping fails
+        let body = res.text().await.map_err(|e| e.to_string())?;
         
-        // Map OpenSandbox's internal state to our strict TypeScript SandboxState schema
-        let raw_status = data["status"]["phase"].as_str().unwrap_or("UNKNOWN");
+        // DEGUG PRINT
+        // println!("  [RUST] Raw JSON Body: {}", body);
+        
+        let data: serde_json::Value = serde_json::from_str(&body)
+            .map_err(|e| format!("Invalid JSON from server: {}. Raw body: {}", e, body))?;
+        
+        let raw_status = data["status"]["state"].as_str().unwrap_or("UNKNOWN");
+        
+        // Let's print exactly what OpenSandbox is saying under the hood
+        println!("  [RUST] Raw OpenSandbox state: {}", raw_status);
+
+        // Map ALL intermediate boot phases to our TypeScript "PROVISIONING" state
         let mapped_state = match raw_status {
             "Running" => "RUNNING",
-            "Pending" => "PROVISIONING",
+            "Pending" | "Creating" | "Starting" | "Preparing" => "PROVISIONING",
             "Paused"  => "PAUSED",
             "Stopped" => "STOPPED",
-            _         => "ERROR",
+            "Error"   => "ERROR",
+            _         => "PROVISIONING", // Safely default to provisioning for unknown transitional states
         };
 
         Ok(JsSandboxStatus {
@@ -123,10 +127,9 @@ impl SandboxEngine for OpenSandboxProvider {
             ip_address: data["status"]["ip"].as_str().map(|s| s.to_string()),
             execd_port: Some(44772),
             message: Some("Status retrieved successfully".to_string()),
-            preview_urls: None, // Can be populated dynamically if OpenSandbox exposes routes
+            preview_urls: None, 
         })
     }
-
 
     // POST PAUSE/ http://opensandbox_url/sandboxes/sandbox_id/pause
     async fn pause(&self, sandbox_id: &str) -> Result<bool, String> {
@@ -152,9 +155,10 @@ impl SandboxEngine for OpenSandboxProvider {
 
 
     // POST EXEC/ https://opensandbox_url:44772/exec
-    async fn exec(&self, internal_ip: &str, payload: &crate::ExecPayload) -> Result<String, String> {
+    async fn exec(&self, sandbox_id: &str, payload: &crate::ExecPayload) -> Result<String, String> {
         // Route directly to the container's internal execd daemon bypassing the main API
-        let execd_url = format!("http://{}:44772/exec", internal_ip);
+        // Updatd Fix: Route through the Control Plane Proxy instead of the direct IP
+        let execd_url = format!("{}/sandboxes/{}/exec", self.api_url, sandbox_id);
         
         let req_body = serde_json::json!({
             "cmd": ["bash", "-c", &payload.command],
@@ -169,7 +173,7 @@ impl SandboxEngine for OpenSandboxProvider {
             .map_err(|e| e.to_string())?;
 
         if !res.status().is_success() {
-            return Err(format!("Execd daemon failed with status: {}", res.status()));
+            return Err(format!("Exec proxy failed with status: {}", res.status()));
         }
 
         // Return the raw stdout/stderr text stream back across the FFI boundary

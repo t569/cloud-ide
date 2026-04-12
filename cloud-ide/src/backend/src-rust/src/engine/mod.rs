@@ -14,5 +14,5 @@ pub trait SandboxEngine: Send + Sync {
     async fn get_status(&self, sandbox_id: &str) -> Result<JsSandboxStatus, String>;
     async fn pause(&self, sandbox_id: &str) -> Result<bool, String>;
     async fn destroy(&self, sandbox_id: &str) -> Result<bool, String>;
-    async fn exec(&self, internal_ip: &str, payload: &ExecPayload) -> Result<String, String>;
+    async fn exec(&self, sandbox_id: &str, payload: &ExecPayload) -> Result<String, String>;
 }

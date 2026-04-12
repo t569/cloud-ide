@@ -4,7 +4,7 @@
   "description": "Backend engine for the Cloud IDE",
   "main": "dist/server.js",
   "scripts": {
-    "build:rust": "napi build --cwd src-rust --output-dir ../src-rust/src/api",
+    "build:rust": "napi build --cwd src-rust --output-dir ..",
     "build": "npm run build:rust && tsc",
     "start": "node dist/server.js",
     "dev": "npm run build:rust && ts-node src/server.ts",

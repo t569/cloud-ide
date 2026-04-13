@@ -101,6 +101,7 @@ export const EXTENSION_MAP: Record<string, ResolvedIcon> = {
   'fs': { icon: 'vscode-icons:file-type-fsharp' },
   'fsx': { icon: 'vscode-icons:file-type-fsharp' },
   'vb': { icon: 'vscode-icons:file-type-vb' },
+  'dart': {icon: 'simple-icons:dart', color: '#779ECB'},
 
   // --- Web, UI & Scripting ---
   'js': { icon: 'logos:javascript' },

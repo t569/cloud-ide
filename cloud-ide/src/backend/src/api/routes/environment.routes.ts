@@ -5,9 +5,8 @@ import { ISessionRepository } from '../../database/interfaces/ISessionRepository
 
 // Import our Core Tools
 import { Validator } from '@cloud-ide/shared';
-import { DockerGeneratorService } from 'src/services/builder';
-import { ExecutorService } from 'src/services/builder';
-
+import { DockerGeneratorService } from '../../services/builder';
+import { ExecutorService } from '../../services/builder';
 
 // Import Models
 import { EnvironmentRecord } from '../../database/models';
@@ -47,7 +46,7 @@ export function createEnvironmentRouter(envRepo: IEnvironmentRepository, session
   });
 
   // POST: Create a new custom environment from the frontend builder
-  router.post('/', async (req: Request, res: Response) => {
+   router.post('/', async (req: Request, res: Response) => {
     const newEnv: EnvironmentRecord = req.body;
 
     let validatedConfigStr: string;
@@ -59,6 +58,7 @@ export function createEnvironmentRouter(envRepo: IEnvironmentRepository, session
       const rawConfigString = JSON.stringify(newEnv.builderConfig);
 
       validatedConfigStr = Validator.parseAndValidate(rawConfigString, {return_a_string: true});
+      validatedConfig = Validator.parseAndValidate(rawConfigString);
 
       // set the env's build config
       newEnv.builderConfig = validatedConfig;
@@ -91,21 +91,22 @@ export function createEnvironmentRouter(envRepo: IEnvironmentRepository, session
         const logStream = ExecutorService.streamBuild(validatedConfigStr, finalImageName);
 
         // Stream standard logs directly to the frontend chunked response
-        logStream.on('data', (chunk) => {
+        logStream.on('data', (chunk: string) => {
           res.write(chunk);
         });
 
         // Handle successful completion
-        logStream.on('success', (msg) => {
+        logStream.on('success', (msg: string) => {
           res.write(`\r\n\x1b[1;32m[Docker]\x1b[0m ${msg}\r\n`);
           resolve(); 
         });
 
         // Handle fatal build errors
-        logStream.on('error', (errMsg) => {
+        logStream.on('error', (errMsg: string) => {
           reject(new Error(errMsg)); // Sends to the outer catch block
         });
       })
+
 
 
       // 5. Finalize the Database Record

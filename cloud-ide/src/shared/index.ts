@@ -1,7 +1,6 @@
 /* shared/index.ts
 * Barrel file for global imports to other parts
 */
-
 // Explicitly export the classes so the compiler doesn't lose them
 
 // UTILS
@@ -11,7 +10,7 @@ export { StepHasher } from './utils/hasher';
 export { PackageManagerRules } from './utils/packagemanager_rules';
 
 // TYPES
-export {
+export type {
   ISandboxProvider,
   SandboxExecRequest,
   SandboxExecResult,
@@ -23,7 +22,8 @@ export {
   VolumeMountKind,
   NetworkPolicySpec,
 } from './types/sandbox';
-export {SessionRecord, SessionState} from './types/session';
-export { EnvironmentConfig, BuildStep, InstallStepType } from './types/env';
-export { DeveloperTool, EcosystemToolkit } from './types/ecosystem';
-export { IFileWatcher } from './types/sync';
+
+export type { SessionRecord, SessionState } from './types/session';
+export type { EnvironmentConfig, BuildStep, InstallStepType } from './types/env';
+export type { DeveloperTool, EcosystemToolkit } from './types/ecosystem';
+export type { IFileWatcher } from './types/sync';

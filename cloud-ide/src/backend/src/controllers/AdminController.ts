@@ -3,7 +3,6 @@
 
 import { Request, Response } from 'express';
 import { SandboxManager } from '../services/sandbox/SandboxManager';
-import { ISandboxRepository } from '../database/interfaces';
 
 /**
  * @class AdminController

@@ -21,6 +21,7 @@ export interface ISessionRepository {
    * if the underlying infrastructure crashes.
    */
   getSessionsBySandboxId(sandboxId: string): Promise<SessionRecord[]>; 
+  getSessionsByEnvId(envId: string): Promise<SessionRecord[]>;
 
   /**
    * @description Creates the Many-to-One relational link between frontend users 

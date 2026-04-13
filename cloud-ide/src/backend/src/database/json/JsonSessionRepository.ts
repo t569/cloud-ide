@@ -2,14 +2,15 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ISessionRepository } from '../interfaces/ISessionRepository';
-import { SessionRecord } from '../models';
+import { SessionRecord, SessionState } from '../models';
 
 export class JsonSessionRepository implements ISessionRepository {
   private filePath: string;
+  private readonly ready: Promise<void>;
 
   constructor(storageDirectory: string = './data') {
     this.filePath = path.join(storageDirectory, 'sessions.json');
-    this.initDb();
+    this.ready = this.initDb();
   }
 
   private async initDb(): Promise<void> {
@@ -22,11 +23,13 @@ export class JsonSessionRepository implements ISessionRepository {
   }
 
   private async read(): Promise<Record<string, SessionRecord>> {
+    await this.ready;
     const data = await fs.readFile(this.filePath, 'utf-8');
     return JSON.parse(data);
   }
 
   private async write(data: Record<string, SessionRecord>): Promise<void> {
+    await this.ready;
     await fs.writeFile(this.filePath, JSON.stringify(data, null, 2));
   }
 
@@ -41,31 +44,46 @@ export class JsonSessionRepository implements ISessionRepository {
     return db[sessionId] || null;
   }
 
-  public async getSessionsByEnvId(envId: string): Promise<SessionRecord[]> {
-    const db = await this.read();
-    return Object.values(db).filter(session => session.envId === envId);
-  }
-
-  public async updateStatus(sessionId: string, status: SessionRecord['status']): Promise<void> {
-    const db = await this.read();
-    if (db[sessionId]) {
-      db[sessionId].status = status;
-      await this.write(db);
-    }
-  }
-
-  // NEW: Saves the OpenSandbox ID to our JSON database
-  public async updateSandboxId(sessionId: string, sandboxId: string): Promise<void> {
-    const db = await this.read();
-    if (db[sessionId]) {
-      db[sessionId].openSandboxId = sandboxId;
-      await this.write(db);
-    }
-  }
-
   public async delete(sessionId: string): Promise<void> {
     const db = await this.read();
     delete db[sessionId];
+    await this.write(db);
+  }
+
+  public async updateState(sessionId: string, state: SessionState): Promise<void> {
+    const db = await this.read();
+    if (!db[sessionId]) {
+      return;
+    }
+
+    db[sessionId] = {
+      ...db[sessionId],
+      state,
+      lastPingAt: Date.now(),
+    };
+    await this.write(db);
+  }
+
+  public async getSessionsBySandboxId(sandboxId: string): Promise<SessionRecord[]> {
+    const db = await this.read();
+    return Object.values(db).filter((session) => session.sandboxId === sandboxId);
+  }
+
+   public async getSessionsByEnvId(_envId: string): Promise<SessionRecord[]> {
+    return [];
+  }
+
+  public async linkToSandbox(sessionId: string, sandboxId: string): Promise<void> {
+    const db = await this.read();
+    if (!db[sessionId]) {
+      return;
+    }
+
+    db[sessionId] = {
+      ...db[sessionId],
+      sandboxId,
+      lastPingAt: Date.now(),
+    };
     await this.write(db);
   }
 }

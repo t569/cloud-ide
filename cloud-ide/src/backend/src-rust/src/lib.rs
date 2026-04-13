@@ -118,16 +118,23 @@ pub async fn get_sandbox_status(sandbox_id: String) -> napi::Result<JsSandboxSta
     engine.get_status(&sandbox_id).await.map_err(|e| napi::Error::from_reason(e))
 }
 
+
+// Opensandbox handles our routing: no need for DashMap look up here anymore
 #[napi]
 pub async fn exec_command(sandbox_id: String, payload: ExecPayload) -> napi::Result<String> {
-    let ip_address = match get_state().get(&sandbox_id) {
-        Some(ip) => ip.clone(),
-        None => return Err(napi::Error::from_reason("Sandbox not found in active memory map")),
-    };
+    let engine = engine::opensandbox::OpenSandboxProvider::new("http://127.0.0.1:8080".to_string());
+    
+    // // Convert your payload as needed and pass the ID straight to the engine!
+    // let exec_payload = ExecPayload {
+    //     command: payload.command,
+    //     cwd: payload.cwd,
+    // };
 
-    let engine = get_active_engine();
-    engine.exec(&ip_address, &payload).await.map_err(|e| napi::Error::from_reason(e))
+    engine.exec(&sandbox_id, &payload)
+        .await
+        .map_err(|e| napi::Error::from_reason(e))
 }
+
 
 #[napi]
 pub async fn pause_sandbox(sandbox_id: String) -> napi::Result<bool> {

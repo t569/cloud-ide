@@ -1,114 +1,239 @@
-// backend/src/services/sandbox/SandboxManager.ts
-
-// this imports our engine functions from our rust backend precompiled binary
-
-/**
- * When a new developer clones your repository (or when your CI/CD pipeline pulls the code to deploy it), the index.node file will be missing.
-
-They will run npm install.
-
-They will run npm run build:rust (or you can add it to a postinstall script in your package.json).
-
-Cargo will dynamically compile a brand-new index.node file that is perfectly optimized for their specific machine and operating system.
-
- */
-import { RustEngineAPI } from '../../types/engine';
-import { SandboxSpec, SandboxRecord, SandboxStatus } from '@cloud-ide/shared/types/sandbox';
+import crypto from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {
+  SandboxExecRequest,
+  SandboxExecResult,
+  SandboxRecord,
+  SandboxSpec,
+  SandboxState,
+  SandboxStatus,
+  VolumeMount,
+} from '@cloud-ide/shared/types/sandbox';
 import { ISandboxRepository } from '../../database/interfaces/ISandboxRepository';
+import { ExecConnectionInfo } from '../../types/engine';
+import { IRustEngineClient, RustEngineClient } from './rustClient';
 
-// Safely cast the C-binary to our strict TS interface
-// TODO: in our package.json build:rust command, optimise for both local dev builds and production builds
-const rustEngine = require('../../../index.node') as RustEngineAPI;
+const DEFAULT_WORKSPACE_MOUNT_PATH = '/workspace';
+const USER_VOLUME_ROOT = `${DEFAULT_WORKSPACE_MOUNT_PATH}/mounts`;
 
+export interface VolumeMutationResult {
+  sandbox: SandboxRecord;
+  restartRequired: boolean;
+}
 
 /**
  * @class SandboxManager
- * @description The TypeScript Bridge to the native Rust Infrastructure Engine. 
- * This class abstracts away the FFI (Foreign Function Interface) boundary. 
- * The Node.js application calls these standard async methods, which internally 
- * execute the high-performance, GC-free Rust binary to manage OpenSandbox containers.
+ * @description The TypeScript bridge to the Rust/OpenSandbox control plane.
+ * This service owns sandbox boot normalization, persistence, lifecycle updates,
+ * buffered exec helpers, and runtime-safe volume change semantics.
  */
 export class SandboxManager {
-  constructor(private sandboxRepo: ISandboxRepository) {}
+  constructor(
+    private sandboxRepo: ISandboxRepository,
+    private rustClient: IRustEngineClient = new RustEngineClient()
+  ) {}
 
-  /**
-   * @method provision
-   * @description Requests compute infrastructure from the Rust Engine. Rust handles 
-   * the networking, OpenSandbox communication, and thread-safe IP mapping.
-   * * @param {SandboxSpec} spec - The blueprint for the requested environment.
-   * @returns {Promise<SandboxRecord>} The persisted database record of the new infrastructure.
-   */
   public async provision(spec: SandboxSpec): Promise<SandboxRecord> {
-    console.log(`[SandboxManager] Delegating boot sequence to Rust Core...`);
+    console.log('[SandboxManager] Delegating boot sequence to Rust Core...');
 
-    try {
-      // 1. Cross the FFI boundary. 
-      // Rust returns a structured object: { sandboxId, ipAddress, state }
-      const rustStatus: SandboxStatus = await rustEngine.bootSandbox(spec);
+    const prepared = await this.prepareProvisionSpec(spec);
+    const rustStatus = await this.rustClient.bootSandbox(prepared.spec);
 
-      // 2. Map the response to the exact SandboxRecord schema
-      const record: SandboxRecord = {
-        sandboxId: rustStatus.sandboxId,
-        environmentId: spec.imageTag,
-        state: rustStatus.state, 
-        ipAddress: rustStatus.ipAddress, 
-        execdPort: rustStatus.execdPort, 
-        volumeMounts: spec.volumes ? spec.volumes.map(v => v.mountPath) : [], 
-        createdAt: Date.now(),
-      };
+    const record: SandboxRecord = {
+      sandboxId: rustStatus.sandboxId,
+      environmentId: spec.imageTag,
+      state: rustStatus.state,
+      ipAddress: rustStatus.ipAddress,
+      execdPort: rustStatus.execdPort,
+      desiredVolumes: prepared.desiredVolumes,
+      workspaceMountPath: DEFAULT_WORKSPACE_MOUNT_PATH,
+      requiresReprovision: false,
+      createdAt: Date.now(),
+    };
 
-
-      // 3. Persist to the database so we survive backend server restarts
-      await this.sandboxRepo.save(record);
-      return record;
-
-    } catch (error: any) {
-      console.error(`\x1b[31m[Rust Engine Fault]\x1b[0m`, error.message);
-      throw new Error("Failed to provision infrastructure.");
-    }
+    await this.sandboxRepo.save(record);
+    return record;
   }
 
-  /**
-   * @method pause
-   * @description Tells the Rust engine to freeze the underlying Linux cgroups of the container, 
-   * paging RAM to disk to save compute costs while preserving state.
-   * * @param {string} sandboxId - The unique ID of the infrastructure to pause.
-   * @returns {Promise<boolean>} True if successfully paused.
-   */
+  public async getRecord(sandboxId: string): Promise<SandboxRecord | null> {
+    return this.sandboxRepo.get(sandboxId);
+  }
+
+  public async getStatus(sandboxId: string): Promise<SandboxStatus> {
+    const status = await this.rustClient.getSandboxStatus(sandboxId);
+    const current = await this.sandboxRepo.get(sandboxId);
+
+    if (current) {
+      await this.sandboxRepo.save({
+        ...current,
+        state: status.state,
+        ipAddress: status.ipAddress ?? current.ipAddress,
+        execdPort: status.execdPort ?? current.execdPort,
+      });
+    }
+
+    return status;
+  }
+
   public async pause(sandboxId: string): Promise<boolean> {
     console.log(`[SandboxManager] Requesting Rust to pause ${sandboxId}...`);
-    
-    try {
-      const success = await rustEngine.pauseSandbox(sandboxId);
-      if (success) {
-         await this.sandboxRepo.updateState(sandboxId, 'PAUSED');
-      }
-      return success;
-    } catch (error: any) {
-      console.error(`\x1b[31m[Rust Engine Fault]\x1b[0m Failed to pause:`, error.message);
-      throw new Error(`Failed to pause sandbox ${sandboxId}`);
+    const success = await this.rustClient.pauseSandbox(sandboxId);
+
+    if (success) {
+      await this.sandboxRepo.updateState(sandboxId, 'PAUSED');
     }
+
+    return success;
   }
 
-  /**
-   * @method destroy
-   * @description Tells the Rust engine to permanently terminate the container and flush 
-   * it from the internal Rust DashMap (memory map).
-   * * @param {string} sandboxId - The unique ID of the infrastructure to destroy.
-   * @returns {Promise<boolean>} True if successfully destroyed.
-   */
+  public async resume(sandboxId: string): Promise<boolean> {
+    console.log(`[SandboxManager] Requesting Rust to resume ${sandboxId}...`);
+    const success = await this.rustClient.resumeSandbox(sandboxId);
+
+    if (success) {
+      await this.sandboxRepo.updateState(sandboxId, 'RUNNING');
+    }
+
+    return success;
+  }
+
   public async destroy(sandboxId: string): Promise<boolean> {
     console.log(`[SandboxManager] Requesting Rust to destroy ${sandboxId}...`);
+    const success = await this.rustClient.destroySandbox(sandboxId);
 
-    try {
-      const success = await rustEngine.destroySandbox(sandboxId);
-      if (success) {
-         await this.sandboxRepo.delete(sandboxId);
-      }
-      return success;
-    } catch (error: any) {
-      console.error(`\x1b[31m[Rust Engine Fault]\x1b[0m Failed to destroy:`, error.message);
-      throw new Error(`Failed to destroy sandbox ${sandboxId}`);
+    if (success) {
+      await this.sandboxRepo.delete(sandboxId);
     }
+
+    return success;
+  }
+
+  public async execBuffered(
+    sandboxId: string,
+    request: SandboxExecRequest
+  ): Promise<SandboxExecResult> {
+    return this.rustClient.execCommand(sandboxId, this.normalizeExecRequest(request));
+  }
+
+  public async resolveExecConnection(sandboxId: string): Promise<ExecConnectionInfo> {
+    return this.rustClient.resolveExecConnection(sandboxId);
+  }
+
+  public async attachVolume(sandboxId: string, volume: VolumeMount): Promise<VolumeMutationResult> {
+    const record = await this.getSandboxOrThrow(sandboxId);
+    const normalized = this.normalizeUserVolume(volume);
+    const desiredVolumes = [
+      ...record.desiredVolumes.filter((existing) => existing.kind === 'workspace' || existing.name !== normalized.name),
+      normalized,
+    ];
+
+    const updated: SandboxRecord = {
+      ...record,
+      desiredVolumes,
+      requiresReprovision: true,
+    };
+
+    await this.sandboxRepo.save(updated);
+    return { sandbox: updated, restartRequired: true };
+  }
+
+  public async detachVolume(sandboxId: string, volumeName: string): Promise<VolumeMutationResult> {
+    const record = await this.getSandboxOrThrow(sandboxId);
+    const desiredVolumes = record.desiredVolumes.filter(
+      (volume) => volume.kind === 'workspace' || volume.name !== volumeName
+    );
+
+    const updated: SandboxRecord = {
+      ...record,
+      desiredVolumes,
+      requiresReprovision: true,
+    };
+
+    await this.sandboxRepo.save(updated);
+    return { sandbox: updated, restartRequired: true };
+  }
+
+  private async getSandboxOrThrow(sandboxId: string): Promise<SandboxRecord> {
+    const sandbox = await this.sandboxRepo.get(sandboxId);
+    if (!sandbox) {
+      throw new Error(`Sandbox ${sandboxId} not found.`);
+    }
+
+    return sandbox;
+  }
+
+  private async prepareProvisionSpec(
+    spec: SandboxSpec
+  ): Promise<{ spec: SandboxSpec; desiredVolumes: VolumeMount[] }> {
+    const workspaceVolume = await this.buildWorkspaceVolume(spec.imageTag);
+    const userVolumes = (spec.volumes || [])
+      .filter((volume) => volume.kind !== 'workspace')
+      .map((volume) => this.normalizeUserVolume(volume));
+
+    const desiredVolumes = [workspaceVolume, ...userVolumes];
+
+    return {
+      spec: {
+        ...spec,
+        volumes: desiredVolumes,
+      },
+      desiredVolumes,
+    };
+  }
+
+  private async buildWorkspaceVolume(environmentId: string): Promise<VolumeMount> {
+    const workspaceId = `${environmentId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32) || 'workspace'}-${crypto.randomUUID()}`;
+    const hostPath = path.resolve(process.cwd(), 'data', 'sandboxes', workspaceId, 'workspace');
+    await fs.mkdir(hostPath, { recursive: true });
+
+    return {
+      name: 'workspace',
+      kind: 'workspace',
+      mountPath: DEFAULT_WORKSPACE_MOUNT_PATH,
+      hostPath,
+      readOnly: false,
+    };
+  }
+
+  private normalizeUserVolume(volume: VolumeMount): VolumeMount {
+    const name = this.normalizeVolumeName(volume.name);
+    if (!volume.hostPath) {
+      throw new Error(`Volume '${name}' requires a hostPath in v1.`);
+    }
+
+    if (volume.mountPath === DEFAULT_WORKSPACE_MOUNT_PATH) {
+      throw new Error('User volumes cannot mount directly to /workspace in v1.');
+    }
+
+    return {
+      name,
+      kind: 'user',
+      hostPath: volume.hostPath,
+      subPath: volume.subPath,
+      readOnly: volume.readOnly ?? false,
+      mountPath: `${USER_VOLUME_ROOT}/${name}`,
+    };
+  }
+
+  private normalizeVolumeName(name: string): string {
+    const normalized = name.trim().replace(/[^a-zA-Z0-9_-]/g, '-');
+    if (!normalized) {
+      throw new Error('Volume name is required.');
+    }
+
+    return normalized;
+  }
+
+  private normalizeExecRequest(request: SandboxExecRequest): SandboxExecRequest {
+    if (!request.command || request.command.length === 0) {
+      throw new Error('Exec request requires at least one command segment.');
+    }
+
+    return {
+      command: request.command,
+      cwd: request.cwd || DEFAULT_WORKSPACE_MOUNT_PATH,
+      env: request.env || {},
+    };
   }
 }

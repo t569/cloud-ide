@@ -1,13 +1,7 @@
 // backend/src/services/sandbox/IdleSweeper.ts
-
-
-/**
- * This file checks for any dynamic sandbox-session logic handling 
- */
-
-import { clear } from 'node:console';
 import { ISessionRepository, ISandboxRepository } from '../../database/interfaces';
 import { SandboxManager } from './SandboxManager';
+
 
 /**
  * @class IdleSweeper
@@ -33,11 +27,11 @@ export class IdleSweeper {
    * @description Identifies and freezes orphaned compute containers by doing a 
    * relational lookup between running sandboxes and disconnected sessions.
    */
-  private async runSweep() {
+  private async runSweep() : Promise<void> {
     console.log('[IdleSweeper] Scanning for orphaned sandboxes...');
     
     // 1. Get all currently running sandboxes
-    const allSandboxes = await this.sandboxRepo.list(); // You'll need to add a list() method
+    const allSandboxes = await this.sandboxRepo.list(); 
     const runningSandboxes = allSandboxes.filter(sbx => sbx.state === 'RUNNING');
 
     for (const sandbox of runningSandboxes) {

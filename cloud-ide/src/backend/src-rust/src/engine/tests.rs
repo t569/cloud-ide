@@ -3,7 +3,13 @@
 #[cfg(test)]
 mod tests {
     use crate::engine::SandboxEngine;
-    use crate::{ExecPayload, JsSandboxSpec, JsSandboxStatus};
+    use crate::{
+        JsExecConnection,
+        JsSandboxExecRequest,
+        JsSandboxExecResult,
+        JsSandboxSpec,
+        JsSandboxStatus,
+    };
     use async_trait::async_trait;
 
     // 1. Create a Mock implementation of our Interface
@@ -46,14 +52,35 @@ mod tests {
             Ok(true)
         }
 
+        async fn resume(&self, _sandbox_id: &str) -> Result<bool, String> {
+            if self.should_fail { return Err("Mock Resume Failure".to_string()); }
+            Ok(true)
+        }
+
         async fn destroy(&self, _sandbox_id: &str) -> Result<bool, String> {
             if self.should_fail { return Err("Mock Destroy Failure".to_string()); }
             Ok(true)
         }
 
-        async fn exec(&self, _sandbox_id: &str, payload: &ExecPayload) -> Result<String, String> {
+        async fn exec(
+            &self,
+            _sandbox_id: &str,
+            payload: &JsSandboxExecRequest,
+        ) -> Result<JsSandboxExecResult, String> {
             if self.should_fail { return Err("Mock Exec Failure".to_string()); }
-            Ok(format!("Executed '{}' in mock workspace", payload.command))
+            Ok(JsSandboxExecResult {
+                stdout: format!("Executed '{:?}' in mock workspace", payload.command),
+                stderr: String::new(),
+                exit_code: 0,
+            })
+        }
+
+        async fn resolve_exec_connection(&self, _sandbox_id: &str) -> Result<JsExecConnection, String> {
+            if self.should_fail { return Err("Mock Resolve Failure".to_string()); }
+            Ok(JsExecConnection {
+                base_url: "http://127.0.0.1:44772".to_string(),
+                access_token: Some("test-token".to_string()),
+            })
         }
     }
 
@@ -107,13 +134,24 @@ mod tests {
     #[tokio::test]
     async fn test_sandbox_exec_pipeline() {
         let engine = MockSandboxProvider { should_fail: false };
-        let payload = ExecPayload {
-            command: "npm run build".to_string(),
-            cwd: "/workspace".to_string(),
+        let payload = JsSandboxExecRequest {
+            command: vec!["npm".to_string(), "run".to_string(), "build".to_string()],
+            cwd: Some("/workspace".to_string()),
+            env: None,
         };
 
         // Ensure the payload passes successfully through the mock execd daemon
         let result = engine.exec("mock-sbx-123", &payload).await.unwrap();
-        assert_eq!(result, "Executed 'npm run build' in mock workspace");
+        assert_eq!(result.exit_code, 0);
+        assert!(result.stdout.contains("npm"));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_exec_connection() {
+        let engine = MockSandboxProvider { should_fail: false };
+        let result = engine.resolve_exec_connection("mock-sbx-123").await.unwrap();
+
+        assert_eq!(result.base_url, "http://127.0.0.1:44772");
+        assert_eq!(result.access_token.as_deref(), Some("test-token"));
     }
 }

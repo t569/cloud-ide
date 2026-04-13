@@ -5,11 +5,15 @@ export type SandboxState = 'PROVISIONING' | 'RUNNING' | 'PAUSED' | 'STOPPED' | '
 // TODO: add this to the container boot path
 export type SandboxRuntimeType = 'docker' | 'gvisor' | 'kata-qemu' | 'kata-firecracker';
 
+export type VolumeMountKind = 'workspace' | 'user';
+
 // the data structure for a volume mount
 export interface VolumeMount {
   name: string;
+  kind: VolumeMountKind;
   mountPath: string;      // Inside the container (e.g., /workspace)
   hostPath?: string;      // Physical path on the host node (if applicable)
+  subPath?: string;
   readOnly?: boolean;
 }
 
@@ -35,9 +39,20 @@ export interface SandboxStatus {
   ipAddress?: string;     // Needed later for the execd TCP connection
   execdPort?: number;     // Usually 44772 for OpenSandbox
   message?: string;
-  previewUrls?: Record<number, string>; // e.g., { 3000: "http://3000-sbx123.our-domain.com" }
+   previewUrls?: Record<number, string>; // e.g., { 3000: "http://3000-sbx123.our-domain.com" }
 }
 
+export interface SandboxExecRequest {
+  command: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+}
+
+export interface SandboxExecResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
 // THE MASTER INTERFACE: Every driver you ever build must implement this.
 export interface ISandboxProvider {
   boot(spec: SandboxSpec): Promise<SandboxStatus>;
@@ -68,9 +83,12 @@ export interface SandboxRecord {
   state: SandboxState;     // PROVISIONING, RUNNING, PAUSED, etc.
   ipAddress?: string;      // Internal IP for the Rust proxy to route to
   execdPort?: number;
-  volumeMounts: string[];  // Paths to the mounted storage/snapshots
+  desiredVolumes: VolumeMount[];
+  workspaceMountPath: string;
+  requiresReprovision: boolean;
   createdAt: number;
 }
+
 
 
 /**

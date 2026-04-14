@@ -1,16 +1,34 @@
-# React + Vite
+# Cloud IDE - Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+This is the client-facing application for the Cloud IDE, built for high-performance rendering and real-time interaction using Vite, React, Monaco Editor, and Xterm.js.
 
-Currently, two official plugins are available:
+## 💻 Tech Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+*   **Build Tool:** Vite
+*   **UI Framework:** React 19 + Tailwind CSS v4
+*   **Code Editor:** `@monaco-editor/react`
+*   **Terminal Emulator:** `xterm` + WebGL addons
+*   **API Communication:** Standard HTTP/SSE (Server-Sent Events)
 
-## React Compiler
+## 🚀 Running the Development Server
+While you can run this via the root `npm run dev` command, you can also run the frontend in isolation if you are strictly working on UI changes.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+# From the /frontend directory
+npm run dev
+```
 
-## Expanding the ESLint configuration
+```bash
+# From the root directory (Recommended)
+npm install lucide-react -w frontend
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+# OR from the frontend directory
+npm install lucide-react
+```
+
+### TypeScript and the @cloud-ide/shared Package
+
+The frontend naturally consumes types from our sibling shared workspace. If you see "Module not found" errors in VS Code regarding `@cloud-ide/shared`, simply restart your TypeScript server:
+
+1.  Press **Ctrl + Shift + P** (or **Cmd + Shift + P**)
+2.  Select **TypeScript: Restart TS server**

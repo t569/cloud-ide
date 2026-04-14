@@ -7,14 +7,15 @@
     "shared"
   ],
   "scripts": {
-  "install:all": "npm install",
-  "dev:sandbox": "node opensandbox/boot.js",
-  "dev:backend": "wait-on tcp:127.0.0.1:8080 && npm run dev --workspace=backend",
-  "dev:frontend": "wait-on tcp:127.0.0.1:3000 && npm run dev --workspace=frontend",
-  "dev": "concurrently --kill-others \"npm run dev:sandbox\" \"npm run dev:backend\" \"npm run dev:frontend\"",
-  "build": "npm run build --workspaces --if-present",
-  "test": "jest",
-  "test:watch": "jest --watchAll"
+    "install:all": "npm install",
+    "dev:sandbox": "node opensandbox/boot.js",
+    "dev:backend": "npx wait-on tcp:127.0.0.1:8080 && npm run dev --workspace=backend",
+    "dev:frontend": "npx wait-on tcp:127.0.0.1:3000 && npm run dev --workspace=frontend",
+    "dev": "concurrently --kill-others \"npm run dev:sandbox\" \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "build": "npm run build --workspaces --if-present",
+    "type-check": "tsc --noEmit",
+    "test": "jest",
+    "test:watch": "jest --watchAll"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
@@ -22,6 +23,7 @@
     "@types/ws": "^8.18.1",
     "concurrently": "^8.2.2",
     "jest": "^30.3.0",
-    "ts-jest": "^29.4.9"
+    "ts-jest": "^29.4.9",
+    "wait-on": "^7.2.0"
   }
 }

@@ -74,3 +74,8 @@ server.listen(config.PORT, () => {
   console.log(`\x1b[1;32m[Gateway]\x1b[0m Node API Gateway initialized on port ${config.PORT}`);
 });
 
+
+// Set the global Gateway timeout (e.g., 130 seconds)
+// This must be slightly higher than RUST_READ_TIMEOUT
+const GATEWAY_TIMEOUT = parseInt(process.env.GATEWAY_TIMEOUT || '130000', 10);
+server.timeout = GATEWAY_TIMEOUT;

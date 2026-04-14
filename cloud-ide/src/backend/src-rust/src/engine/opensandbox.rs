@@ -10,6 +10,7 @@ use crate::{
 use async_trait::async_trait;
 use reqwest::{Client, Method, RequestBuilder};
 use serde_json::{json, Value};
+use std::time::Duration; 
 
 #[derive(Clone, Debug)]
 struct OpenSandboxConfig {
@@ -221,10 +222,11 @@ impl OpenSandboxExecResolver {
             .post(format!("{}/command", connection.base_url.trim_end_matches('/')))
             .header("Accept", "text/event-stream")
             .json(&json!({
-                "command": payload.command,
+                "command": payload.command.join(" "), // Stitched into a single string: so our go execd can understand
                 "cwd": payload.cwd.clone().unwrap_or_else(|| "/workspace".to_string()),
                 "env": payload.env.clone().unwrap_or_default(),
             }));
+
 
         if let Some(token) = connection.access_token {
             request = request.header("X-EXECD-ACCESS-TOKEN", token);
@@ -254,7 +256,24 @@ impl OpenSandboxProvider {
         execd_access_token: Option<String>,
     ) -> Self {
         let config = OpenSandboxConfig::new(api_url, api_key, execd_access_token);
-        let client = Client::new();
+
+        // NEW: Centralized Timeout Configuration
+        let connect_timeout = std::env::var("RUST_CONNECT_TIMEOUT")
+            .unwrap_or_else(|_| "10".to_string())
+            .parse::<u64>()
+            .unwrap_or(10);
+
+        let read_timeout = std::env::var("RUST_READ_TIMEOUT")
+            .unwrap_or_else(|_| "120".to_string())
+            .parse::<u64>()
+            .unwrap_or(120);
+
+        // Build the client with custom timeouts
+        let client = Client::builder()
+            .connect_timeout(Duration::from_secs(connect_timeout))
+            .timeout(Duration::from_secs(read_timeout))
+            .build()
+            .unwrap_or_else(|_| Client::new()); // Fallback to default if builder fails
 
         Self {
             lifecycle: OpenSandboxLifecycleClient::new(config.clone(), client.clone()),
@@ -309,21 +328,27 @@ fn normalize_lifecycle_base_url(url: &str) -> String {
     }
 }
 
+
 fn normalize_execd_base_url(endpoint: &str, execd_port: u16) -> String {
     let endpoint = endpoint.trim_end_matches('/');
-    if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
-        return endpoint.to_string();
-    }
-    let with_scheme = format!("http://{}", endpoint);
-    let has_explicit_port = endpoint
-        .rsplit(':')
-        .next()
-        .map(|segment| segment.chars().all(|ch| ch.is_ascii_digit()))
-        .unwrap_or(false);
+    
+    let with_scheme = if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+        endpoint.to_string()
+    } else {
+        format!("http://{}", endpoint)
+    };
 
-    if has_explicit_port {
+    // Strip the scheme so we can check the raw host and path
+    let without_scheme = with_scheme
+        .trim_start_matches("http://")
+        .trim_start_matches("https://");
+
+    // If the string already contains a colon (a port) or a slash (a proxy path),
+    // it is a fully qualified endpoint. Leave it exactly as it is.
+    if without_scheme.contains(':') || without_scheme.contains('/') {
         with_scheme
     } else {
+        // Only append the port if it's a raw IP like "10.0.0.2"
         format!("{}:{}", with_scheme, execd_port)
     }
 }

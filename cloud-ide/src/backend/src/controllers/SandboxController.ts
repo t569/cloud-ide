@@ -60,24 +60,21 @@ export class SandboxController {
     req.on('close', () => abortController.abort());
 
     try {
-      // ==========================================
-      // NEW: WAKE-ON-DEMAND ARCHITECTURE
-      // ==========================================
+      // WAKE-ON-DEMAND ARCHITECTURE
       const status = await this.sandboxManager.getStatus(sandboxId);
 
       if (status.state === 'PAUSED') {
         console.log(`[Gateway] Auto-resuming sleeping sandbox: ${sandboxId}`);
         await this.sandboxManager.resume(sandboxId);
-        
-        // Docker cgroups take ~100-300ms to fully thaw the CPU scheduler.
-        // This artificial delay prevents the exec connection from failing 
-        // against a socket that hasn't fully woken up yet.
         await new Promise(resolve => setTimeout(resolve, 300));
       }
-      // ==========================================
 
       const connection = await this.sandboxManager.resolveExecConnection(sandboxId);
-      const response = await fetch(`${connection.baseUrl.replace(/\/$/, '')}/command`, {
+      
+      // NEW: Diagnostic log to prove Rust gave us the right proxy URL
+      console.log(`\n🔗 [Gateway] Connecting to Proxy: ${connection.baseUrl}`);
+
+     const response = await fetch(`${connection.baseUrl.replace(/\/$/, '')}/command`, {
         method: 'POST',
         headers: {
           Accept: 'text/event-stream',
@@ -87,11 +84,11 @@ export class SandboxController {
             : {}),
         },
         body: JSON.stringify({
-          command: payload.command,
+          command: payload.command.join(' '), 
           cwd: payload.cwd || '/workspace',
           env: payload.env || {},
         }),
-        signal: abortController.signal,
+        signal: abortController.signal, 
       });
 
       if (!response.ok) {
@@ -117,9 +114,9 @@ export class SandboxController {
           res.status(502).json({ error: String(error) });
           return;
         }
-
         res.end();
       });
+      
       stream.pipe(res);
     } catch (error: any) {
       if (!res.headersSent) {

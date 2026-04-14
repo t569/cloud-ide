@@ -134,6 +134,7 @@ pub async fn boot_sandbox(spec: JsSandboxSpec) -> napi::Result<JsSandboxStatus> 
     Ok(status)
 }
 
+#[napi]
 pub async fn get_sandbox_status(sandbox_id: String) -> napi::Result<JsSandboxStatus> {
     let engine = get_active_engine();
     let status = engine

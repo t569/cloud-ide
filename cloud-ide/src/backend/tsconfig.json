@@ -2,14 +2,11 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "CommonJS",
-    "moduleResolution": "node",
-    "outDir": "./dist",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "types": ["node", "jest"],
-    "baseUrl": ".",
     "paths": {
       "@cloud-ide/shared": ["../shared/index.ts"],
       "@cloud-ide/shared/*": ["../shared/*"]

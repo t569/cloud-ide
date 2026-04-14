@@ -26,25 +26,31 @@ function loadEngine(): RustEngineAPI {
   }
 
   const candidates = [
+    // 1. The correct path (backend root)
+    path.resolve(__dirname, '../../../index.node'),
+    
+    // Fallbacks
+    path.resolve(process.cwd(), 'index.node'),
     path.resolve(process.cwd(), 'src-rust', 'src', 'api', 'index.node'),
-    path.resolve(process.cwd(), 'src', 'api', 'index.node'),
-    path.resolve(__dirname, '../../../src-rust/src/api/index.node'),
     path.resolve(__dirname, '../../../../src-rust/src/api/index.node'),
   ];
 
-  let lastError: unknown;
+  const errors: string[] = [];
 
   for (const candidate of candidates) {
     try {
+      console.log(`[RustEngine] Attempting to load: ${candidate}`);
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       cachedEngine = require(candidate) as RustEngineAPI;
+      console.log(`[RustEngine] ✅ Successfully loaded from: ${candidate}`);
       return cachedEngine;
-    } catch (error) {
-      lastError = error;
+    } catch (error: any) {
+      console.log(`[RustEngine] ❌ Failed at ${candidate} -> ${error.code || error.message}`);
+      errors.push(`\n- ${candidate}\n  Reason: ${error.message}`);
     }
   }
 
-  throw new Error(`Unable to load Rust sandbox engine. Last error: ${String(lastError)}`);
+  throw new Error(`Unable to load Rust sandbox engine. Diagnostics:${errors.join('')}`);
 }
 
 export class RustEngineClient implements IRustEngineClient {

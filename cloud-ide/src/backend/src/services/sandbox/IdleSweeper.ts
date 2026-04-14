@@ -18,8 +18,14 @@ export class IdleSweeper {
     private sandboxRepo: ISandboxRepository,
     private sandboxManager: SandboxManager
   ) {
+    // Default to 5 minutes, but allow overriding via .env
+    // e.g., SWEEP_INTERVAL_MS=3600000 for 1 hour during local dev
+    const intervalMs = process.env.SWEEP_INTERVAL_MS
+    ? parseInt(process.env.SWEEP_INTERVAL_MS, 10)
+    : 50 * 60 * 1000;
     // Run the sweep every 5 minutes
-    this.sweepInterval = setInterval(() => this.runSweep(), 5 * 60 * 1000);
+    console.log(`[IdleSweeper] Initialized. Sweeping every ${intervalMs / 1000} seconds.`);
+    this.sweepInterval = setInterval(() => this.runSweep(), intervalMs);
   }
 
   /**

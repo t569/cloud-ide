@@ -43,7 +43,7 @@ export class SandboxController {
   };
 
   public execCommand = async (req: Request, res: Response): Promise<void> => {
-     const sandboxId = this.getStringParam(req.params.sandboxId);
+    const sandboxId = this.getStringParam(req.params.sandboxId);
     const payload = req.body as SandboxExecRequest;
 
     if (!sandboxId) {
@@ -60,6 +60,22 @@ export class SandboxController {
     req.on('close', () => abortController.abort());
 
     try {
+      // ==========================================
+      // NEW: WAKE-ON-DEMAND ARCHITECTURE
+      // ==========================================
+      const status = await this.sandboxManager.getStatus(sandboxId);
+
+      if (status.state === 'PAUSED') {
+        console.log(`[Gateway] Auto-resuming sleeping sandbox: ${sandboxId}`);
+        await this.sandboxManager.resume(sandboxId);
+        
+        // Docker cgroups take ~100-300ms to fully thaw the CPU scheduler.
+        // This artificial delay prevents the exec connection from failing 
+        // against a socket that hasn't fully woken up yet.
+        await new Promise(resolve => setTimeout(resolve, 300));
+      }
+      // ==========================================
+
       const connection = await this.sandboxManager.resolveExecConnection(sandboxId);
       const response = await fetch(`${connection.baseUrl.replace(/\/$/, '')}/command`, {
         method: 'POST',

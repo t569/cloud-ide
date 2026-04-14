@@ -8,6 +8,9 @@ node_modules/
 dist/
 .vite/
 opensandbox/sandbox-env/
+opensandbox/__pycache__/
+*.pyc
+
 
 # OpenSandbox Local Data
 sandbox-data/

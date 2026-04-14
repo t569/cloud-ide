@@ -5,9 +5,8 @@ import { ISessionRepository } from '../../database/interfaces/ISessionRepository
 
 // Import our Core Tools
 import { Validator } from '@cloud-ide/shared';
-import { DockerGeneratorService } from 'src/services/builder';
-import { ExecutorService } from 'src/services/builder';
-
+import { DockerGeneratorService } from '../../services/builder';
+import { ExecutorService } from '../../services/builder';
 
 // Import Models
 import { EnvironmentRecord } from '../../database/models';
@@ -15,126 +14,160 @@ import { EnvironmentRecord } from '../../database/models';
 export function createEnvironmentRouter(envRepo: IEnvironmentRepository, sessionRepo: ISessionRepository) {
   const router = Router();
 
-  // GET: List all available environments for the frontend dropdown
+  // ============================================================================
+  // GET: List all environments
+  // ============================================================================
   router.get('/', async (req: Request, res: Response) => {
     const environments = await envRepo.list();
     res.json(environments);
   });
 
-  // GET: Fetch a specific environment by its ID (string)
+
+  // ============================================================================
+  // GET: Fetch specific environment
+  // ============================================================================
   router.get('/:envId', async (req: Request, res: Response) => {
     const { envId } = req.params;
 
-    // THE FIX: Strict Type Guard
     if (!envId || typeof envId !== 'string') {
       res.status(400).json({ error: 'Invalid environment ID parameter' });
       return;
     }
 
     try {
-      // TypeScript now knows envId is 100% a string
       const environment = await envRepo.get(envId);
-
       if (!environment) {
         res.status(404).json({ error: `Environment '${envId}' not found.` });
         return;
       }
-
       res.status(200).json(environment);
     } catch (error: any) {
       res.status(500).json({ error: 'Failed to retrieve environment' });
     }
   });
 
-  // POST: Create a new custom environment from the frontend builder
+
+ // ============================================================================
+  // POST: Create or Update an Environment (SAVE ONLY - NO BUILD)
+  // ============================================================================
   router.post('/', async (req: Request, res: Response) => {
-    const newEnv: EnvironmentRecord = req.body;
-
-    let validatedConfigStr: string;
-
-    
-    // 1. Validate the Configuration early
-    let validatedConfig;
     try {
-      const rawConfigString = JSON.stringify(newEnv.builderConfig);
-
-      validatedConfigStr = Validator.parseAndValidate(rawConfigString, {return_a_string: true});
-
-      // set the env's build config
-      newEnv.builderConfig = validatedConfig;
-
-
-    } catch (err: any) {
-      // If validation fails, we return a standard 400 JSON response and stop execution
-      res.status(400).json({ 
-        error: 'Invalid Environment Configuration', 
-        details: err.message 
-      });
-      return;
-    }
-
-    // 2. Setup HTTP Chunked Streaming
-    // From this point on, we do NOT use res.json(). We are streaming plain text directly to the frontend terminal!
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Transfer-Encoding', 'chunked');
-
-    try {
-      // MOD:
-
-      // 3. Define the target image tag for the local Docker daemon
-      const finalImageName = `cloud-ide-${newEnv.id}:latest`;
-
-
-      // 4. Execute the build pipeline and wrap the Event Emitter in a Promise
-      await new Promise<void>((resolve, reject) => {
-        // streamBuild internally calls DockerGeneratorService.generateDockerfile()
-        const logStream = ExecutorService.streamBuild(validatedConfigStr, finalImageName);
-
-        // Stream standard logs directly to the frontend chunked response
-        logStream.on('data', (chunk) => {
-          res.write(chunk);
-        });
-
-        // Handle successful completion
-        logStream.on('success', (msg) => {
-          res.write(`\r\n\x1b[1;32m[Docker]\x1b[0m ${msg}\r\n`);
-          resolve(); 
-        });
-
-        // Handle fatal build errors
-        logStream.on('error', (errMsg) => {
-          reject(new Error(errMsg)); // Sends to the outer catch block
-        });
-      })
-
-
-      // 5. Finalize the Database Record
-      newEnv.imageName = finalImageName; // CRITICAL: Link the generated Docker tag so OpenSandbox can find it!
-      newEnv.createdAt = Date.now();
-
-      // Safely write to ROM
-      await envRepo.save(newEnv);
+      const rawPayload = req.body;
+      const builderConfig = rawPayload.builderConfig || rawPayload; 
       
-      // 6. Close the HTTP stream successfully
-      res.end(`\r\n\x1b[1;32m[System]\x1b[0m Environment '${newEnv.imageName}' successfully created and saved to database.\r\n`);
+      // 1. Force the ID to be docker-safe (Fixes the space issue)
+      builderConfig.id = (builderConfig.id || `env-${Date.now()}`).toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      
+      if (!builderConfig.name || builderConfig.name.trim() === '') {
+        builderConfig.name = builderConfig.id;
+      }
+
+      // 2. Validate the Configuration
+      const rawConfigString = JSON.stringify(builderConfig);
+      const validatedConfig = Validator.parseAndValidate(rawConfigString);
+
+      // 3. Format the Environment Record
+      const newEnv: EnvironmentRecord = {
+        id: builderConfig.id,
+        imageName: '', 
+        builderConfig: validatedConfig,
+        createdAt: Date.now(),
+        isRepoSpecific: builderConfig.isRepoSpecific || false,
+        targetRepo: builderConfig.targetRepo,
+        trackedTools: builderConfig.trackedTools || []
+      };
+
+      // 4. Save to Database
+      await envRepo.save(newEnv);
+      res.status(200).json({ message: 'Environment saved successfully.', environment: newEnv });
 
     } catch (err: any) {
-      // If the Docker build fails, we catch it here and stream the final error message
-      res.end(`\r\n\x1b[1;31m[System Error]\x1b[0m Build aborted: ${err.message}\r\n`);
+      console.error("[Schema Validation Error]:", err.message);
+      res.status(400).json({ error: 'Invalid Environment Configuration', details: err.message });
     }
   });
 
-  // DELETE: delete an environment
-  router.delete('/:envId', async (req: Request, res: Response) => {
+  // ============================================================================
+  // POST: Execute the Build Pipeline (STREAMING LOGS)
+  // ============================================================================
+  router.post('/:envId/build', async (req: Request, res: Response) => {
     const { envId } = req.params;
 
-    // GUARD FOR TYPE CHECKING OF ENV ID NAME
     if (!envId || typeof envId !== 'string') {
       res.status(400).json({ error: 'Invalid environment ID parameter' });
       return;
     }
 
-    // THE FALL CASE CHECK: Look for linked process blocks
+    try {
+      // 1. Fetch the saved JSON schema from the DB
+      const environment = await envRepo.get(envId);
+      if (!environment) {
+        res.status(404).json({ error: `Environment '${envId}' not found.` });
+        return;
+      }
+
+      // 2. Validate and get stringified config for the Executor
+      const rawConfigString = JSON.stringify(environment.builderConfig);
+      const validatedConfigStr = Validator.parseAndValidate(rawConfigString, { return_a_string: true });
+
+      // 3. Setup HTTP Chunked Streaming
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Transfer-Encoding', 'chunked');
+
+      try {
+        // Define the target image tag
+        const finalImageName = `cloud-ide-${environment.id}:latest`;
+
+        // 4. Execute the build pipeline and wrap the Event Emitter in a Promise
+        await new Promise<void>((resolve, reject) => {
+          const logStream = ExecutorService.streamBuild(validatedConfigStr, finalImageName);
+
+          logStream.on('data', (chunk: string) => {
+            res.write(chunk);
+          });
+
+          logStream.on('success', (msg: string) => {
+            res.write(`\r\n\x1b[1;32m[Docker]\x1b[0m ${msg}\r\n`);
+            resolve(); 
+          });
+
+          logStream.on('error', (errMsg: string) => {
+            reject(new Error(errMsg)); 
+          });
+        });
+
+        // 5. Finalize the Database Record
+        environment.imageName = finalImageName;
+        // Using an optional 'updatedAt' or 'lastBuilt' if your model supports it
+        await envRepo.save(environment);
+        
+        res.end(`\r\n\x1b[1;32m[System]\x1b[0m Environment '${environment.imageName}' successfully built and registered.\r\n`);
+
+      } catch (err: any) {
+        res.end(`\r\n\x1b[1;31m[System Error]\x1b[0m Build aborted: ${err.message}\r\n`);
+      }
+
+    } catch (err: any) {
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Failed to initiate build pipeline.' });
+      }
+    }
+  });
+
+
+
+  // ============================================================================
+  // DELETE: Remove an environment
+  // ============================================================================
+  router.delete('/:envId', async (req: Request, res: Response) => {
+    const { envId } = req.params;
+
+    if (!envId || typeof envId !== 'string') {
+      res.status(400).json({ error: 'Invalid environment ID parameter' });
+      return;
+    }
+
+    // Protection logic maintained
     const activeSessions = await sessionRepo.getSessionsByEnvId(envId);
     
     if (activeSessions.length > 0) {

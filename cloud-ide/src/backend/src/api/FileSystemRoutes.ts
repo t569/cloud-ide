@@ -1,11 +1,11 @@
 // backend/src/api/FileSystemRoutes.ts
 import { Router, Request, Response, NextFunction } from 'express';
 import { FileSystemManager } from '../services/FileSystemManager';
+import { SandboxManager } from '../services/sandbox/SandboxManager';
 
-export function createFileSystemRouter(): Router {
+export function createFileSystemRouter(sandboxManager: SandboxManager): Router {
   const router = Router();
-  const fsManager = new FileSystemManager();
-
+  const fsManager = new FileSystemManager(sandboxManager);
   /**
    * PARAMETER VALIDATION MIDDLEWARE
    * Intercepts any route containing ':sandboxId' and validates it first.

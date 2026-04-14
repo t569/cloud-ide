@@ -5,20 +5,24 @@
 // backend/src/config/env.ts
 
 // this file has all our env data
+// backend/src/config/env.ts
+
 import dotenv from 'dotenv';
 
 // Load the .env file immediately when this file is imported
 dotenv.config();
- // Safely check if 'window' exists before checking the protocol
-    const IS_SECURE = typeof window !== 'undefined' && window.location.protocol === 'https:';
-
 
 // Export a single, strictly-typed configuration object
 export const config = {
-  PORT: process.env.PORT || 3000,
+  PORT: parseInt(process.env.PORT || '3000', 10),
 
-  // You can construct the full URLs right here so the rest of the app doesn't have to
-  // OPENSANDBOX_API_URL: `${IS_SECURE ? 'https://' : 'http://'}${process.env.OPENSANDBOX_API_URL || '127.0.0.1:8080'}`,
-  OPENSANDBOX_API_URL: `http://127.0.0.1:8080`,
-  BACKEND_API_URL: `${IS_SECURE ? 'https://' : 'http://'}${process.env.IDE_BACKEND_API_URL || 'localhost:3000'}`
+  // The internal infrastructure URL (Rust/OpenSandbox)
+  OPENSANDBOX_API_URL: process.env.OPENSANDBOX_API_URL || 'http://127.0.0.1:8080',
+  OPENSANDBOX_API_KEY: process.env.OPENSANDBOX_API_KEY || '',
+  OPENSANDBOX_EXECD_ACCESS_TOKEN: process.env.OPENSANDBOX_EXECD_ACCESS_TOKEN || '',
+
+  // The public-facing URL of THIS backend server. 
+  // In your local .env, this is "http://localhost:3000"
+  // In your production .env, this will be "https://api.yourdomain.com"
+  PUBLIC_API_URL: process.env.PUBLIC_API_URL || 'http://localhost:3000',
 };

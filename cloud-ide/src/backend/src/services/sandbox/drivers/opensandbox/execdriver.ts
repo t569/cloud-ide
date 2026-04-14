@@ -1,73 +1,74 @@
-// backend/src/services/sandbox/drivers/opensandbox/OpenSandboxExecClient.ts
+import { EventEmitter } from 'node:events';
+import { config } from '../../../../config/env';
 
-
-// this defines the exec daemon for executing code in open sandbox
-import { EventEmitter } from 'events';
-import * as http from 'http';
-
-export interface ExecOptions {
-  command: string;
+export interface OpenSandboxExecRunOptions {
+  command: string | string[];
   cwd?: string;
   env?: Record<string, string>;
 }
 
-export class OpenSandboxExecClient extends EventEmitter {
-  private ipAddress: string;
-  private port: number;
+export class OpenSandboxExecClient {
+  constructor(
+    private ipAddress: string,
+    private execdPort: number
+  ) {}
 
-  constructor(ipAddress: string, port: number = 44772) {
-    super();
-    this.ipAddress = ipAddress;
-    this.port = port;
-  }
+  public run(options: OpenSandboxExecRunOptions): EventEmitter {
+    const stream = new EventEmitter();
+    const command = Array.isArray(options.command)
+      ? options.command
+      : ['/bin/sh', '-lc', options.command];
 
-  /**
-   * Initiates a command and streams the result via events.
-   */
+    void (async () => {
+      try {
+        const response = await fetch(`http://${this.ipAddress}:${this.execdPort}/command`, {
+          method: 'POST',
+          headers: {
+            Accept: 'text/event-stream',
+            'Content-Type': 'application/json',
+            ...(config.OPENSANDBOX_EXECD_ACCESS_TOKEN
+              ? { 'X-EXECD-ACCESS-TOKEN': config.OPENSANDBOX_EXECD_ACCESS_TOKEN }
+              : {}),
+          },
+          body: JSON.stringify({
+            command,
+            cwd: options.cwd || '/workspace',
+            env: options.env || {},
+          }),
+        });
 
-  public run(options: ExecOptions): this {
-    const payload = JSON.stringify({
-      cmd: ['bash', '-c', options.command],
-      cwd: options.cwd || '/workspace',
-      env: options.env || {}
-    });
-
-    const req = http.request(
-      {
-        hostname: this.ipAddress,
-        port: this.port,
-        path: '/exec', // The standard execd endpoint
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload)
+        if (!response.ok) {
+          throw new Error(`execd rejected command: ${response.status} ${response.statusText}`);
         }
-      },
-      (res) => {
-        // execd typically returns a multiplexed stream or a standard text stream.
-        // We listen to the chunks and emit them.
-        res.on('data', (chunk: Buffer) => {
-          // In a production environment, you might need to parse multiplexed headers here 
-          // (e.g., Docker's 8-byte header separating stdout from stderr).
-          // Assuming a standard text stream for this abstraction:
-          this.emit('stdout', chunk.toString('utf-8'));
-        });
 
-        res.on('end', () => {
-          // Pass back the HTTP status code as the exit code (or parse it from the body if execd sends it)
-          const exitCode = res.statusCode === 200 ? 0 : 1;
-          this.emit('exit', exitCode);
-        });
+        const body = await response.text();
+        let exitCode = 0;
+
+        for (const line of body.split('\n')) {
+          if (!line.startsWith('data: ')) {
+            continue;
+          }
+
+          try {
+            const payload = JSON.parse(line.slice(6));
+            if (payload.type === 'stdout') {
+              stream.emit('stdout', Buffer.from(payload.text || payload.data || ''));
+            } else if (payload.type === 'stderr') {
+              stream.emit('stderr', Buffer.from(payload.text || payload.data || ''));
+            } else if (payload.type === 'result') {
+              exitCode = payload.exitCode ?? payload.code ?? 0;
+            }
+          } catch {
+            // Ignore malformed partial chunks from compatibility parsing.
+          }
+        }
+
+        stream.emit('exit', exitCode);
+      } catch (error) {
+        stream.emit('error', error);
       }
-    );
+    })();
 
-    req.on('error', (err) => {
-      this.emit('error', err);
-    });
-
-    req.write(payload);
-    req.end();
-
-    return this;
+    return stream;
   }
 }

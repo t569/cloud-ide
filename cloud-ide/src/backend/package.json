@@ -4,17 +4,17 @@
   "description": "Backend engine for the Cloud IDE",
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc",
+    "clean:rust": "node -e \"const fs=require('fs'); if(fs.existsSync('index.node')) fs.unlinkSync('index.node');\"",
+    "build:rust": "npm run clean:rust && napi build --cwd src-rust --output-dir ..",
+    "build": "npm run build:rust && tsc",
     "start": "node dist/server.js",
-    "dev": "ts-node src/server.ts",
+    "dev": "npm run build:rust && ts-node src/server.ts",
     "test": "jest",
     "start:engine": "node ../opensandbox/boot-engine.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "@cloud-ide/shared": "*",
+    "axios": "^1.15.0",
     "chokidar": "^5.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
@@ -23,6 +23,7 @@
     "ws": "^8.19.0"
   },
   "devDependencies": {
+    "@napi-rs/cli": "^3.6.1",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",

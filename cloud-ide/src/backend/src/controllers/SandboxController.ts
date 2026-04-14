@@ -1,393 +1,223 @@
-// // backend/src/controllers/SandboxController.ts
-
-
-// import { Request, Response } from 'express';
-// import { IEnvironmentRepository } from 'src/database/interfaces/IEnvironmentRepository';
-// import { ISessionRepository } from 'src/database/interfaces/ISessionRepository';
-// import { EventEmitter } from 'events';
-// import { OpenSandboxRouter } from '../services/OpenSandboxRouter';
-// import { config } from '../config/env';
-
-// // volume mounts for our session
-// import { WorkspaceProvisioner, GitStrategy, LocalBindStrategy } from '../services/WorkspaceProvisioner';
-// import { SessionRecord } from 'src/database/models';
-
-
-// export class SandboxController {
-  
-//   // the router that talks to our sandbox backend
-//   private router: OpenSandboxRouter;
-//   private openSandboxApiUrl: string;
-//   constructor(
-//     private systemEvents: EventEmitter,
-//     private envRepo: IEnvironmentRepository,
-//     private sessionRepo: ISessionRepository,
-//   ) {
-//     // This points to where you are running the OpenSandbox FastAPI Server
-//     // TODO: route config later
-//     this.openSandboxApiUrl = 'http://localhost:8080';
-
-//     // initialise router  
-//     this.router = new OpenSandboxRouter();
-//   }
-
-//   /**
-//    * POST /api/sessions/start
-//    * Body: { sessionId: string, envId: string, repoUrl: string }
-//    */
-
-//   // ERROR: all requests and responses here are flawed, we need an api
-//  public startSession = async (req: Request, res: Response): Promise<void> => {
-//   // repoUrl and localPath are optional
-//     const { sessionId, envId, repoUrl, localPath } = req.body;
-
-//     if (!sessionId || !envId) {
-//       res.status(400).json({ error: 'Missing required fields: sessionId or envId' });
-//       return;
-//     }
-
-//     try {
-//       // 1. DATABASE LOOKUP: Get the Docker image tag for this environment
-//       const environment = await this.envRepo.get(envId);
-//       if (!environment) {
-//         res.status(404).json({ error: `Environment '${envId}' not found.` });
-//         return;
-//       }
-
-//       // 2. INITIALIZE THE CORRECT PROVISIONING STRATEGY
-//       let provisioner: WorkspaceProvisioner | null = null;
-//       if (repoUrl) {
-//         provisioner = new WorkspaceProvisioner(new GitStrategy(repoUrl));
-//       } else if (localPath) {
-//         provisioner = new WorkspaceProvisioner(new LocalBindStrategy(localPath));
-//       }
-
-//       // Get any pre-boot Docker volumes from the strategy (Empty array if Git, Host path if Local)
-//       const bootVolumes = provisioner ? provisioner.getBootVolumes() : [];
-
-//       console.log(`\x1b[36m[Controller]\x1b[0m Requesting Sandbox Engine to boot session: ${sessionId}`);
-      
-//       // 3. CHECK EXISTING SESSION: See if this user already has a paused sandbox
-//       let session = await this.sessionRepo.get(sessionId);
-//       let targetSandboxId = session?.openSandboxId;
-//       let endpointUrl = this.openSandboxApiUrl;
-
-//       // 4. CREATE SANDBOX IF WE HAVE NONE
-//       if (!targetSandboxId) {
-//         const imageTag = (environment as any).imageName;
-//         console.log(`\x1b[36m[API]\x1b[0m Requesting Sandbox for image: ${imageTag}`);
-
-//         // Tell OpenSandbox to boot the Docker image WITH our volumes and workdir
-//         // --REFACTOR-- We use router now
-//         const bootData = await this.router.bootContainer({
-//           imageTag: imageTag,
-//           volumes: bootVolumes,
-//           envVars:["WORKDIR=/workspace"]
-//         });
-
-//         targetSandboxId = bootData.sandboxId;
-
-//         // Execute Post-Boot Setup (e.g., Git clone strategy)
-//         if(provisioner)
-//         {
-//           try {
-//             console.log(`\x1b[36m[API]\x1b[0m Running post-boot provisioner...`);
-//             await provisioner.runPostBoot(targetSandboxId);
-//           } catch (provisionErr: any) {
-//             console.error(`\x1b[31m[Provisioner Error]\x1b[0m ${provisionErr.message}`);
-//             // Note: We log the error but don't crash the session entirely, 
-//             // allowing the user to manually clone from the terminal if needed.
-//           }
-//         }
-        
-      
-//         // 5. TRIGGER EVENTS FOR OUR DATABASE TRACKING!
-//         // The PersistenceLayer daemon listens for this to run sessionRepo.save()
-//         // Save session locally and trigger Persistence Layer
-//         const sessionRecord = {
-//           sessionId: sessionId, 
-//           openSandboxId: targetSandboxId, 
-//           envId: envId,
-//           status: bootData.status,
-//           createdAt: Date.now()
-//         };
-
-//         this.systemEvents.emit('sandbox:provisioned', {
-//             ...sessionRecord,
-//             mountPath: '/workspace'
-//         });
-        
-//       } else {
-//         console.log(`\x1b[36m[API]\x1b[0m Resuming existing Sandbox: ${targetSandboxId}`);
-//         // Fire the status change event so the PersistenceLayer updates the DB to 'active'
-//         this.systemEvents.emit('sandbox:status_changed', { sessionId, status: 'active' });
-//       }
-
-//       // 6. THE HANDOFF: Give the connection details back to the React frontend
-//       res.status(200).json({
-//         message: 'Sandbox provisioned successfully',
-//         sessionId,
-//         sandboxId: targetSandboxId,
-//         endpoint: endpointUrl
-//       });
-
-//     } catch (error: any) {
-//       console.error('\x1b[31m[SandboxController Error]\x1b[0m', error.message);
-//       // Now we have the actual error, mad useful ngl
-//       res.status(500).json({ error: error.message || 'Failed to provision workspace environment' });
-//     }
-//   };
-
-//   /**
-//    * POST /api/sessions/:sessionId/pause
-//    */
-//   public pauseSession = async (req: Request, res: Response): Promise<void> => {
-//     const { sessionId } = req.params;
-
-//     // Strict Type Guard
-//     if (!sessionId || typeof sessionId !== 'string') {
-//       res.status(400).json({ error: 'Invalid or missing sessionId parameter' });
-//       return;
-//     }
-
-//     try {
-//       const session = await this.sessionRepo.get(sessionId);
-      
-//       if (!session || !session.openSandboxId) {
-//         res.status(404).json({ error: 'Session not found in database' });
-//         return;
-//       }
-
-//       if (!session.openSandboxId) {
-//         res.status(400).json({ error: 'Session does not have an active Sandbox attached' });
-//         return;
-//       }
-
-//       console.log(`\x1b[33m[API]\x1b[0m Pausing Sandbox: ${session.openSandboxId}`);
-
-//       // 1. Tell Alibaba's engine to freeze the container
-//       await this.router.pauseSandbox(session.openSandboxId);
-
-//       // 2. FIRE THE EVENT!
-//       // The PersistenceLayer will hear this and update the DB status to 'paused'
-//       this.systemEvents.emit('sandbox:paused', sessionId);
-
-//       res.status(200).json({ message: 'Session paused successfully' });
-//     } catch (error: any) {
-//       console.error('\x1b[31m[SandboxController Error]\x1b[0m', error.message);
-//       res.status(500).json({ error: error.message || 'Failed to pause session' });
-//     }
-//   };
-
-//   /**
-//    * DELETE /api/sessions/:sessionId
-//    */
-//   public stopSession = async (req: Request, res: Response): Promise<void> => {
-//     const { sessionId } = req.params;
-
-//     // Strict Type Guard for req.params
-//     if (!sessionId || typeof sessionId !== 'string') {
-//       res.status(400).json({ error: 'Invalid or missing sessionId parameter' });
-//       return;
-//     }
-
-//     try {
-//       const session = await this.sessionRepo.get(sessionId);
-//       if (!session || !session.openSandboxId) {
-//         res.status(404).json({ error: 'Session not found or already stopped.' });
-//         return;
-//       }
-
-//       // 1. Tell the Engine to destroy the Docker container
-//       await this.router.destroySandbox(session.openSandboxId);
-
-//       // 2. Remove from our database by emitting event
-  
-//       // FIX 2: Emit 'sandbox:destroyed' and just pass the string, not an object
-//       this.systemEvents.emit('sandbox:destroyed', sessionId);
-
-//       res.status(200).json({ message: 'Session terminated successfully.' });
-//     } catch (error: any) {
-//       console.error('\x1b[31m[SandboxController Error]\x1b[0m Failed to stop session:', error.message);
-//       res.status(500).json({ error: error.message });
-//     }
-//   };
-// }
-
-// backend/src/controllers/SandboxController.ts
-
+import { Readable } from 'node:stream';
 import { Request, Response } from 'express';
-import { EventEmitter } from 'events';
-
-// sandbox driver for opensandbox
-import { OpenSandboxDriver } from 'src/services/sandbox/drivers/opensandbox';
-
-// mount provisioners and workspace set up
-import { WorkspaceProvisioner } from '../services/provisioning';
-import { GitStrategy } from '../services/provisioning';
-import { LocalMountStrategy } from '../services/provisioning';
-
-// security checks
-import { PreFlightChecks } from '../services/sandbox/security';
-import { IEnvironmentRepository, ISessionRepository } from '../database';
+import {
+  SandboxExecRequest,
+  SandboxSpec,
+  VolumeMount,
+} from '@cloud-ide/shared/types/sandbox';
+import { SandboxManager } from '../services/sandbox/SandboxManager';
 
 export class SandboxController {
-  private sandboxDriver: OpenSandboxDriver;
+  constructor(private sandboxManager: SandboxManager) {}
 
-  constructor(
-    private systemEvents: EventEmitter,
-    private envRepo: IEnvironmentRepository,
-    private sessionRepo: ISessionRepository,
-  ) {
-    this.sandboxDriver = new OpenSandboxDriver();
-  }
-  
-  // should we decouple session and sandboxid
-  
-  /**
-   * POST /api/v1/sandboxes
-   */
-  public startSession = async (req: Request, res: Response): Promise<void> => {
-    const { sessionId, envId, repoUrl, branch, localPath } = req.body;
+  public createSandbox = async (req: Request, res: Response): Promise<void> => {
+    const spec = req.body as SandboxSpec;
 
-    // guards to check if the request was valid
-    if(!sessionId || !envId)
-    {
-      res.status(400).json({ error: 'Missing required fields: sessionId or envId' });
+    if (!spec?.imageTag || typeof spec.imageTag !== 'string') {
+      res.status(400).json({ error: 'imageTag is required.' });
       return;
     }
 
+    try {
+      const sandbox = await this.sandboxManager.provision(spec);
+      res.status(201).json(sandbox);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  public getSandboxStatus = async (req: Request, res: Response): Promise<void> => {
+    const sandboxId = this.getStringParam(req.params.sandboxId);
+
+    if (!sandboxId) {
+      res.status(400).json({ error: 'sandboxId is required.' });
+      return;
+    }
 
     try {
+      const status = await this.sandboxManager.getStatus(sandboxId);
+      res.status(200).json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
 
-      // if we dont have the environment in our database
-      const environment = await this.envRepo.get(envId);
-      if (!environment){
-        res.status(404).json({ error: 'Environment not found.' });
-        return;
-      } 
+  public execCommand = async (req: Request, res: Response): Promise<void> => {
+    const sandboxId = this.getStringParam(req.params.sandboxId);
+    const payload = req.body as SandboxExecRequest;
 
-      // 1. Determine Provisioning Strategy
-      let strategy;
-      if (repoUrl) strategy = new GitStrategy(repoUrl, branch);
-      else if (localPath) strategy = new LocalMountStrategy(localPath);
-      
-      const provisioner = new WorkspaceProvisioner(strategy);
+    if (!sandboxId) {
+      res.status(400).json({ error: 'sandboxId is required.' });
+      return;
+    }
 
-      // 2. Prepare Spec & Boot Infrastructure
-      // handles local mount
-      const bootSpec = provisioner.prepareSpec({
-        imageTag: environment.imageName,
-        envVars: { "WORKDIR": "/workspace" }
-      });
+    if (!Array.isArray(payload?.command) || payload.command.length === 0) {
+      res.status(400).json({ error: 'command must be a non-empty string array.' });
+      return;
+    }
 
-      const status = await this.sandboxDriver.boot(bootSpec);
+    const abortController = new AbortController();
+    req.on('close', () => abortController.abort());
 
-      // 3. Post-Boot Provisioning (e.g., Git Clone)
-      if (status.ipAddress && status.execdPort) {
-        await provisioner.runPostBoot(status.ipAddress, status.execdPort);
+    try {
+      // WAKE-ON-DEMAND ARCHITECTURE
+      const status = await this.sandboxManager.getStatus(sandboxId);
+
+      if (status.state === 'PAUSED') {
+        console.log(`[Gateway] Auto-resuming sleeping sandbox: ${sandboxId}`);
+        await this.sandboxManager.resume(sandboxId);
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
 
-      // 4. Emit Event for DB Persistence layer
-      this.systemEvents.emit('sandbox:provisioned', {
-        sessionId,
-        sandboxId: status.sandboxId,
-        ipAddress: status.ipAddress,
-        envId
+      const connection = await this.sandboxManager.resolveExecConnection(sandboxId);
+      
+      // NEW: Diagnostic log to prove Rust gave us the right proxy URL
+      console.log(`\n🔗 [Gateway] Connecting to Proxy: ${connection.baseUrl}`);
+
+     const response = await fetch(`${connection.baseUrl.replace(/\/$/, '')}/command`, {
+        method: 'POST',
+        headers: {
+          Accept: 'text/event-stream',
+          'Content-Type': 'application/json',
+          ...(connection.accessToken
+            ? { 'X-EXECD-ACCESS-TOKEN': connection.accessToken }
+            : {}),
+        },
+        body: JSON.stringify({
+          command: payload.command.join(' '), 
+          cwd: payload.cwd || '/workspace',
+          env: payload.env || {},
+        }),
+        signal: abortController.signal, 
       });
 
-      res.status(200).json({
-        message: 'Sandbox provisioned successfully',
-        sandboxId: status.sandboxId,
-        state: status.state
-      });
-
-    } catch (error: any) {
-      console.error('[Boot Error]', error.message);
-      res.status(500).json({ error: error.message });
-    }
-  };
-
-  /**
-   * POST /api/v1/sandboxes/:sandboxId PAUSE A SANDBOX
-   */
-  public pauseSession = async (req: Request, res: Response): Promise<void> => {
-    const { sessionId } = req.params;
-
-    try {
-      const session = await this.sessionRepo.get(sessionId);
-      if (!session || !session.openSandboxId) {
-        res.status(404).json({ error: 'Active session not found.' });
+      if (!response.ok) {
+        const errorText = await response.text();
+        res.status(response.status).json({ error: errorText || response.statusText });
         return;
       }
 
-      // 1. Tell the Sandbox Engine to freeze the VM
-      await this.sandboxDriver.pause(session.openSandboxId);
+      if (!response.body) {
+        res.status(502).json({ error: 'Exec stream was empty.' });
+        return;
+      }
 
-      // 2. Emit event so DB marks Session as "Paused"
-      this.systemEvents.emit('sandbox:paused', sessionId);
+      res.status(200);
+      res.setHeader('Content-Type', response.headers.get('content-type') || 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders();
 
-      res.status(200).json({ message: 'Session paused successfully' });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  };
-  /**
-   * POST /api/v1/sessions/:sessionId/ports
-   * Body: { port: 8081 }
-   */
-  public exposePort = async (req: Request, res: Response): Promise<void> => {
-    const { sessionId } = req.params;
-    const { port } = req.body;
-
-    try {
-      const session = await this.sessionRepo.get(sessionId);
-      if (!session || !session.openSandboxId) throw new Error("No active sandbox for this session.");
-
-      // Driver calls OpenSandbox Gateway
-      const previewUrl = await this.sandboxDriver.exposePort(session.openSandboxId, port);
-      
-      res.status(200).json({ port, url: previewUrl });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  };
-
-  
-  /**
-   * DELETE /api/v1/sessions/:sessionId
-   */
-  public stopSession = async (req: Request, res: Response): Promise<void> => {
-    const { sandboxId } = req.params;
-    const forceDelete = req.query.force === 'true';
-
-
-    // guards to check 
-    if(!sandboxId)
-    try {
-      const status = await this.sandboxDriver.getStatus(sandboxId);
-
-      // 1. Security: Pre-Flight Deletion Check
-      if (status.ipAddress && !forceDelete) {
-        const isClean = await PreFlightChecks.isGitWorkspaceClean(status.ipAddress, status.execdPort!);
-        if (!isClean) {
-          res.status(409).json({ 
-            error: 'Workspace has uncommitted changes.', 
-            actionRequired: 'Commit changes, stash, or pass ?force=true' 
-          });
+      const stream = Readable.fromWeb(response.body as any);
+      stream.on('error', (error) => {
+        if (!res.headersSent) {
+          res.status(502).json({ error: String(error) });
           return;
         }
+        res.end();
+      });
+      
+      stream.pipe(res);
+    } catch (error: any) {
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      } else {
+        res.end();
       }
+    }
+  };
 
-      // 2. Destroy Infrastructure
-      await this.sandboxDriver.destroy(sandboxId);
+  public pauseSandbox = async (req: Request, res: Response): Promise<void> => {
+    const sandboxId = this.getStringParam(req.params.sandboxId);
 
-      // 3. Emit Event to clear DB
-      this.systemEvents.emit('sandbox:destroyed', sandboxId);
+    if (!sandboxId) {
+      res.status(400).json({ error: 'sandboxId is required.' });
+      return;
+    }
 
-      res.status(200).json({ message: 'Session terminated safely.' });
+    try {
+      await this.sandboxManager.pause(sandboxId);
+      res.status(200).json({ sandboxId, state: 'PAUSED' });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   };
+
+  public resumeSandbox = async (req: Request, res: Response): Promise<void> => {
+   const sandboxId = this.getStringParam(req.params.sandboxId);
+
+    if (!sandboxId) {
+      res.status(400).json({ error: 'sandboxId is required.' });
+      return;
+    }
+
+    try {
+      await this.sandboxManager.resume(sandboxId);
+      res.status(200).json({ sandboxId, state: 'RUNNING' });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  public destroySandbox = async (req: Request, res: Response): Promise<void> => {
+      const sandboxId = this.getStringParam(req.params.sandboxId);
+
+    if (!sandboxId) {
+      res.status(400).json({ error: 'sandboxId is required.' });
+      return;
+    }
+
+    try {
+      await this.sandboxManager.destroy(sandboxId);
+      res.status(200).json({ sandboxId, destroyed: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  public attachVolume = async (req: Request, res: Response): Promise<void> => {
+   const sandboxId = this.getStringParam(req.params.sandboxId);
+    const volume = req.body as VolumeMount;
+
+    if (!sandboxId) {
+      res.status(400).json({ error: 'sandboxId is required.' });
+      return;
+    }
+
+    if (!volume?.name || !volume?.hostPath) {
+      res.status(400).json({ error: 'Volume name and hostPath are required.' });
+      return;
+    }
+
+    try {
+      const result = await this.sandboxManager.attachVolume(sandboxId, {
+        ...volume,
+        kind: 'user',
+      });
+      res.status(200).json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  public detachVolume = async (req: Request, res: Response): Promise<void> => {
+    const sandboxId = this.getStringParam(req.params.sandboxId);
+    const volumeName = this.getStringParam(req.params.volumeName);
+
+    if (!sandboxId || !volumeName) {
+      res.status(400).json({ error: 'sandboxId and volumeName are required.' });
+      return;
+    }
+
+    try {
+      const result = await this.sandboxManager.detachVolume(sandboxId, volumeName);
+      res.status(200).json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+   private getStringParam(value: string | string[] | undefined): string | undefined {
+    return Array.isArray(value) ? value[0] : value;
+  }
 }

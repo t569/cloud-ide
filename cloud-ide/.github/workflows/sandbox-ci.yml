@@ -1,0 +1,41 @@
+name: OpenSandbox CI
+
+on:
+  push:
+    paths:
+      - 'src/opensandbox/**'
+  pull_request:
+    paths:
+      - 'src/opensandbox/**'
+
+jobs:
+  validate-sandbox:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10' # Ensure this matches your target version
+
+      - name: Cache Virtual Environment
+        uses: actions/cache@v3
+        with:
+          path: src/opensandbox/sandbox-env
+          key: ${{ runner.os }}-venv-${{ hashFiles('src/opensandbox/requirements.txt') }}
+
+      - name: Install Sandbox Dependencies
+        working-directory: src/opensandbox
+        run: |
+          python -m venv sandbox-env
+          source sandbox-env/bin/activate
+          pip install -r requirements.txt
+
+      - name: Validate TOML Configuration
+        working-directory: src/opensandbox
+        run: |
+          source sandbox-env/bin/activate
+          # This runs a dry-run/help command to ensure the binary installed and the config is readable
+          opensandbox-server --help

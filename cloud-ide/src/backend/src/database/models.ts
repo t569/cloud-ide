@@ -3,6 +3,7 @@
 // to find out more about our structure, check out shared/types/builder.t
 
 import { EnvironmentConfig } from '@cloud-ide/shared'; 
+import { SessionRecord, SessionState } from '@cloud-ide/shared';
 
 export interface EnvironmentRecord {
   id: string;  
@@ -16,12 +17,4 @@ export interface EnvironmentRecord {
   targetRepo?: string,
   trackedTools?:string[];
 }
-
-export interface SessionRecord {
-  sessionId: string;
-  envId: string;       
-  status: 'active' | 'paused';
-  mountPath?: string;   
-  createdAt: number;
-  openSandboxId?: string; // the ID for our backend sandbox
-}
+ export type { SessionRecord, SessionState};

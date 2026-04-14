@@ -7,7 +7,7 @@ import { OpenSandboxExecClient } from '../../sandbox/drivers/opensandbox/execdri
 export class LocalMountStrategy implements IProvisioningStrategy {
   constructor(
     private hostPath: string,
-    private mountPath: string = '/workspace'
+    private mountPath: string = '/workspace/mounts/local-workspace-bind'
   ) {}
 
   public mutateSpec(spec: SandboxSpec): SandboxSpec {
@@ -15,8 +15,9 @@ export class LocalMountStrategy implements IProvisioningStrategy {
     const modifiedSpec = { ...spec };
     modifiedSpec.volumes = modifiedSpec.volumes || [];
     
-    modifiedSpec.volumes.push({
+      modifiedSpec.volumes.push({
       name: 'local-workspace-bind',
+      kind: 'user',
       hostPath: this.hostPath,
       mountPath: this.mountPath,
       readOnly: false // Allow the IDE to write back to the local host folder

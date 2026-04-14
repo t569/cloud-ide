@@ -1,0 +1,7 @@
+.idea/
+target/
+
+# Ignore NAPI's broken auto-generated type file
+src/api/index.d.ts
+
+*.node

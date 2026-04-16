@@ -61,6 +61,16 @@ jobs:
             cp source-repo/cloud-ide/src/opensandbox/README.md blog-repo/content/projects/cloud-ide/opensandbox.md
           fi
 
+          # ==========================================
+          # INJECT THE CONSTELLATION MESH
+          # ==========================================
+          # This loop goes through every Markdown file we just copied 
+          # and appends a footer linking them all together.
+          
+          for file in blog-repo/content/projects/cloud-ide/*.md; do
+            echo -e "\n\n---\n**System Architecture Nodes:** [[projects/cloud-ide/index|Root Hub]] | [[projects/cloud-ide/frontend|Frontend]] | [[projects/cloud-ide/backend|Backend]] | [[projects/cloud-ide/opensandbox|OpenSandbox]] | [[projects/cloud-ide/pipeline|Pipeline]]" >> "$file"
+          done
+
       - name: Commit and Push to Blog
         run: |
           cd blog-repo

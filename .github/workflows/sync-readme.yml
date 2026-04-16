@@ -4,14 +4,15 @@ on:
   push:
     branches:
       - main
-    # 1. Trigger the sync if ANY of these specific READMEs change
     paths:
       - 'cloud-ide/src/README.md'
-      - 'cloud-ide/srcfrontend/README.md'
-      - 'cloud-ide/srcbackend/README.md'
-      - 'cloud-ide/srcshared/README.md'
-      - 'cloud-ide/srcpipeline/README.md'
-      - 'cloud-ide/srcopensandbox/README.md'
+      - 'cloud-ide/src/frontend/README.md'
+      - 'cloud-ide/src/backend/README.md'
+      - 'cloud-ide/src/shared/README.md'
+      - 'cloud-ide/src/pipeline/README.md'
+      - 'cloud-ide/src/opensandbox/README.md'
+  # Manual trigger button for easy testing
+  workflow_dispatch: 
 
 jobs:
   sync:
@@ -34,26 +35,30 @@ jobs:
           # Create the dedicated folder in your blog
           mkdir -p blog-repo/content/projects/cloud-ide/
           
-          # Map the Root README to index.md (The landing page for the project)
-          if [ -f source-repo/README.md ]; then
-            cp source-repo/README.md blog-repo/content/projects/cloud-ide/index.md
+          # Map the Root src README to index.md 
+          if [ -f source-repo/cloud-ide/src/README.md ]; then
+            cp source-repo/cloud-ide/src/README.md blog-repo/content/projects/cloud-ide/index.md
           fi
           
-          # Map the sub-module READMEs to specific markdown files
-          if [ -f source-repo/frontend/README.md ]; then
-            cp source-repo/frontend/README.md blog-repo/content/projects/cloud-ide/frontend.md
+          # Map the sub-module READMEs
+          if [ -f source-repo/cloud-ide/src/frontend/README.md ]; then
+            cp source-repo/cloud-ide/src/frontend/README.md blog-repo/content/projects/cloud-ide/frontend.md
           fi
-          if [ -f source-repo/backend/README.md ]; then
-            cp source-repo/backend/README.md blog-repo/content/projects/cloud-ide/backend.md
+          
+          if [ -f source-repo/cloud-ide/src/backend/README.md ]; then
+            cp source-repo/cloud-ide/src/backend/README.md blog-repo/content/projects/cloud-ide/backend.md
           fi
-          if [ -f source-repo/shared/README.md ]; then
-            cp source-repo/shared/README.md blog-repo/content/projects/cloud-ide/shared.md
+          
+          if [ -f source-repo/cloud-ide/src/shared/README.md ]; then
+            cp source-repo/cloud-ide/src/shared/README.md blog-repo/content/projects/cloud-ide/shared.md
           fi
-          if [ -f source-repo/pipeline/README.md ]; then
-            cp source-repo/pipeline/README.md blog-repo/content/projects/cloud-ide/pipeline.md
+          
+          if [ -f source-repo/cloud-ide/src/pipeline/README.md ]; then
+            cp source-repo/cloud-ide/src/pipeline/README.md blog-repo/content/projects/cloud-ide/pipeline.md
           fi
-          if [ -f source-repo/opensandbox/README.md ]; then
-            cp source-repo/opensandbox/README.md blog-repo/content/projects/cloud-ide/opensandbox.md
+          
+          if [ -f source-repo/cloud-ide/src/opensandbox/README.md ]; then
+            cp source-repo/cloud-ide/src/opensandbox/README.md blog-repo/content/projects/cloud-ide/opensandbox.md
           fi
 
       - name: Commit and Push to Blog
@@ -62,7 +67,6 @@ jobs:
           git config user.name "GitHub Action Bot"
           git config user.email "action@github.com"
           
-          # Add the specific cloud-ide folder
           git add content/projects/cloud-ide/
           
           git diff --quiet && git diff --staged --quiet || git commit -m "Auto-sync modular docs for cloud-ide"

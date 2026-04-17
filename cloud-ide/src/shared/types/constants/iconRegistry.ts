@@ -5,6 +5,9 @@ import { ResolvedIcon } from "../../utils/iconResolver"
 // TIER 1: EXACT FILENAMES
 // ==========================================
 // These take top priority. A package.json gets the NPM logo, not the standard JSON logo.
+// Matches the full filename. Useful for config files where the extension 
+// alone isn't enough to determine the tool (e.g., a .json could be anything, 
+// but package.json is definitively NPM).
 export const FILE_NAME_MAP: Record<string, ResolvedIcon> = {
   // --- Package Managers & Build Tools ---
   'package.json': { icon: 'vscode-icons:file-type-npm' },
@@ -30,10 +33,26 @@ export const FILE_NAME_MAP: Record<string, ResolvedIcon> = {
   'apollo.config.ts': { icon: 'devicon:apollographql' },
   'swagger.json': { icon: 'file-icons:swagger', color: '#85EA2D' },
   'swagger.yaml': { icon: 'file-icons:swagger', color: '#85EA2D' },
+  '.prettierrc': {icon: 'logos:prettier'},
+  '.prettierignore': {icon: 'logos:prettier'},
+//   '.prettierrc.json'
+// '.prettierrc.yml'
+// '.prettierrc.yaml'
+// ''.prettierrc.json5'
+// '.prettierrc.toml'
+// 'prettier.config.js'
+// '.prettierrc.js'
+// 'prettier.config.mjs'
+// '.prettierrc.cjs'
+// 'prettier.config.cjs'
+// '.prettierrc.ts'
+
+
 
   // --- Servers, Infrastructure & DBs ---
-  'dockerfile': { icon: 'vscode-icons:file-type-docker' },
-  'docker-compose.yml': { icon: 'vscode-icons:file-type-docker' },
+  'dockerfile': { icon: 'logos:docker-icon' },
+  'docker-compose.yml': { icon: 'logos:docker-icon' },
+  '.dockerignore': {icon: 'file-icons:docker', color: '#808080'},
   'kubeconfig': { icon: 'devicon:kubernetes' },
   'nginx.conf': { icon: 'file-icons:nginx', color: '#009639' },
   '.htaccess': { icon: 'devicon:apache' },
@@ -61,6 +80,8 @@ export const FILE_NAME_MAP: Record<string, ResolvedIcon> = {
 // TIER 2: EXTENSIONS
 // ==========================================
 // These handle standard file types.
+// Matches the file extension (everything after the last dot). 
+// Grouped by category for easy maintenance.
 export const EXTENSION_MAP: Record<string, ResolvedIcon> = {
   // --- Systems, Compiled & Low-Level ---
   'c': { icon: 'devicon:embeddedc' },
@@ -206,13 +227,24 @@ export const EXTENSION_MAP: Record<string, ResolvedIcon> = {
   'circom': { icon: 'vscode-icons:file-type-circom' },
 
   // --- Shells, OS & Automation ---
-  'sh': { icon: 'skill-icons:linux-light' },
+  'sh': { icon: 'logos:bash-icon' },
   'bash': { icon: 'skill-icons:linux-light' },
   'ps1': { icon: 'vscode-icons:file-type-powershell' },
   'psm1': { icon: 'vscode-icons:file-type-powershell' },
   'bat': { icon: 'file-icons:ms-dos', color: '#C4C4C4' },
   'cmd': { icon: 'file-icons:ms-dos', color: '#C4C4C4' },
   'wasi': { icon: 'file-icons:wasi', color: '#654FF0' },
+
+  // -- Executables and Binaries ---
+  'exe': { icon: 'logos:microsoft-windows-icon'}, // Standard Windows executable, we use the windows icon for now
+  'msi': { icon: 'logos:microsoft-windows-icon' }, // Windows installer, we use the windows icon for now
+  'apk': { icon: 'devicon:android' },            // Android package
+  'app': { icon: 'devicon:apple' },              // macOS app bundle
+  'dmg': { icon: 'devicon:apple' },              // macOS disk image
+  'rpm': {icon: 'logos:redhat-icon' },
+  'deb': {icon: 'logos:debian' },
+  'pkg': {icon: 'logos:freebsd'}, 
+
 
   // --- Data, Configs & Serialization ---
   'json': { icon: 'vscode-icons:file-type-json' },

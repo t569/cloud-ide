@@ -6,6 +6,7 @@ export interface ResolvedIcon {
   color?: string; // Optional hex code for monochrome overrides
 }
 
+// search our icon db and resolve the file icon image
 export const resolveIconDefinition = (fileName: string): ResolvedIcon => {
   const name = fileName.toLowerCase();
   const ext = name.split('.').pop() || '';
@@ -20,3 +21,4 @@ export const resolveIconDefinition = (fileName: string): ResolvedIcon => {
   // This automatically fixes config.nix because 'vscode-icons:file-type-nix' exists and is colored.
   return { icon: `vscode-icons:file-type-${ext}` };
 };
+

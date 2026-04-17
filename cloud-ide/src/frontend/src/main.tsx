@@ -11,6 +11,6 @@ import { IdeWorkspaceTest } from './terminal/dev/IdeWorkspaceTest';
 // It is looking for 'root' here
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
-    <EnvManager/>
+    <App/>
   </React.StrictMode>
 );

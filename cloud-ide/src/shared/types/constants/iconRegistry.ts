@@ -1,6 +1,5 @@
 // shared/src/constants/iconRegistry.ts
 
-
 /**
  * To add icons you can check: 
  * https://icones.js.org/
@@ -36,7 +35,16 @@ export const FILE_NAME_MAP: Record<string, ResolvedIcon> = {
   'makefile': { icon: 'vscode-icons:file-type-makefile' },
   'cmakelists.txt': { icon: 'vscode-icons:file-type-cmake' },
   'meson.build': { icon: 'vscode-icons:file-type-meson' },
-  'meson_options.txt': { icon: 'file-icons:meson', color: '#882255' },
+  ...mapExtensions(['meson_option.txt','meson.options'], { icon: 'file-icons:meson', color: '#882255' }),
+  'yarn.lock': { icon: 'vscode-icons:file-type-yarn' },
+
+  // --- Build Systems (Linux Kernel, Rust, LLVM) ---
+  'configure': { icon: 'logos:bash-icon' },
+  'makefile.in': { icon: 'vscode-icons:file-type-makefile' },
+  'make.defaults': { icon: 'vscode-icons:file-type-makefile' },
+  'make.rules': { icon: 'vscode-icons:file-type-makefile' },
+  'kbuild': { icon: 'vscode-icons:file-type-makefile' },
+  'kconfig': { icon: 'file-icons:config', color: '#666666' },
 
   // --- Linters, Formatters & Framework Configs ---
   ...mapExtensions(['swagger.json', 'swagger.yaml'], { icon: 'file-icons:swagger', color: '#85EA2D' }),
@@ -49,6 +57,9 @@ export const FILE_NAME_MAP: Record<string, ResolvedIcon> = {
     '.prettierrc.ts', 'prettier.config.js', 'prettier.config.mjs', 'prettier.config.cjs', 
     '.prettierignore'
   ], { icon: 'logos:prettier' }),
+  '.eslintignore': { icon: 'file-icons:eslint', color: '#4B32C3' },
+  ...mapExtensions(['.clang-format','.clang-format-ignore','.clang-tidy'],  { icon: 'simple-icons:llvm', color: '#1084D0' }),
+  'doxyfile': { icon: 'file-icons:doxygen', color: '#095AAA' },
 
   // --- Servers, Infrastructure & Databases ---
   ...mapExtensions(['dockerfile', 'docker-compose.yml'], { icon: 'logos:docker-icon' }),
@@ -73,10 +84,16 @@ export const FILE_NAME_MAP: Record<string, ResolvedIcon> = {
   '.nanorc': { icon: 'file-icons:nano', color: '#555555' },
   '.condarc': { icon: 'file-icons:conda', color: '#44A833' },
 
-  // --- Project Metadata & Miscellaneous ---
+  // --- Project Metadata & Version Control ---
   'readme.md': { icon: 'vscode-icons:file-type-markdown' },
   'license': { icon: 'vscode-icons:file-type-license' },
-  '.gitignore': { icon: 'simple-icons:git', color: '#F05032' },
+  'license-mit': { icon: 'vscode-icons:file-type-license' },
+  'license-apache': { icon: 'vscode-icons:file-type-license' },
+  'maintainers': { icon: 'vscode-icons:file-type-text' },
+  ...mapExtensions(['.gitignore','.gitattributes', '.gitmodules', '.gitkeep', '.ignore', '.git-blame-ignore-revs'], { icon: 'simple-icons:git', color: '#F05032' }),
+  '.mailmap': { icon: 'simple-icons:git', color: '#F05032' },
+  
+  // --- Miscellaneous ---
   'androidmanifest.xml': { icon: 'devicon:android' },
   'modelfile': { icon: 'devicon:ollama' },
 };
@@ -98,6 +115,7 @@ export const EXTENSION_MAP: Record<string, ResolvedIcon> = {
   ...mapExtensions(['tsx', 'jsx'], { icon: 'logos:react' }),
   'vue': { icon: 'logos:vue' },
   'htmx': { icon: 'devicon:htmx' },
+  'webmanifest': { icon: 'vscode-icons:file-type-json' },
 
   // --- Styling, CSS & Preprocessors ---
   'css': { icon: 'vscode-icons:file-type-css' },
@@ -148,9 +166,11 @@ export const EXTENSION_MAP: Record<string, ResolvedIcon> = {
   // ============================================================================
 
   // --- C/C++ & Modern Systems ---
-  ...mapExtensions(['c', 'h'], { icon: 'devicon:embeddedc' }),
-  'cpp': { icon: 'vscode-icons:file-type-cpp' },
+  ...mapExtensions(['c', 'h', 'def'], { icon: 'devicon:embeddedc' }),
+  ...mapExtensions(['cpp', 'cppm', 'inl'], { icon: 'vscode-icons:file-type-cpp' }),
   'hpp': { icon: 'vscode-icons:file-type-cppheader' },
+  'modulemap': { icon: 'simple-icons:llvm', color: '#1084D0' },
+  'natvis': { icon: 'devicon:visualstudio' },
   'rs': { icon: 'simple-icons:rust', color: '#DEA584' },
   'go': { icon: 'vscode-icons:file-type-go' },
   'zig': { icon: 'simple-icons:zig', color: '#F7A41D' },
@@ -161,13 +181,18 @@ export const EXTENSION_MAP: Record<string, ResolvedIcon> = {
   'c3': { icon: 'local:c3' },
   'carbon': { icon: 'local:carbon' },
 
-  // --- Assembly, Compilers & Binaries ---
-  ...mapExtensions(['ll', 'llvm'], { icon: 'devicon:llvm' }),
+  // --- Assembly, Compilers, & Binaries ---
+  ...mapExtensions(['ll', 'llvm', 'td'], { icon: 'devicon:llvm' }),
   ...mapExtensions(['ld', 'lds', 'asm', 's'], { icon: 'vscode-icons:file-type-assembly' }),
-  ...mapExtensions(['o', 'so', 'dll'], { icon: 'vscode-icons:file-type-binary' }),
+  ...mapExtensions(['o', 'so', 'dll', 'fd'], { icon: 'vscode-icons:file-type-binary' }),
   'wasm': { icon: 'simple-icons:webassembly', color: '#654FF0' },
   'nasm': { icon: 'logos:nasm' },
   'cmake': { icon: 'vscode-icons:file-type-cmake' },
+  'mk': { icon: 'vscode-icons:file-type-makefile' },
+
+  // --- Hardware & Embedded (Linux/OS Dev) ---
+  ...mapExtensions(['dts', 'dtsi'], { icon: 'devicon:embeddedc' }),
+  'nsh': { icon: 'file-icons:terminal', color: '#4CAF50' },
 
 
   // ============================================================================
@@ -194,13 +219,13 @@ export const EXTENSION_MAP: Record<string, ResolvedIcon> = {
   // ============================================================================
 
   // --- Data Science & AI ---
-  ...mapExtensions(['py', 'pyi', 'pyw', 'pyc', 'pyo', 'pyd'], { icon: 'vscode-icons:file-type-python' }),
+  ...mapExtensions(['py', 'pyi', 'pyw', 'pyc', 'pyo', 'pyd', 'py3'], { icon: 'vscode-icons:file-type-python' }),
   ...mapExtensions(['rdata', 'rds'], { icon: 'file-icons:rdata', color: '#276DC3' }),
   ...mapExtensions(['nb', 'wl'], { icon: 'file-icons:mathematica', color: '#DD1100' }),
   ...mapExtensions(['pt', 'pth'], { icon: 'devicon:pytorch' }),
   ...mapExtensions(['mojo', '🔥'], { icon: 'vscode-icons:file-type-mojo' }),
   'jl': { icon: 'devicon:julia' },
-  'm': { icon: 'vscode-icons:file-type-matlab' },
+  'm': { icon: 'vscode-icons:file-type-matlab' }, // Note: Also collides with Objective-C
   'sas': { icon: 'file-icons:sas', color: '#035CA4' },
   'ipynb': { icon: 'simple-icons:jupyter', color: '#F37626' },
   'r': { icon: 'devicon:r' },
@@ -214,6 +239,7 @@ export const EXTENSION_MAP: Record<string, ResolvedIcon> = {
   ...mapExtensions(['dbf', 'ctl', 'ora'], { icon: 'devicon:oracle' }),
   ...mapExtensions(['mdf', 'ldf', 'ndf'], { icon: 'devicon:microsoftsqlserver' }),
   ...mapExtensions(['frm', 'ibd', 'myd', 'myi', 'opt'], { icon: 'devicon:mysql' }),
+  'dat': { icon: 'icon-park-outline:file-hash-one', color: '#2E8B73' }, 
 
 
   // ============================================================================
@@ -223,6 +249,8 @@ export const EXTENSION_MAP: Record<string, ResolvedIcon> = {
   // --- Hardware & Shaders ---
   ...mapExtensions(['v', 'sv', 'svh'], { icon: 'vscode-icons:file-type-systemverilog' }),
   ...mapExtensions(['glsl', 'vert', 'frag'], { icon: 'file-icons:opengl', color: '#5586A4' }),
+  'spv': { icon: 'file-icons:khronos', color: '#CC292B' }, // SPIR-V
+  'cso': { icon: 'file-icons:opengl', color: '#5586A4' }, // Compiled Shader Object
   ...mapExtensions(['cu', 'cuh'], { icon: 'file-icons:nvidia', color: '#76B900' }),
   'ino': { icon: 'devicon:arduino' },
   'webgl': { icon: 'file-icons:webgl', color: '#990000' },
@@ -291,7 +319,7 @@ export const EXTENSION_MAP: Record<string, ResolvedIcon> = {
   ...mapExtensions(['csv', 'tsv'], { icon: 'icon-park-outline:file-hash-one', color: '#2E8B73' }),
 
   // --- Documents & Publishing ---
-  ...mapExtensions(['txt', 'rtf'], { icon: 'vscode-icons:file-type-text' }),
+  ...mapExtensions(['txt', 'rtf', 'in'], { icon: 'vscode-icons:file-type-text' }),
   'log': { icon: 'vscode-icons:file-type-log' },
   'md': { icon: 'vscode-icons:file-type-markdown' },
   'pdf': { icon: 'vscode-icons:file-type-pdf2' },
@@ -300,15 +328,19 @@ export const EXTENSION_MAP: Record<string, ResolvedIcon> = {
   ...mapExtensions(['ppt', 'pptx'], { icon: 'vscode-icons:file-type-powerpoint' }),
   'bib': { icon: 'file-icons:bibtex', color: '#e3b341' },
   'tex': { icon: 'simple-icons:latex', color: '#008080' },
+  'rst': { icon: 'icon-park-solid:file-code'},
+  ...mapExtensions(['dox', 'doxygen'], { icon: 'file-icons:doxygen', color: '#095AAA' }),
 
   // --- Generic Media (Images, Audio, Video, Archives) ---
-  ...mapExtensions(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico'], { icon: 'vscode-icons:file-type-image' }),
+  ...mapExtensions(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'fbmp', 'grf'], { icon: 'vscode-icons:file-type-image' }),
   ...mapExtensions(['mp3', 'wav', 'flac', 'ogg'], { icon: 'vscode-icons:file-type-audio' }),
   ...mapExtensions(['mp4', 'mkv', 'avi', 'mov', 'webm'], { icon: 'vscode-icons:file-type-video' }),
   ...mapExtensions(['zip', 'tar', 'gz', '7z', 'rar'], { icon: 'vscode-icons:file-type-zip' }),
 
   // --- IDE & Workspace Files ---
   ...mapExtensions(['sln', 'csproj'], { icon: 'devicon:visualstudio' }),
+  'code-workspace': { icon: 'devicon:vscode' },
   'xcodeproj': { icon: 'devicon:xcode' },
   'vim': { icon: 'devicon:vim' },
+  'wrap': { icon: 'file-icons:meson', color: '#882255' },
 };

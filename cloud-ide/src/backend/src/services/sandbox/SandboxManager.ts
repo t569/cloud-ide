@@ -13,6 +13,9 @@ import {
 import { ISandboxRepository } from '../../database/interfaces/ISandboxRepository';
 import { ExecConnectionInfo } from '../../types/engine';
 import { IRustEngineClient, RustEngineClient } from './rustClient';
+import { WorktreeEngine } from '../storage/WorktreeEngine';
+import { WorkspaceProvisioner } from '../provisioning';
+import { WorktreeStrategy } from '../provisioning/strategies/git/WorktreeStrategy';
 
 const DEFAULT_WORKSPACE_MOUNT_PATH = '/workspace';
 const USER_VOLUME_ROOT = `${DEFAULT_WORKSPACE_MOUNT_PATH}/mounts`;
@@ -33,10 +36,18 @@ export interface VolumeMutationResult {
  * - Safe volume mutation semantics (handling hostPath resolution).
  */
 export class SandboxManager {
+
+  private worktreeEngine: WorktreeEngine;
   constructor(
     private sandboxRepo: ISandboxRepository,
     private rustClient: IRustEngineClient = new RustEngineClient()
-  ) {}
+  ) {
+
+    // Initialize the engine pointing to a data folder on the server
+    const baseRepoPath = path.resolve(process.cwd(), 'data/central-repo.git');
+    const worktreesRoot = path.resolve(process.cwd(), 'data/worktrees');
+    this.worktreeEngine = new WorktreeEngine(baseRepoPath, worktreesRoot);
+  }
 
 
   /**
@@ -46,18 +57,32 @@ export class SandboxManager {
    * to the Rust engine.
    */
   public async provision(spec: SandboxSpec): Promise<SandboxRecord> {
-    console.log('[SandboxManager] Delegating boot sequence to Rust Core...');
+    // 1. Generate a dedicated ID for the storage layer
+    const worktreeId = crypto.randomUUID();
 
-    const prepared = await this.prepareProvisionSpec(spec);
-    const rustStatus = await this.rustClient.bootSandbox(prepared.spec);
+    // 2. Request the host path from the Engine
+    const hostPath = await this.worktreeEngine.createWorktree(worktreeId);
 
+    // 3. Use your Provisioner Strategy to mutate the spec flawlessly
+    const strategy = new WorktreeStrategy(hostPath);
+    const provisioner = new WorkspaceProvisioner(strategy);
+    const mutatedSpec = provisioner.prepareSpec(spec);
+    
+    // 4. Normalize any user-defined volumes (replaces prepareProvisionSpec)
+    const finalSpec = this.normalizeUserVolumes(mutatedSpec);
+
+    // 5. Boot the container via Rust
+    const rustStatus = await this.rustClient.bootSandbox(finalSpec);
+
+    // 6. Save the record, explicitly linking the Rust ID to the Worktree ID
     const record: SandboxRecord = {
-      sandboxId: rustStatus.sandboxId,
+      sandboxId: rustStatus.sandboxId,     // The OpenSandbox ID (e.g., sbx-1234)
+      worktreeId: worktreeId,              // The Host SSD folder ID (e.g., uuid)
       environmentId: spec.imageTag,
       state: rustStatus.state,
       ipAddress: rustStatus.ipAddress,
       execdPort: rustStatus.execdPort,
-      desiredVolumes: prepared.desiredVolumes,
+      desiredVolumes: finalSpec.volumes || [],
       workspaceMountPath: DEFAULT_WORKSPACE_MOUNT_PATH,
       requiresReprovision: false,
       createdAt: Date.now(),
@@ -133,11 +158,18 @@ export class SandboxManager {
    * @returns A promise resolving to a boolean indicating success.
    */
   public async destroy(sandboxId: string): Promise<boolean> {
+    const record = await this.getRecord(sandboxId);
+    if (!record) return false;
+
     console.log(`[SandboxManager] Requesting Rust to destroy ${sandboxId}...`);
     const success = await this.rustClient.destroySandbox(sandboxId);
 
     if (success) {
       await this.sandboxRepo.delete(sandboxId);
+      // Clean up using the dedicated worktree ID!
+      if (record.worktreeId) {
+          await this.worktreeEngine.removeWorktree(record.worktreeId);
+      }
     }
 
     return success;
@@ -242,6 +274,7 @@ export class SandboxManager {
    * @param spec 
    * @returns 
    */
+  // DEPRECIATED - Replaced by normalizeUserVolumes and the WorktreeStrategy
   private async prepareProvisionSpec(
     spec: SandboxSpec
   ): Promise<{ spec: SandboxSpec; desiredVolumes: VolumeMount[] }> {
@@ -258,6 +291,22 @@ export class SandboxManager {
         volumes: desiredVolumes,
       },
       desiredVolumes,
+    };
+  }
+
+  /**
+   * Replaces prepareProvisionSpec. Only normalizes extra volumes the user requested.
+   */
+  private normalizeUserVolumes(spec: SandboxSpec): SandboxSpec {
+    const userVolumes = (spec.volumes || [])
+      .filter((volume) => volume.kind !== 'workspace')
+      .map((volume) => this.normalizeUserVolume(volume));
+
+    const workspaceVolume = spec.volumes?.find(v => v.kind === 'workspace');
+    
+    return {
+      ...spec,
+      volumes: workspaceVolume ? [workspaceVolume, ...userVolumes] : userVolumes,
     };
   }
 

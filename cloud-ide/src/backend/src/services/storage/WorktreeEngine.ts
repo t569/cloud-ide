@@ -46,13 +46,22 @@ export class WorktreeEngine {
      * @param sandboxId The unique ID to name the folder and branch.
      * @returns The absolute host path to the new worktree.
      */
-    public async createWorktree(sandboxId: string): Promise<string> {
-    const targetPath = path.join(this.worktreesRoot, sandboxId);
-    const branchName = `sbx-${sandboxId}`;
+   public async createWorktree(sandboxId: string): Promise<string> {
+        const targetPath = path.join(this.worktreesRoot, sandboxId);
+        const branchName = `sbx-${sandboxId}`;
 
         try {
         await fs.mkdir(this.worktreesRoot, { recursive: true });
-        // Create the worktree and check out a new branch simultaneously
+        
+        // 1a. Idempotency Check: Check if worktree directory already exists
+        try {
+            await fs.access(targetPath);
+            console.log(`[WorktreeEngine] Worktree for ${sandboxId} already exists. Reusing path.`);
+            return targetPath;
+        } catch {
+            // Directory does not exist, proceed to create
+        }
+
         await execAsync(`git worktree add -b ${branchName} ${targetPath}`, { 
             cwd: this.baseRepoPath 
         });
@@ -61,21 +70,25 @@ export class WorktreeEngine {
         throw new Error(`Failed to provision worktree: ${error.message}`);
         }
     }
+    
 
     /**
-   * Safely deletes the worktree from the disk and the Git tracking database.
-   */
-  public async removeWorktree(sandboxId: string): Promise<void> {
-    const targetPath = path.join(this.worktreesRoot, sandboxId);
-    try {
-      await execAsync(`git worktree remove -f ${targetPath}`, { cwd: this.baseRepoPath });
-    } catch (error: any) {
-      console.warn(`[WorktreeEngine] Worktree removal failed gracefully: ${error.message}`);
-      await fs.rm(targetPath, { recursive: true, force: true }).catch(() => {});
-    }
-  }
+    * Safely deletes the worktree from the disk and the Git tracking database.
+    */
 
-  
+    public async removeWorktree(sandboxId: string): Promise<void> {
+        const targetPath = path.join(this.worktreesRoot, sandboxId);
+        try {
+        await execAsync(`git worktree remove -f ${targetPath}`, { cwd: this.baseRepoPath });
+        // Also delete the branch to keep repo clean
+        await execAsync(`git branch -D sbx-${sandboxId}`, { cwd: this.baseRepoPath }).catch(() => {});
+        } catch (error: any) {
+        console.warn(`[WorktreeEngine] Worktree removal failed gracefully: ${error.message}`);
+        await fs.rm(targetPath, { recursive: true, force: true }).catch(() => {});
+        }
+    }
 }
+
+
 
 

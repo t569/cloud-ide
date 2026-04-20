@@ -11,6 +11,7 @@ opensandbox/sandbox-env/
 opensandbox/__pycache__/
 *.pyc
 
+.env.local
 
 # OpenSandbox Local Data
 sandbox-data/

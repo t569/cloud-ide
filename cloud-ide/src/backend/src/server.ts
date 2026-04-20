@@ -1,4 +1,14 @@
 // backend/src/server.ts
+
+/**
+ * ============================================================================
+ * CLOUD IDE: MAIN API GATEWAY
+ * ============================================================================
+ * This is the central ingress controller. It receives REST/WebSocket traffic from 
+ * the frontend, manages persistence, and delegates heavy compute tasks across the 
+ * N-API boundary to the Rust Engine.
+ */
+
 import express from 'express';
 import http from 'http';
 import cors from 'cors';
@@ -32,16 +42,21 @@ const app = express();
 app.use(cors());
 app.use(express.json()); 
 
+
+// Initialize Persistence Layer
 const envRepo = new JsonEnvironmentRepository();
 const sessionRepo = new JsonSessionRepository();
 const sandboxRepo = new JsonSandboxRepository();
 
-// Initialize Central Event Bus
+// Initialize Central Event Bus for Decoupled Mircoservices
 const systemEvents = new EventEmitter();
 
-// Initialize Background Daemon
+// // Initialize the Kernel & Background Daemons
 const persistenceLayer = new PersistenceLayer(systemEvents, sessionRepo, sandboxRepo);
 const sandboxManager = new SandboxManager(sandboxRepo);
+
+// The IdleSweeper implements our Scale-to-Zero architecture, freezing inactive 
+// containers to save compute. Must run alongside the Wake-on-Demand Gateway logic.
 const idleSweeper = new IdleSweeper(sessionRepo, sandboxRepo, sandboxManager);
 
 // Initialize Controllers
@@ -66,7 +81,11 @@ GarbageCollector.init();
 // NEW: Mount the Virtual File System routes
 app.use('/api/fs', createFileSystemRouter(sandboxManager));
 
-// Start the Gateway Server
+/**
+ * 🌟 The Gateway HTTP Server
+ * Bootstraps the Express application and binds it to the configured port.
+ * The high timeout is managed at the Controller layer for long-running Exec streams.
+ */
 const server = http.createServer(app);
 
 // 2. USE THE CONFIG OBJECT

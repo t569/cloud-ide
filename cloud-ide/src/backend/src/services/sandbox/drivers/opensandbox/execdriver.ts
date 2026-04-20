@@ -7,12 +7,28 @@ export interface OpenSandboxExecRunOptions {
   env?: Record<string, string>;
 }
 
+
+/**
+ * @class OpenSandboxExecClient
+ * @description A low-level streaming driver for the OpenSandbox `execd` daemon.
+ * * Unlike standard REST endpoints, the `execd` daemon (written in Go) maintains 
+ * a long-lived HTTP connection and pushes data chunks via Server-Sent Events (SSE). 
+ * This class establishes that connection, parses the raw string chunks back into 
+ * JSON, and emits standard Node.js events (`stdout`, `stderr`, `exit`) for 
+ * easy consumption by higher-level modules.
+ */
 export class OpenSandboxExecClient {
   constructor(
     private ipAddress: string,
     private execdPort: number
   ) {}
 
+
+
+  /**
+   * @description Initiates the command and begins parsing the event stream.
+   * @returns {EventEmitter} Emits 'stdout', 'stderr', 'exit', and 'error' events.
+   */
   public run(options: OpenSandboxExecRunOptions): EventEmitter {
     const stream = new EventEmitter();
     const command = Array.isArray(options.command)

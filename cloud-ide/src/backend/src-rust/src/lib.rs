@@ -33,6 +33,9 @@ fn get_active_engine() -> Box<dyn SandboxEngine> {
 }
 
 
+/// A thread-safe, high-performance in-memory cache routing table.
+/// It stores the internal IP addresses of running sandboxes so the engine 
+/// doesn't have to constantly query the Docker daemon during rapid execution requests.
 static ACTIVE_SANDBOXES: OnceLock<DashMap<String, String>> = OnceLock::new();
 
 fn get_state() -> &'static DashMap<String, String> {
@@ -42,6 +45,9 @@ fn get_state() -> &'static DashMap<String, String> {
 // ==========================================
 // NAPI DATA STRUCTURES (Mirrors sandbox.ts)
 // ==========================================
+
+/// Data Transfer Object mapping a Node.js Volume array to Rust.
+/// Used to inject local host paths into the container at boot time (e.g., Git Worktrees).
 #[derive(Debug, Clone)]
 #[napi(object)]
 pub struct JsVolumeMount {
@@ -94,6 +100,8 @@ pub struct JsSandboxStatus {
 #[derive(Debug)]
 #[napi(object)]
 pub struct JsSandboxExecRequest {
+    /// The command payload. Note: The Go `execd` daemon requires this to be 
+    /// flattened into a single string (handled internally by the provider) rather than an array.
     pub command: Vec<String>,
     pub cwd: Option<String>,
     pub env: Option<HashMap<String, String>>,
@@ -119,6 +127,8 @@ pub struct JsExecConnection {
 // EXPORTED RUST CONTROLLERS
 // ==========================================
 
+/// FFI Export: Provisions a new sandbox. 
+/// Automatically caches the internal routing IP for future executions.
 #[napi]
 pub async fn boot_sandbox(spec: JsSandboxSpec) -> napi::Result<JsSandboxStatus> {
     let engine = get_active_engine(); 

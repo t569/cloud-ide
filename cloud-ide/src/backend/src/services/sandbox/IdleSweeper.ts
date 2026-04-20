@@ -5,10 +5,12 @@ import { SandboxManager } from './SandboxManager';
 
 /**
  * @class IdleSweeper
- * @description The automated resource optimizer. This background daemon bridges 
- * the gap between decoupled Sessions and Sandboxes. It continuously monitors 
- * active infrastructure and freezes containers that have no active users, 
- * preventing massive cloud compute costs.
+ * @description The automated resource optimizer (Scale-to-Zero Daemon). 
+ * * It continuously monitors active infrastructure and freezes (pauses via cgroups) 
+ * containers that have no active users. This prevents runaway cloud compute costs.
+ * * NOTE: For this to work without disrupting users, the Gateway Controllers must 
+ * implement a "Wake-on-Demand" pattern, catching requests to paused sandboxes 
+ * and resuming them prior to routing traffic.
  */
 export class IdleSweeper {
   private sweepInterval: NodeJS.Timeout;
@@ -18,8 +20,8 @@ export class IdleSweeper {
     private sandboxRepo: ISandboxRepository,
     private sandboxManager: SandboxManager
   ) {
-    // Default to 5 minutes, but allow overriding via .env
-    // e.g., SWEEP_INTERVAL_MS=3600000 for 1 hour during local dev
+    // Allows overriding via .env (e.g., SWEEP_INTERVAL_MS=3600000 for 1 hr in dev mode)
+    // to prevent aggressive pausing while debugging locally. Defaults to 5 minutes.
     const intervalMs = process.env.SWEEP_INTERVAL_MS
     ? parseInt(process.env.SWEEP_INTERVAL_MS, 10)
     : 50 * 60 * 1000;

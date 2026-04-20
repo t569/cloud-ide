@@ -209,7 +209,8 @@ impl OpenSandboxExecResolver {
             access_token: self.config.execd_access_token.clone(),
         })
     }
-
+    /// Executes a command inside the OpenSandbox container by communicating directly 
+    /// with the injected Go `execd` daemon via Server-Sent Events (SSE).
     async fn exec_buffered(
         &self,
         lifecycle: &OpenSandboxLifecycleClient,
@@ -328,7 +329,11 @@ fn normalize_lifecycle_base_url(url: &str) -> String {
     }
 }
 
-
+/// Normalizes the execution endpoint returned by the OpenSandbox Python daemon.
+/// 
+/// Docker-on-Windows cannot natively route to container IPs (e.g., 10.0.x.x). 
+/// The daemon spins up a local proxy (e.g., 127.0.0.1:45792/proxy/44772). 
+/// This parser ensures we do not mangle the proxy path by incorrectly appending ports.
 fn normalize_execd_base_url(endpoint: &str, execd_port: u16) -> String {
     let endpoint = endpoint.trim_end_matches('/');
     

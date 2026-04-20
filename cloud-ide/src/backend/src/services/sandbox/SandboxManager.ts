@@ -21,12 +21,16 @@ export interface VolumeMutationResult {
   sandbox: SandboxRecord;
   restartRequired: boolean;
 }
-
 /**
  * @class SandboxManager
- * @description The TypeScript bridge to the Rust/OpenSandbox control plane.
- * This service owns sandbox boot normalization, persistence, lifecycle updates,
- * buffered exec helpers, and runtime-safe volume change semantics.
+ * @description The central domain service for the Sandbox module.
+ * * It acts as the bridge between the Persistence Layer (JSON/DB) and the 
+ * Compute Layer (RustEngineClient). It guarantees that the state in the 
+ * database perfectly mirrors the actual state of the OpenSandbox containers.
+ * * Responsibilities:
+ * - Boot sequence normalization (injecting default Workspaces).
+ * - Lifecycle state synchronization (RUNNING, PAUSED, STOPPED).
+ * - Safe volume mutation semantics (handling hostPath resolution).
  */
 export class SandboxManager {
   constructor(
@@ -34,6 +38,13 @@ export class SandboxManager {
     private rustClient: IRustEngineClient = new RustEngineClient()
   ) {}
 
+
+  /**
+   * @description Initiates the container provisioning sequence.
+   * It dynamically generates a unique host directory for the `/workspace` 
+   * bind mount, appends it to the spec, and delegates the raw boot command 
+   * to the Rust engine.
+   */
   public async provision(spec: SandboxSpec): Promise<SandboxRecord> {
     console.log('[SandboxManager] Delegating boot sequence to Rust Core...');
 
@@ -60,6 +71,11 @@ export class SandboxManager {
     return this.sandboxRepo.get(sandboxId);
   }
 
+
+  /**
+   * @description Polls the Rust engine for the true container state and 
+   * reconciles it with the local persistence database.
+   */
   public async getStatus(sandboxId: string): Promise<SandboxStatus> {
     const status = await this.rustClient.getSandboxStatus(sandboxId);
     const current = await this.sandboxRepo.get(sandboxId);
@@ -87,6 +103,12 @@ export class SandboxManager {
     return success;
   }
 
+
+  /** 
+   * @description Resumes a paused container.
+   * @param sandboxId The ID of the sandbox to resume.
+   * @returns A promise resolving to a boolean indicating success.
+   */
   public async resume(sandboxId: string): Promise<boolean> {
     console.log(`[SandboxManager] Requesting Rust to resume ${sandboxId}...`);
     const success = await this.rustClient.resumeSandbox(sandboxId);
@@ -98,6 +120,18 @@ export class SandboxManager {
     return success;
   }
 
+
+  /**
+   * @description Destroys the container and removes the record from the database.
+   * * Architecture Note: If the Node process crashes after Rust destroys the container 
+   * but before the DB updates, a "ghost record" remains. Because our future storage 
+   * layer (Git Worktrees) persists code on the host SSD rather than inside the container, 
+   * this state inconsistency does not result in data loss.
+   * * TODO: Implement a self-healing reconciliation loop in `IdleSweeper.ts` to automatically 
+   * delete DB records if the Rust engine returns a 404 Not Found.
+   * @param sandboxId The ID of the sandbox to destroy.
+   * @returns A promise resolving to a boolean indicating success.
+   */
   public async destroy(sandboxId: string): Promise<boolean> {
     console.log(`[SandboxManager] Requesting Rust to destroy ${sandboxId}...`);
     const success = await this.rustClient.destroySandbox(sandboxId);
@@ -109,6 +143,18 @@ export class SandboxManager {
     return success;
   }
 
+/**
+   * @description Executes a command inside the container and blocks until completion, 
+   * returning the fully buffered string output.
+   * * Architecture Note: Do NOT use this for user-facing terminal commands (which rely 
+   * on the streaming `fetch` pipeline in `SandboxController`). This method is explicitly 
+   * designed for fast, programmatic backend operations.
+   * * TODO: This will be heavily utilized by the upcoming Git Worktree Manager to run 
+   * silent host-to-container commands (e.g., `git status`, `mkdir -p`, file scaffolding).
+   * @param sandboxId The ID of the target sandbox.
+   * @param request The command payload.
+   * @returns The buffered stdout/stderr strings and exit code.
+   */
   public async execBuffered(
     sandboxId: string,
     request: SandboxExecRequest
@@ -116,10 +162,25 @@ export class SandboxManager {
     return this.rustClient.execCommand(sandboxId, this.normalizeExecRequest(request));
   }
 
+
+  /**
+   * @description Resolves the connection info (IP, port, access token) needed to connect to the `execd` daemon for streaming commands.
+   * * The Gateway Controller uses this info to route traffic to the correct 
+   * internal proxy that forwards to the container's namespace. This is a key 
+   * part of the "Proxy Resolution" pattern in our architecture.
+   * @param sandboxId The ID of the sandbox for which to resolve connection info.
+   * @returns A promise resolving to the connection info.
+   */
   public async resolveExecConnection(sandboxId: string): Promise<ExecConnectionInfo> {
     return this.rustClient.resolveExecConnection(sandboxId);
   }
 
+
+  /**
+   * @description Injects a new volume mount into the Sandbox record.
+   * Note: OpenSandbox/Docker cannot hot-swap bind mounts on running containers. 
+   * This flags `requiresReprovision: true` so the client knows a restart is needed.
+   */
   public async attachVolume(sandboxId: string, volume: VolumeMount): Promise<VolumeMutationResult> {
     const record = await this.getSandboxOrThrow(sandboxId);
     const normalized = this.normalizeUserVolume(volume);
@@ -138,6 +199,15 @@ export class SandboxManager {
     return { sandbox: updated, restartRequired: true };
   }
 
+
+  /**
+   * @description Removes a volume mount from the Sandbox record.
+   * Similar to `attachVolume`, this also flags `requiresReprovision: true` since 
+   * the underlying container needs to be restarted for the change to take effect.
+   * @param sandboxId 
+   * @param volumeName 
+   * @returns 
+   */
   public async detachVolume(sandboxId: string, volumeName: string): Promise<VolumeMutationResult> {
     const record = await this.getSandboxOrThrow(sandboxId);
     const desiredVolumes = record.desiredVolumes.filter(
@@ -163,6 +233,15 @@ export class SandboxManager {
     return sandbox;
   }
 
+
+  /**
+   * @description Prepares the SandboxSpec for provisioning by:
+   * 1. Building the default workspace volume mount with a unique hostPath.
+   * 2. Normalizing user-defined volumes (validating and setting mount paths).
+   * 3. Combining them into the final spec that will be sent to the Rust engine.
+   * @param spec 
+   * @returns 
+   */
   private async prepareProvisionSpec(
     spec: SandboxSpec
   ): Promise<{ spec: SandboxSpec; desiredVolumes: VolumeMount[] }> {
@@ -182,6 +261,16 @@ export class SandboxManager {
     };
   }
 
+  /**
+   * @description Dynamically builds the default workspace volume mount for a given environment.
+   * Currently, this generates a naive, isolated empty directory on the host machine.
+   * * TODO (Git Worktree Manager): Overhaul this pipeline. Instead of creating an empty 
+   * folder, this method should invoke the Worktree Manager to check out a specific branch 
+   * from a central bare repository, and mount that newly created worktree path directly 
+   * into the container's `/workspace`.
+   * @param environmentId The requested image tag used to generate the temp folder name.
+   * @returns The generated VolumeMount object pointing to the host directory.
+   */
   private async buildWorkspaceVolume(environmentId: string): Promise<VolumeMount> {
     const workspaceId = `${environmentId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32) || 'workspace'}-${crypto.randomUUID()}`;
     const hostPath = path.resolve(process.cwd(), 'data', 'sandboxes', workspaceId, 'workspace');
@@ -196,6 +285,14 @@ export class SandboxManager {
     };
   }
 
+  /**
+   * @description Normalizes a user-defined volume mount by validating its properties and setting a consistent mount path within the container. 
+   * User volumes cannot mount directly to `/workspace` to prevent conflicts with the default workspace volume. 
+   * Instead, they are mounted under `/workspace/mounts/{volumeName}`. 
+   * This method also ensures that the volume name is sanitized and valid.
+   * @param volume 
+   * @returns 
+   */
   private normalizeUserVolume(volume: VolumeMount): VolumeMount {
     const name = this.normalizeVolumeName(volume.name);
     if (!volume.hostPath) {
@@ -216,6 +313,12 @@ export class SandboxManager {
     };
   }
 
+  /**
+   * @description Normalizes a volume name by trimming whitespace and replacing invalid characters with hyphens.
+   * This ensures that volume names are consistent and safe to use as directory names on the host filesystem.
+   * @param name 
+   * @returns 
+   */
   private normalizeVolumeName(name: string): string {
     const normalized = name.trim().replace(/[^a-zA-Z0-9_-]/g, '-');
     if (!normalized) {
@@ -225,6 +328,12 @@ export class SandboxManager {
     return normalized;
   }
 
+  /** 
+   * @description Normalizes the SandboxExecRequest by ensuring required fields are present and setting defaults for optional fields.
+   * This guarantees that the Rust engine always receives a well-formed request object, simplifying error handling on the Rust side.
+   * @param request 
+   * @returns
+   */
   private normalizeExecRequest(request: SandboxExecRequest): SandboxExecRequest {
     if (!request.command || request.command.length === 0) {
       throw new Error('Exec request requires at least one command segment.');

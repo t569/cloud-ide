@@ -7,6 +7,13 @@ import {
 } from '@cloud-ide/shared/types/sandbox';
 import { SandboxManager } from '../services/sandbox/SandboxManager';
 
+
+/**
+ * @class SandboxController
+ * @description The Express.js transport layer for Sandbox operations.
+ * Handles HTTP request validation, error boundary management, and 
+ * streaming Server-Sent Events (SSE) back to the client UI.
+ */
 export class SandboxController {
   constructor(private sandboxManager: SandboxManager) {}
 
@@ -42,6 +49,19 @@ export class SandboxController {
     }
   };
 
+
+  /**
+   * @description Executes a shell command inside the container and streams 
+   * the output in real-time.
+   * * Architecture Highlights:
+   * 1. **Wake-on-Demand**: Intercepts commands sent to PAUSED containers and 
+   * seamlessly thaws them via cgroups before routing the traffic.
+   * 2. **Proxy Resolution**: Asks Rust for the internal routing proxy URL.
+   * 3. **Streaming Bridge**: Pipes the Go `execd` SSE stream directly to the 
+   * Express Response object for ultra-low latency terminal rendering.
+   * 4. **Memory Safety**: Uses an `AbortController` to sever the internal 
+   * Docker HTTP stream immediately if the client disconnects.
+   */
   public execCommand = async (req: Request, res: Response): Promise<void> => {
     const sandboxId = this.getStringParam(req.params.sandboxId);
     const payload = req.body as SandboxExecRequest;

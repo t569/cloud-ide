@@ -20,6 +20,16 @@ export interface IRustEngineClient {
 
 let cachedEngine: RustEngineAPI | null = null;
 
+/**
+ * @function loadEngine
+ * @description Dynamically loads the compiled Rust N-API binary (`index.node`).
+ * * Node.js execution contexts vary heavily depending on whether the app is 
+ * running via `ts-node`, `nodemon`, or as a compiled production build. 
+ * This loader implements a multi-path fallback strategy to locate the binary 
+ * regardless of the current working directory.
+ * * @returns {RustEngineAPI} The strongly-typed FFI interface to the Rust kernel.
+ * @throws {Error} If the `.node` binary cannot be found or is compiled for the wrong OS architecture.
+ */
 function loadEngine(): RustEngineAPI {
   if (cachedEngine) {
     return cachedEngine;
@@ -53,6 +63,13 @@ function loadEngine(): RustEngineAPI {
   throw new Error(`Unable to load Rust sandbox engine. Diagnostics:${errors.join('')}`);
 }
 
+/**
+ * @class RustEngineClient
+ * @description The TypeScript proxy for the Rust Sandbox Engine. 
+ * This class abstracts the N-API boundary, allowing the rest of the Node.js 
+ * application to interact with the underlying hypervisor/container runtime 
+ * (via Rust) using standard Promises and strict TypeScript interfaces.
+ */
 export class RustEngineClient implements IRustEngineClient {
   private get engine(): RustEngineAPI {
     return loadEngine();

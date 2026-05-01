@@ -2,6 +2,39 @@
 
 /**
  * ==========================================
+ * GLOBAL IDE SETTINGS
+ * ==========================================
+ */
+export interface IDEGlobalSettings {
+  fontFamily: string;      // e.g., "'JetBrains Mono', monospace"
+  fontSize: number;        // Global UI font size (Monaco and Terminal might have overrides)
+  theme: 'dark' | 'light';
+}
+
+/**
+ * ==========================================
+ * STATUS BAR METADATA
+ * ==========================================
+ */
+export interface EditorCursorState {
+  line: number;
+  column: number;
+}
+
+export interface DocumentFormatting {
+  eol: 'LF' | 'CRLF';
+  encoding: string;        // e.g., 'UTF8'
+  indentMode: 'spaces' | 'tabs';
+  indentSize: number;      // e.g., 2 or 4
+}
+
+export interface GitState {
+  branch: string;          // e.g., 'main'
+  hasChanges: boolean;
+}
+
+/**
+ * ==========================================
  * 1. THE VIRTUAL FILE SYSTEM (VFS)
  * ==========================================
  * Handles all file operations. The UI strictly uses this interface, 

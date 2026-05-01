@@ -57,6 +57,19 @@ export interface TopMenuCategory {
 
 /**
  * ==========================================
+ * ACTIVITY BAR (FAR LEFT SIDEBAR)
+ * ==========================================
+ */
+export interface ActivityBarItem {
+  id: string;                  // e.g., 'explorer', 'search', 'github'
+  title: string;               // Tooltip text
+  icon: React.ReactNode;       // The SVG or icon component
+  position: 'top' | 'bottom';
+  action?: EditorEventType;    // Optional: emit an event instead of just opening a panel
+}
+
+/**
+ * ==========================================
  * 1. THE VIRTUAL FILE SYSTEM (VFS)
  * ==========================================
  * Handles all file operations. The UI strictly uses this interface, 

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { EditorTabs } from './EditorTabs';
-import { IDEGlobalSettings, TopMenuCategory } from '../types/editor';
+import { IDEGlobalSettings, TopMenuCategory, SyncStatus } from '../types/editor';
 import { StatusBar } from './StatusBar';
 import { TopNavBar } from './TopNavBar';
 import { ActivityBarItem } from '../types/editor';
+import { ActivityBar } from './ActivityBar';
 // import { EditorEventBus } from './core/EditorEventBus';
 // import { IVirtualFileSystem } from './types/editor';
 
@@ -75,7 +76,7 @@ const DEFAULT_ACTIVITY_ITEMS: ActivityBarItem[] = [
 
 interface WorkspaceLayoutState {
   sidebarOpen: boolean;
-  activeSidebarPanel: 'explorer' | 'search' | 'git' | 'settings';
+  activeSidebarPanel: string;
   bottomPanelOpen: boolean;
   bottomPanelHeight: number;
 }
@@ -88,7 +89,7 @@ interface EditorWorkspaceProps {
 interface WorkspaceState {
   activeFilePath: string | null;
   openFiles: { path: string; isDirty: boolean }[];
-  syncStatus: string;
+  syncStatus: SyncStatus;
 }
 
 const DEFAULT_LAYOUT: WorkspaceLayoutState = {
@@ -166,7 +167,7 @@ export const EditorWorkspace = ({ sandboxId }: EditorWorkspaceProps) => {
 
 
   // Layout mutators
-  const toggleSidebar = (panel: WorkspaceLayoutState['activeSidebarPanel']) => {
+  const toggleSidebar = (panel: string) => {
     setLayout(prev => {
       if (prev.activeSidebarPanel === panel && prev.sidebarOpen) {
         return { ...prev, sidebarOpen: false };
@@ -195,24 +196,12 @@ export const EditorWorkspace = ({ sandboxId }: EditorWorkspaceProps) => {
         {/* ---------------------------------------------------------
             ZONE 2: ACTIVITY BAR (Far Left Icons)
             --------------------------------------------------------- */}
-        <div className="w-12 flex-shrink-0 bg-[#333333] border-r border-[#252526] flex flex-col items-center py-2 space-y-4 z-10">
-          <button 
-            onClick={() => toggleSidebar('explorer')}
-            className={`p-2 rounded ${layout.activeSidebarPanel === 'explorer' && layout.sidebarOpen ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}
-          >
-            📁
-          </button>
-          <button 
-            onClick={() => toggleSidebar('search')}
-            className={`p-2 rounded ${layout.activeSidebarPanel === 'search' && layout.sidebarOpen ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}
-          >
-            🔍
-          </button>
-          {/* Traffic Light Sync Status drops in here at the bottom */}
-          <div className="mt-auto pb-4">
-             {/* SyncStatusWidget */}
-          </div>
-        </div>
+        <ActivityBar 
+            items={DEFAULT_ACTIVITY_ITEMS}
+            activePanel={layout.sidebarOpen ? layout.activeSidebarPanel : null}
+            onPanelSelect={toggleSidebar}
+            syncStatus={workspaceState.syncStatus} 
+            />
 
         {/* ---------------------------------------------------------
             ZONE 3: SIDEBAR (File Tree / Search)

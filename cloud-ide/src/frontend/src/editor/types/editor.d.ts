@@ -35,6 +35,28 @@ export interface GitState {
 
 /**
  * ==========================================
+ * TOP NAVIGATION MENU
+ * ==========================================
+ */
+export interface MenuItemNode {
+  id: string;
+  label: string;
+  shortcut?: string;           // e.g., 'Ctrl+S'
+  action?: EditorEventType;    // Connects directly to our Event Bus
+  payload?: any;               // Data to pass with the action
+  isDivider?: boolean;
+  disabled?: boolean;
+  subMenu?: MenuItemNode[];    // Supports nested dropdowns
+}
+
+export interface TopMenuCategory {
+  id: string;
+  label: string;
+  items: MenuItemNode[];
+}
+
+/**
+ * ==========================================
  * 1. THE VIRTUAL FILE SYSTEM (VFS)
  * ==========================================
  * Handles all file operations. The UI strictly uses this interface, 

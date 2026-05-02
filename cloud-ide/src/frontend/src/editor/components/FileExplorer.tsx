@@ -2,6 +2,8 @@
 import React, { useState } from 'react';
 import { FileIcon } from '@frontend/common/FileIcon';
 import { FileNode, EditorEventPayloads } from '../types/editor';
+import { EditorEventBus } from '../core/EditorEventBus';
+
 
 // --- 1. RECURSIVE NODE COMPONENT ---
 interface FileExplorerNodeProps {
@@ -10,9 +12,7 @@ interface FileExplorerNodeProps {
   activeFilePath: string | null;
   expandedFolders: Set<string>;
   toggleFolder: (path: string) => void;
-  eventBus: {
-    emit: <K extends keyof EditorEventPayloads>(event: K, payload: EditorEventPayloads[K]) => void;
-  };
+  eventBus: EditorEventBus;
 }
 
 const FileExplorerNode = ({ 

@@ -1,13 +1,13 @@
 import React, { useRef, useEffect } from 'react';
 import { FileIcon } from '@frontend/common/FileIcon';
 import { OpenFileContext, EditorEventPayloads } from '../types/editor';
+import { EditorEventBus } from '../core/EditorEventBus';
+
 
 interface EditorTabsProps {
   activeFilePath: string | null;
   openFiles: OpenFileContext[];
-  eventBus: {
-    emit: <K extends keyof EditorEventPayloads>(event: K, payload: EditorEventPayloads[K]) => void;
-  };
+  eventBus: EditorEventBus;
 }
 
 export const EditorTabs = ({ activeFilePath, openFiles, eventBus }: EditorTabsProps) => {

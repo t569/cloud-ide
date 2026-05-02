@@ -1,14 +1,14 @@
 // frontend/src/editor/components/TopNavBar.tsx
 import React, { useState, useEffect, useRef } from 'react';
 import { TopMenuCategory, EditorEventPayloads, MenuItemNode } from '../types/editor';
+import { EditorEventBus } from '../core/EditorEventBus';
+
 
 interface TopNavBarProps {
   menus: TopMenuCategory[];
   activeFileName?: string;
   workspaceName?: string;
-  eventBus: {
-    emit: <K extends keyof EditorEventPayloads>(event: K, payload?: any) => void;
-  };
+  eventBus: EditorEventBus;
 }
 
 export const TopNavBar = ({ menus, activeFileName, workspaceName = 'Cloud IDE', eventBus }: TopNavBarProps) => {

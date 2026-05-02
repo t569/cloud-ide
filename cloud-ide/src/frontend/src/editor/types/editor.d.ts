@@ -151,6 +151,18 @@ export interface EditorEventPayloads {
    * Instructs the components to pause normal boot and instead run restoreState().
    */
   'SNAPSHOT_LOAD_REQUESTED': { snapshotId: string };
+
+  // --- EDITOR COMMANDS ---
+  'COMMAND_FORMAT': { path: string };
+  'COMMAND_PALETTE': {};
+  
+  // --- LANGUAGE SERVER ---
+  'COMPLETION_REQUESTED': { 
+    path: string; 
+    language: string;
+    position: { lineNumber: number; column: number };
+    word: string;
+  };
 }
 
 export type EditorEventType = keyof EditorEventPayloads;
@@ -167,6 +179,7 @@ export type SyncStatus = 'synced' | 'syncing' | 'conflict';
 export interface OpenFileContext {
   path: string;
   isDirty: boolean;
+  content?: string; // Optional: we can choose to keep this here or let Monaco be the single source of truth for file content.  
   // We don't store the raw text content here to save RAM. 
   // Monaco manages the active text buffer internally via its ITextModel.
 }

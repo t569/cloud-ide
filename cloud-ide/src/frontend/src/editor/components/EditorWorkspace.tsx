@@ -5,6 +5,8 @@ import { StatusBar } from './StatusBar';
 import { TopNavBar } from './TopNavBar';
 import { ActivityBarItem } from '../types/editor';
 import { ActivityBar } from './ActivityBar';
+import { FileNode } from '../types/editor';
+import { FileExplorer } from './FileExplorer';
 // import { EditorEventBus } from './core/EditorEventBus';
 // import { IVirtualFileSystem } from './types/editor';
 
@@ -73,6 +75,22 @@ const DEFAULT_ACTIVITY_ITEMS: ActivityBarItem[] = [
     icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
   }
 ];
+
+// Mock File Tree Data
+const MOCK_FILES: FileNode[] = [
+  {
+    name: 'cogs',
+    path: '/cogs',
+    type: 'directory',
+    children: [
+      { name: 'music.py', path: '/cogs/music.py', type: 'file' },
+      { name: 'moderation.py', path: '/cogs/moderation.py', type: 'file' }
+    ]
+  },
+  { name: 'bot.py', path: '/bot.py', type: 'file' },
+  { name: '.env', path: '/.env', type: 'file' }
+];
+
 
 interface WorkspaceLayoutState {
   sidebarOpen: boolean;
@@ -207,15 +225,12 @@ export const EditorWorkspace = ({ sandboxId }: EditorWorkspaceProps) => {
             ZONE 3: SIDEBAR (File Tree / Search)
             --------------------------------------------------------- */}
         {layout.sidebarOpen && (
-          <div className="w-64 flex-shrink-0 bg-[#252526] border-r border-[#1e1e1e] flex flex-col">
-            <div className="h-8 flex items-center px-4 text-xs uppercase tracking-wider text-gray-400 font-semibold">
-              {layout.activeSidebarPanel}
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {/* Drop FileExplorer or SearchWidget Components Here */}
-              <div className="p-4 text-sm text-gray-500 italic">Panel Content...</div>
-            </div>
-          </div>
+          <FileExplorer 
+                workspaceName="Discord Bot"
+                files={MOCK_FILES}
+                activeFilePath={workspaceState.activeFilePath}
+                eventBus={eventBus}
+                />
         )}
 
         {/* ---------------------------------------------------------

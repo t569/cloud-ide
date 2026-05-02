@@ -7,6 +7,10 @@ import { ActivityBarItem } from '../types/editor';
 import { ActivityBar } from './ActivityBar';
 import { FileNode } from '../types/editor';
 import { FileExplorer } from './FileExplorer';
+import { MonacoEditorWrapper } from './MonacoEditorWrapper';
+import { PythonLSPConnector } from '../plugins/PythonLSPConnector';
+import { LanguageRegistry } from '../core/EditorRegistry';
+import { AVAILABLE_PLUGINS } from '../plugins/PluginManifest';
 // import { EditorEventBus } from './core/EditorEventBus';
 // import { IVirtualFileSystem } from './types/editor';
 
@@ -88,7 +92,9 @@ const MOCK_FILES: FileNode[] = [
     ]
   },
   { name: 'bot.py', path: '/bot.py', type: 'file' },
-  { name: '.env', path: '/.env', type: 'file' }
+  { name: '.env', path: '/.env', type: 'file' },
+  { name: 'README.md', path: '/README.md', type: 'file' },
+  {name: '.gitignore', path: '/.gitignore', type: 'file' }
 ];
 
 
@@ -106,7 +112,7 @@ interface EditorWorkspaceProps {
 
 interface WorkspaceState {
   activeFilePath: string | null;
-  openFiles: { path: string; isDirty: boolean }[];
+  openFiles: { path: string; isDirty: boolean; content: string }[];
   syncStatus: SyncStatus;
 }
 
@@ -139,8 +145,8 @@ export const EditorWorkspace = ({ sandboxId }: EditorWorkspaceProps) => {
   const [workspaceState, setWorkspaceState] = useState<WorkspaceState>({
     activeFilePath: '/src/bot.py',
     openFiles: [
-      { path: '/src/bot.py', isDirty: false },
-      { path: '/src/.env', isDirty: true },
+      { path: '/src/bot.py', isDirty: false, content: 'print("Hello from Discord Bot")'},
+      { path: '/src/.env', isDirty: true, content: 'DISCORD_TOKEN=your_token_here'},
     ],
     syncStatus: 'synced'
   });
@@ -151,6 +157,8 @@ export const EditorWorkspace = ({ sandboxId }: EditorWorkspaceProps) => {
     fontSize: 14,
     theme: 'dark'
  });
+
+ 
   
   // FIX: Mocking the Event Bus to satisfy TypeScript
   const eventBus = useMemo(() => ({
@@ -169,6 +177,17 @@ export const EditorWorkspace = ({ sandboxId }: EditorWorkspaceProps) => {
       }
     }
   }), []);
+
+  // TODO: we will define a better way to do this, we need a general list
+  const langRegistry = useMemo(() => {
+  const reg = new LanguageRegistry();
+  // Dynamically instantiate and register every plugin in our manifest
+  AVAILABLE_PLUGINS.forEach(PluginClass => {
+    reg.register(new PluginClass());
+  });
+  return reg;
+}, []);
+
 
   // 3. Persist Layout State on Change or Unmount
   useEffect(() => {
@@ -193,7 +212,10 @@ export const EditorWorkspace = ({ sandboxId }: EditorWorkspaceProps) => {
       return { ...prev, sidebarOpen: true, activeSidebarPanel: panel };
     });
   };
-
+  // Derive the active file object from our state so Monaco knows what to render
+  const activeFile = workspaceState.openFiles.find(
+    (f) => f.path === workspaceState.activeFilePath
+  ) || null;
   return (
     /* MASTER CONTAINER: Full screen, prevents scrolling on body */
     <div className="h-screen w-screen flex flex-col bg-[#1e1e1e] text-[#cccccc] font-sans overflow-hidden">
@@ -239,21 +261,25 @@ export const EditorWorkspace = ({ sandboxId }: EditorWorkspaceProps) => {
         <div className="flex-1 flex flex-col min-w-0 bg-[#1e1e1e]">
           
           {/* ZONE 4: EDITOR SURFACE */}
-          <div className="flex-1 flex flex-col overflow-hidden relative">
-            
-            {/* Editor Tab Manager */}
-            <EditorTabs 
-                activeFilePath={workspaceState.activeFilePath} 
-                openFiles={workspaceState.openFiles} 
-                eventBus={eventBus} 
-                />
+        <div className="flex-1 flex flex-col overflow-hidden relative">
+        
+        {/* Editor Tab Manager */}
+        <EditorTabs 
+            activeFilePath={workspaceState.activeFilePath} 
+            openFiles={workspaceState.openFiles} 
+            eventBus={eventBus} 
+        />
 
-            {/* Actual Monaco Editor Mount Point */}
-            <div className="flex-1 relative">
-               {/* Drop MonacoEditorWrapper Here */}
-            </div>
-          </div>
-
+        {/* Actual Monaco Editor Mount Point */}
+        <div className="flex-1 relative">
+                    <MonacoEditorWrapper 
+                      activeFile={activeFile}
+                      globalSettings={globalSettings}
+                      eventBus={eventBus}
+                      registry={langRegistry} 
+                    />
+        </div>
+        </div>
           {/* ZONE 5: BOTTOM PANEL (Terminal Integration) */}
             {layout.bottomPanelOpen && (
             <div 

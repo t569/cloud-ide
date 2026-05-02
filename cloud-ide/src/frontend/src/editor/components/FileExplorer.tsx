@@ -1,6 +1,6 @@
 // frontend/src/editor/components/FileExplorer.tsx
 import React, { useState } from 'react';
-import { FileIcon } from 'lucide-react';
+import { FileIcon } from '@frontend/common/FileIcon';
 import { FileNode, EditorEventPayloads } from '../types/editor';
 
 // --- 1. RECURSIVE NODE COMPONENT ---
@@ -61,7 +61,7 @@ const FileExplorerNode = ({
           </div>
         ) : (
           <div className="w-4 h-4 mr-1.5 flex items-center justify-center flex-shrink-0">
-             <FileIcon name={node.name} className="w-4 h-4" />
+             <FileIcon fileName={node.name} className="w-4 h-4" />
           </div>
         )}
 
@@ -121,6 +121,7 @@ export const FileExplorer = ({ workspaceName, files, activeFilePath, eventBus }:
         </span>
         
         {/* Three dots menu from the image */}
+        {/* TODO: implement srop down menu for this */}
         <button className="text-gray-500 hover:text-white p-1 rounded hover:bg-[#333333] transition-colors">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3 9.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" />

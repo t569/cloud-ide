@@ -133,12 +133,6 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
     }
   });
 
-  const [globalSettings] = useState<IDEGlobalSettings>({
-    fontFamily: "'JetBrains Mono', monospace",
-    fontSize: 14,
-    theme: 'dark'
-  });
-
   useEffect(() => {
     const handleBeforeUnload = () => localStorage.setItem(storageKey, JSON.stringify(layout));
     localStorage.setItem(storageKey, JSON.stringify(layout));
@@ -160,6 +154,14 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
     (f) => f.path === workspaceState.activeFilePath
   ) || null;
 
+
+  // Add a safe fallback
+  // TODO: make this system more robust by enforcing that settings are always present in the context (even if it's just defaults)
+  const safeSettings = workspaceState.globalSettings || {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: 14,
+    theme: 'dark'
+  };
   return (
     <div className="h-screen w-screen flex flex-col bg-[#1e1e1e] text-[#cccccc] font-sans overflow-hidden">
       {/* ZONE 1: TOP NAVIGATION */}
@@ -200,7 +202,7 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
             <div className="flex-1 relative">
               <MonacoEditorWrapper 
                 activeFile={activeFile}
-                globalSettings={globalSettings}
+                globalSettings={safeSettings}
                 eventBus={eventBus}
                 registry={langRegistry} 
               />
@@ -219,7 +221,7 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
 
           {/* ZONE 6: STATUS BAR */}
           <StatusBar 
-            settings={globalSettings}
+            settings={safeSettings}
             cursor={{ line: 5, column: 36 }}
             formatting={{ eol: 'LF', encoding: 'UTF8', indentMode: 'spaces', indentSize: 2 }}
             git={{ branch: 'main', hasChanges: false }}

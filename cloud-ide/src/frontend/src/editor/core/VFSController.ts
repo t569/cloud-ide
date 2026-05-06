@@ -69,13 +69,13 @@ export class VFSController {
       }
     }));
 
-    this.unsubs.push(this.eventBus.on('FILE_DELETED', ({ path }) => {
-      this.vfs.deleteNode(path);
+    this.unsubs.push(this.eventBus.on('FILE_DELETED', (payload) => {
+      this.vfs.deleteNode(payload.path);
       // Instantly remove from the UI
       this.eventBus.emit('VFS_TREE_UPDATED', { tree: this.vfs.getNestedTree() });
       
-      // Also, if the file was open in a tab, close it automatically!
-      this.dispatch({ type: 'CLOSE_FILE', payload: { path } });
+      // INSTEAD OF CLOSING IT, WE INVALIDATE IT:
+      this.dispatch({ type: 'MARK_DELETED', payload: { path: payload.path, isDeleted: true } });
     }));
 
     this.unsubs.push(this.eventBus.on('FILE_RENAMED', ({ oldPath, newPath }) => {

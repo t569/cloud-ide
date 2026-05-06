@@ -183,6 +183,7 @@ export type EditorEventType = keyof EditorEventPayloads;
 export interface OpenFileContext {
   path: string;
   isDirty: boolean;
+  isDeleted?: boolean; // New flag to indicate if the file has been deleted from the VFS
   content?: string; 
 }
 

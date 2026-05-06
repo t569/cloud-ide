@@ -1,8 +1,8 @@
+// frontend/src/editor/components/EditorTabs.tsx
 import React, { useRef, useEffect } from 'react';
 import { FileIcon } from '@frontend/common/FileIcon';
 import { OpenFileContext, EditorEventPayloads } from '../types/editor';
 import { EditorEventBus } from '../core/EditorEventBus';
-
 
 interface EditorTabsProps {
   activeFilePath: string | null;
@@ -59,7 +59,8 @@ export const EditorTabs = ({ activeFilePath, openFiles, eventBus }: EditorTabsPr
                 <FileIcon fileName={filename} className="w-4 h-4" />
               </div>
 
-              <span className="text-sm font-sans whitespace-nowrap">
+              {/* THE FIX: Apply invalidation styles (red strike-through) if the file is marked as deleted */}
+              <span className={`text-sm font-sans whitespace-nowrap ${file.isDeleted ? 'line-through text-red-400 italic opacity-80' : ''}`}>
                 {filename}
               </span>
 

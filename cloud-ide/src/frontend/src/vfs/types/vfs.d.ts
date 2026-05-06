@@ -16,10 +16,25 @@ export interface VFSNode {
   type: 'file' | 'directory';
   content: string | null; // Null if it's a directory or if content isn't fetched yet
   isDirty: boolean;      // True if the user edited it but it hasn't successfully synced
+  markedForDeletion: boolean; // True if the user deleted it but it hasn't successfully synced
   lastModified: number;  // Timestamp of last local edit
   version: number;       // Incremented on every save to handle conflict resolution
 }
 
+// the UI filenode type for local syncing logic
+export interface FileNode {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  children?: FileNode[]; // Only populated if type === 'directory'
+}
+
+export interface VFSBulkSyncPayload {
+  sandboxId: string;
+  timestamp: number;
+  updates: { path: string; content: string; version: number }[];
+  deletes: {path: string}[];  // tell the bakend which files were deleted 
+}
 // The API Contract for the VFS class
 export interface IVirtualFileSystem {
   // Read Operations

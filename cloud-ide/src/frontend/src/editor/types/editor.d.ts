@@ -5,6 +5,7 @@
  * and snapshot traits. This serves as the single source of truth for all type definitions related to the editor.
  */
 import { SyncStatus } from '../../vfs/types/vfs';
+import { FileNode } from '../../vfs/types/vfs';
 /**
  * ==========================================
  * GLOBAL IDE SETTINGS
@@ -168,6 +169,9 @@ export interface EditorEventPayloads {
     position: { lineNumber: number; column: number };
     word: string;
   };
+
+  // vfs file syncing emits
+  'VFS_TREE_UPDATED': { tree: FileNode[] };
 }
 
 export type EditorEventType = keyof EditorEventPayloads;

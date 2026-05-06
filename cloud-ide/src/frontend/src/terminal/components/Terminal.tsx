@@ -82,7 +82,7 @@ import { TerminalRegistry } from '../core/TerminalRegistry';
 // 1. COMBINING PROPS AND CONFIG
 // We extend your ITerminalConfig so the parent can pass styling AND the backend transport
 export interface TerminalProps extends Omit<ITerminalConfig, 'theme'> {
-  theme?: BuiltInTheme | ITheme;        // A theme we knwo or a completely new theme
+  theme?: BuiltInTheme | ITheme;        // A theme we knwo or a completely new theme, remember to try and pass in an ITheme
   transport?: ITransportStream | null; // Injected dependency (e.g., SessionStream)
   isReadOnly?: boolean;                // True for Docker build logs, False for IDE
   plugins?: ITerminalPlugin[];          // Inject plugins for our terminal

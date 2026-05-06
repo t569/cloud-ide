@@ -1,5 +1,10 @@
 // frontend/src/editor/types/editor.d.ts
-
+/**
+ * This file defines the core TypeScript types and interfaces for our Cloud IDE's editor component.
+ * It includes global settings, status bar metadata, menu structures, VFS contracts, event payloads, 
+ * and snapshot traits. This serves as the single source of truth for all type definitions related to the editor.
+ */
+import { SyncStatus } from '../../vfs/types/vfs';
 /**
  * ==========================================
  * GLOBAL IDE SETTINGS
@@ -174,7 +179,7 @@ export type EditorEventType = keyof EditorEventPayloads;
  * The data models that your context provider or main workspace component will track.
  */
 
-export type SyncStatus = 'synced' | 'syncing' | 'conflict';
+
 
 export interface OpenFileContext {
   path: string;

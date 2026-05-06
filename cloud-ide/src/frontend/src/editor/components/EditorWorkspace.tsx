@@ -8,7 +8,6 @@ import { ActivityBar } from './ActivityBar';
 import { FileNode } from '../types/editor';
 import { FileExplorer } from './FileExplorer';
 import { MonacoEditorWrapper } from './MonacoEditorWrapper';
-import { PythonLSPConnector } from '../plugins/PythonLSPConnector';
 import { LanguageRegistry } from '../core/EditorRegistry';
 import { AVAILABLE_PLUGINS } from '../plugins/PluginManifest';
 // import { EditorEventBus } from './core/EditorEventBus';
@@ -167,7 +166,7 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
       <TopNavBar 
         menus={DEFAULT_MENUS}
         activeFileName={workspaceState.activeFilePath?.split('/').pop()} 
-        workspaceName="API Docs - Diamond"
+        workspaceName={workspaceState.workspaceName}
         eventBus={eventBus}
       />
 
@@ -183,7 +182,7 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
         {/* ZONE 3: SIDEBAR */}
         {layout.sidebarOpen && (
           <FileExplorer 
-            workspaceName="Discord Bot"
+            workspaceName={workspaceState.workspaceName}
             files={MOCK_FILES}
             activeFilePath={workspaceState.activeFilePath}
             eventBus={eventBus}

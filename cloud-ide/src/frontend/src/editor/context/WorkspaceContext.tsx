@@ -1,15 +1,20 @@
 // frontend/src/editor/context/WorkspaceContext.tsx
 import React, { createContext, useReducer, useContext } from 'react';
 import { SyncStatus, OpenFileContext } from '../types/editor';
+import { IDEGlobalSettings } from '../types/editor';
+
+// TODO: import export IDEGlobalSettings and SyncStatus from our types definition file to ensure consistency across the app.
 
 // --- STATE & ACTIONS ---
 interface WorkspaceState {
+  workspaceName: string;
   activeFilePath: string | null;
   openFiles: OpenFileContext[];
   syncStatus: SyncStatus;
 }
 
 type WorkspaceAction =
+  | { type: 'SET_WORKSPACE_NAME'; payload: { name: string } }
   | { type: 'OPEN_FILE'; payload: { path: string } }
   | { type: 'CLOSE_FILE'; payload: { path: string } }
   | { type: 'SET_ACTIVE_FILE'; payload: { path: string } }
@@ -17,6 +22,7 @@ type WorkspaceAction =
   | { type: 'SET_SYNC_STATUS'; payload: { status: SyncStatus } };
 
 const initialState: WorkspaceState = {
+  workspaceName: 'Loading Project...',
   activeFilePath: null,
   openFiles: [],
   syncStatus: 'synced',
@@ -52,6 +58,8 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       };
     case 'SET_SYNC_STATUS':
       return { ...state, syncStatus: action.payload.status };
+    case 'SET_WORKSPACE_NAME':
+      return { ...state, workspaceName: action.payload.name };
     default:
       return state;
   }

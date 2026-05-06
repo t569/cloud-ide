@@ -97,6 +97,7 @@ export interface FileNode {
 export interface WorkspaceLayoutState {
   sidebarOpen: boolean;
   activeSidebarPanel: string; // e.g., 'explorer', 'search'
+  sidebarWidth: number; // in pixels
   bottomPanelOpen: boolean;
   bottomPanelHeight: number;  // in pixels
 }

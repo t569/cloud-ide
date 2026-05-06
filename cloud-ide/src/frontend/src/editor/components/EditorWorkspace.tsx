@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { EditorTabs } from './EditorTabs';
 import { IDEGlobalSettings, TopMenuCategory, SyncStatus } from '../types/editor';
 import { StatusBar } from './StatusBar';
@@ -8,33 +8,25 @@ import { ActivityBar } from './ActivityBar';
 import { FileNode } from '../types/editor';
 import { FileExplorer } from './FileExplorer';
 import { useDesignSystem } from '../context/DesignSystemContext';
+import { DesignSystemProvider } from '../context/DesignSystemContext';
 import { MonacoEditorWrapper } from './MonacoEditorWrapper';
 import { LanguageRegistry } from '../core/EditorRegistry';
 import { AVAILABLE_PLUGINS } from '../plugins/PluginManifest';
 
-
 // TERMINAL
-// TODO: remember to sync the backend with chokidar
-/**
- * B. Active Backend Mutations (Git, NPM, Touch): This requires Backend Daemon support.
-Your frontend terminal cannot know if npm install changed 10,000 files.
-
-What you need to do: In your Docker container/sandbox backend, you must run a lightweight file-watcher (like chokidar in Node or inotify in Linux). 
-When the disk changes, the backend sends a WebSocket message to the frontend: { type: 'FS_EVENT', action: 'reload_tree' }. 
-Your VFSController listens for this WebSocket message and triggers vfs.hydrateWorkspace() to fetch the new files.
- */
 import { IDETerminal } from './IDETerminal';
 
-
-// import { EditorEventBus } from './core/EditorEventBus';
-// import { IVirtualFileSystem } from './types/editor';
 // --- NEW CORE IMPORTS ---
 import { WorkspaceProvider, useWorkspace } from '../context/WorkspaceContext';
 import { EditorEventBus } from '../core/EditorEventBus';
 import { VFSController } from '../core/VFSController';
+import { LocalStorageManager } from '../utils/LocalStoragemanager';
+
+// WORK SPACE STATE
+import { WorkspaceLayoutState } from '../types/editor';
 
 // ==========================================
-// MOCK CONFIGURATION (Keep these outside the component)
+// MOCK CONFIGURATION 
 // ==========================================
 const DEFAULT_MENUS: TopMenuCategory[] = [
   {
@@ -79,37 +71,9 @@ const DEFAULT_ACTIVITY_ITEMS: ActivityBarItem[] = [
   }
 ];
 
-const MOCK_FILES: FileNode[] = [
-  {
-    name: 'cogs', path: '/cogs', type: 'directory',
-    children: [
-      { name: 'music.py', path: '/cogs/music.py', type: 'file' },
-      { name: 'moderation.py', path: '/cogs/moderation.py', type: 'file' }
-    ]
-  },
-  { name: 'bot.py', path: '/bot.py', type: 'file' },
-  { name: '.env', path: '/.env', type: 'file' },
-  { name: 'README.md', path: '/README.md', type: 'file' },
-  { name: '.gitignore', path: '/.gitignore', type: 'file' }
-];
-
-interface WorkspaceLayoutState {
-  sidebarOpen: boolean;
-  activeSidebarPanel: string;
-  bottomPanelOpen: boolean;
-  bottomPanelHeight: number;
-}
-
 interface EditorWorkspaceProps {
   sandboxId: string;
 }
-
-const DEFAULT_LAYOUT: WorkspaceLayoutState = {
-  sidebarOpen: true,
-  activeSidebarPanel: 'explorer',
-  bottomPanelOpen: true,
-  bottomPanelHeight: 250,
-};
 
 // ==========================================
 // INNER COMPONENT (Has access to Workspace Context)
@@ -117,27 +81,30 @@ const DEFAULT_LAYOUT: WorkspaceLayoutState = {
 const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
   const storageKey = `ide-layout-state-${sandboxId}`;
   
-  // 1. Hook into our new UI State Engine
+  // 1. Hook into our UI State Engines
   const { state: workspaceState, dispatch } = useWorkspace();
-
-  // Hook into the Theme Engine
   const { settings } = useDesignSystem();
+  
+  // NEW: Dynamic File Tree State
+  const [fileTree, setFileTree] = useState<FileNode[]>([]);
 
   // 2. Instantiate the Central Event Bus exactly ONCE
   const eventBus = useMemo(() => new EditorEventBus(), []);
 
   // 3. Boot the Virtual File System Controller
   useEffect(() => {
-    // The VFS starts listening to the eventBus immediately.
-    // When you click a file in the sidebar, it fetches the data and injects it into Monaco!
+    // 3a. Listen for tree updates BEFORE booting to ensure we catch the hydration payload!
+    const unsubTree = eventBus.on('VFS_TREE_UPDATED', (payload) => {
+      setFileTree(payload.tree);
+    });
+
     const vfs = new VFSController(eventBus, dispatch, sandboxId);
-    
     vfs.initWorkspace();
 
     return () => {
+      unsubTree();
       vfs.destroy();
     }
-  
   }, [eventBus, dispatch, sandboxId]);
 
   // 4. Dynamically Load Plugins from the Manifest
@@ -149,22 +116,17 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
     return reg;
   }, []);
 
-  // 5. Layout State Hydration
+  // ==========================================
+  // LAYOUT & PERSISTENCE ENGINE
+  // ==========================================
   const [layout, setLayout] = useState<WorkspaceLayoutState>(() => {
-    try {
-      const saved = localStorage.getItem(storageKey);
-      return saved ? JSON.parse(saved) : DEFAULT_LAYOUT;
-    } catch {
-      return DEFAULT_LAYOUT;
-    }
+    const saved = LocalStorageManager.getWorkspaceState(sandboxId);
+    return { ...saved, sidebarWidth: saved.sidebarWidth || 250 };
   });
 
   useEffect(() => {
-    const handleBeforeUnload = () => localStorage.setItem(storageKey, JSON.stringify(layout));
-    localStorage.setItem(storageKey, JSON.stringify(layout));
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [layout, storageKey]);
+    LocalStorageManager.saveWorkspaceState(sandboxId, layout);
+  }, [layout, sandboxId]);
 
   const toggleSidebar = (panel: string) => {
     setLayout(prev => {
@@ -175,14 +137,58 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
     });
   };
 
-  // Derive active file for Monaco (Note: content is no longer tracked here, saving RAM!)
+  // ==========================================
+  // DRAG RESIZING LOGIC
+  // ==========================================
+  const startSidebarDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = layout.sidebarWidth;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const newWidth = Math.max(150, Math.min(startWidth + (moveEvent.clientX - startX), 600));
+      setLayout(prev => ({ ...prev, sidebarWidth: newWidth }));
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = 'default'; 
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [layout.sidebarWidth]);
+
+  const startTerminalDrag = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = layout.bottomPanelHeight;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const newHeight = Math.max(100, Math.min(startHeight - (moveEvent.clientY - startY), 800));
+      setLayout(prev => ({ ...prev, bottomPanelHeight: newHeight }));
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = 'default';
+    };
+
+    document.body.style.cursor = 'row-resize';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, [layout.bottomPanelHeight]);
+
+  // Derive active file for Monaco
   const activeFile = workspaceState.openFiles.find(
     (f) => f.path === workspaceState.activeFilePath
   ) || null;
 
-
   return (
-    <div className="h-screen w-screen flex flex-col bg-[#1e1e1e] text-[#cccccc] font-sans overflow-hidden">
+    <div className="h-screen w-screen flex flex-col bg-ide-bg text-ide-text font-sans overflow-hidden">
       {/* ZONE 1: TOP NAVIGATION */}
       <TopNavBar 
         menus={DEFAULT_MENUS}
@@ -200,17 +206,35 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
           syncStatus={workspaceState.syncStatus} 
         />
 
-        {/* ZONE 3: SIDEBAR */}
+        {/* ZONE 3: SIDEBAR & HORIZONTAL RESIZER */}
         {layout.sidebarOpen && (
-          <FileExplorer 
-            workspaceName={workspaceState.workspaceName}
-            files={MOCK_FILES}
-            activeFilePath={workspaceState.activeFilePath}
-            eventBus={eventBus}
-          />
+          <>
+            <div 
+              style={{ width: `${layout.sidebarWidth}px` }} 
+              className="flex flex-col flex-shrink-0 bg-ide-panel border-r border-ide-border overflow-hidden"
+            >
+              {layout.activeSidebarPanel === 'explorer' && (
+                <FileExplorer 
+                  workspaceName={workspaceState.workspaceName}
+                  files={fileTree} // <--- NOW PASSING DYNAMIC VFS STATE
+                  activeFilePath={workspaceState.activeFilePath}
+                  eventBus={eventBus}
+                />
+              )}
+              {layout.activeSidebarPanel === 'search' && (
+                <div className="p-4 text-sm text-ide-muted">Search Panel (WIP)</div>
+              )}
+            </div>
+
+            {/* The Sidebar Resizer Handle */}
+            <div 
+              onMouseDown={startSidebarDrag}
+              className="w-2 cursor-col-resize bg-ide-border hover:bg-ide-accent z-50 transition-colors shrink-0"
+            />
+          </>
         )}
 
-        <div className="flex-1 flex flex-col min-w-0 bg-[#1e1e1e]">
+        <div className="flex-1 flex flex-col min-w-0 bg-ide-bg">
           {/* ZONE 4: EDITOR SURFACE */}
           <div className="flex-1 flex flex-col overflow-hidden relative">
             <EditorTabs 
@@ -228,17 +252,25 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
             </div>
           </div>
 
-          {/* ZONE 5: TERMINAL */}
+          {/* ZONE 5: TERMINAL & VERTICAL RESIZER */}
           {layout.bottomPanelOpen && (
-            <div 
-              style={{ height: `${layout.bottomPanelHeight}px` }}
-              className="border-t border-[#333333] bg-[#1e1e1e] flex flex-col flex-shrink-0"
-            >
-              <IDETerminal 
-                sandboxId={sandboxId}
-                editorEventBus={eventBus}
+            <>
+              {/* The Terminal Resizer Handle */}
+              <div 
+                onMouseDown={startTerminalDrag}
+                className="h-2 cursor-row-resize bg-ide-border hover:bg-ide-accent z-50 transition-colors shrink-0"
               />
-            </div>
+              
+              <div 
+                style={{ height: `${layout.bottomPanelHeight}px` }}
+                className="bg-ide-panel flex flex-col flex-shrink-0"
+              >
+                <IDETerminal 
+                  sandboxId={sandboxId}
+                  editorEventBus={eventBus}
+                />
+              </div>
+            </>
           )}
 
           {/* ZONE 6: STATUS BAR */}
@@ -259,8 +291,10 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
 // ==========================================
 export const EditorWorkspace = (props: EditorWorkspaceProps) => {
   return (
-    <WorkspaceProvider>
-      <EditorWorkspaceInner {...props} />
-    </WorkspaceProvider>
+    <DesignSystemProvider>
+      <WorkspaceProvider>
+        <EditorWorkspaceInner {...props} />
+      </WorkspaceProvider>
+    </DesignSystemProvider>
   );
 };

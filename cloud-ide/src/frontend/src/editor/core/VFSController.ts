@@ -5,13 +5,15 @@ import React from 'react';
 
 export class VFSController {
   private vfs: VirtualFileSystem;
+  // An array to hold all our event un-subscribers to prevent memory leaks
+  private unsubs: Array<() => void> = [];
 
   constructor(
     private eventBus: EditorEventBus, 
     private dispatch: React.Dispatch<any>,
     private sandboxId: string
   ) {
-    // 1. Instantiate the VFS Engine, passing a callback to update React's status
+    // 1. Instantiate the VFS Engine
     this.vfs = new VirtualFileSystem(sandboxId, (status) => {
       this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status } });
     });
@@ -20,53 +22,80 @@ export class VFSController {
     this.initListeners();
   }
 
+  public async initWorkspace() {
+    const initialTree = await this.vfs.hydrateWorkspace();
+    this.eventBus.emit('VFS_TREE_UPDATED', { tree: initialTree });
+  }
+
   private initListeners() {
-    // UI requests a file to be opened
-    this.eventBus.on('FILE_OPEN_REQUESTED', async ({ path }) => {
+    // ==========================================
+    // CORE FILE I/O ROUTING
+    // ==========================================
+
+    this.unsubs.push(this.eventBus.on('FILE_OPEN_REQUESTED', async ({ path }) => {
       this.dispatch({ type: 'OPEN_FILE', payload: { path } });
       this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'syncing' } });
 
       try {
-        // ASKING THE VFS FOR THE DATA
         const content = await this.vfs.readFile(path);
-        
-        // Telling Monaco to render it
         this.eventBus.emit('FILE_LOADED', { path, content, language: this.guessLanguage(path) });
         this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'synced' } });
       } catch (error) {
         this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'conflict' } });
       }
-    });
+    }));
 
-    // User types in Monaco
-    this.eventBus.on('CONTENT_CHANGED', ({ path, newContent }) => {
+    this.unsubs.push(this.eventBus.on('CONTENT_CHANGED', ({ path, newContent }) => {
       this.dispatch({ type: 'MARK_DIRTY', payload: { path, isDirty: true } });
-      
-      // TELLING THE VFS TO UPDATE ITS MAP & QUEUE IT FOR SYNC
       this.vfs.updateFile(path, newContent); 
-    });
+    }));
 
-    // User hits Ctrl+S or clicks "Save" in the menu
-    this.eventBus.on('SAVE_REQUESTED', async ({ path }) => {
-      // TELLING THE VFS TO SKIP THE TIMER AND SYNC IMMEDIATELY
+    this.unsubs.push(this.eventBus.on('SAVE_REQUESTED', async ({ path }) => {
       await this.vfs.forceSync();
-      
-      // Only mark clean in the UI if the VFS successfully synced it
       this.dispatch({ type: 'MARK_DIRTY', payload: { path, isDirty: false } });
-    });
+    }));
 
-    // --- Standard UI State Routing ---
-    this.eventBus.on('TAB_ACTIVATED', ({ path }) => {
-      this.dispatch({ type: 'SET_ACTIVE_FILE', payload: { path } });
-    });
+    // ==========================================
+    // THE MISSING CRUD ROUTING (Create, Delete, Rename)
+    // ==========================================
 
-    this.eventBus.on('TAB_CLOSED', ({ path }) => {
+    this.unsubs.push(this.eventBus.on('FILE_CREATED', ({ path, type }) => {
+      try {
+        this.vfs.createFileOrDir(path, type);
+        // Instantly generate the new tree and tell the UI to re-render
+        this.eventBus.emit('VFS_TREE_UPDATED', { tree: this.vfs.getNestedTree() });
+      } catch (e) {
+        console.error("[Controller] Failed to create file:", e);
+      }
+    }));
+
+    this.unsubs.push(this.eventBus.on('FILE_DELETED', ({ path }) => {
+      this.vfs.deleteNode(path);
+      // Instantly remove from the UI
+      this.eventBus.emit('VFS_TREE_UPDATED', { tree: this.vfs.getNestedTree() });
+      
+      // Also, if the file was open in a tab, close it automatically!
       this.dispatch({ type: 'CLOSE_FILE', payload: { path } });
-    });
+    }));
+
+    this.unsubs.push(this.eventBus.on('FILE_RENAMED', ({ oldPath, newPath }) => {
+      this.vfs.renameNode(oldPath, newPath);
+      this.eventBus.emit('VFS_TREE_UPDATED', { tree: this.vfs.getNestedTree() });
+    }));
+
+    // ==========================================
+    // UI TAB ROUTING
+    // ==========================================
+
+    this.unsubs.push(this.eventBus.on('TAB_ACTIVATED', ({ path }) => {
+      this.dispatch({ type: 'SET_ACTIVE_FILE', payload: { path } });
+    }));
+
+    this.unsubs.push(this.eventBus.on('TAB_CLOSED', ({ path }) => {
+      this.dispatch({ type: 'CLOSE_FILE', payload: { path } });
+    }));
   }
 
-  // TODO: make this more robust by using the file extension to guess the language,
-  // which Monaco can use to enable syntax highlighting and language features.
   private guessLanguage(path: string): string {
     const ext = path.split('.').pop()?.toLowerCase();
     switch (ext) {
@@ -77,15 +106,13 @@ export class VFSController {
     }
   }
 
-  // Cleanup method for when the IDE is closed
+  // ==========================================
+  // CLEANUP (Prevents the Ghost Duplicate Logs)
+  // ==========================================
   public destroy() {
     this.vfs.destroy();
-  }
-
-  public async initWorkspace() {
-    const initialTree = await this.vfs.hydrateWorkspace();
-    
-    // Dispatch the loaded tree to your React Context/EventBus so the File Explorer renders it
-    this.eventBus.emit('VFS_TREE_UPDATED', { tree: initialTree });
+    // Fire all the unsubscribe functions to detach from the EventBus
+    this.unsubs.forEach(unsub => unsub());
+    this.unsubs = [];
   }
 }

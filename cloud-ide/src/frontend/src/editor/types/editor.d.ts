@@ -5,7 +5,8 @@
  * and snapshot traits. This serves as the single source of truth for all type definitions related to the editor.
  */
 import { SyncStatus } from '../../vfs/types/vfs';
-import { FileNode } from '../../vfs/types/vfs';
+// [PATCHED] Removed the duplicate FileNode import to prevent collision with your local definition!
+
 /**
  * ==========================================
  * GLOBAL IDE SETTINGS
@@ -92,11 +93,8 @@ export interface FileNode {
 }
 
 export interface IVirtualFileSystem {
-  /** Fetches the directory structure. Can be recursive or shallow depending on implementation. */
   readDirectory(path: string): Promise<FileNode[]>;
-  /** Fetches the actual text content of a file to feed to Monaco. */
   readFile(path: string): Promise<string>;
-  /** Pushes new content to the storage layer. */
   writeFile(path: string, content: string): Promise<void>;
   createFile(path: string): Promise<void>;
   createDirectory(path: string): Promise<void>;
@@ -119,6 +117,11 @@ export interface EditorEventPayloads {
   /** Fired when the VFS successfully loads the file and it's ready for Monaco. */
   'FILE_LOADED': { path: string; content: string; language: string };
 
+  // --- [PATCHED] NEW CRUD EVENTS ---
+  'FILE_CREATED': { path: string; type: 'file' | 'directory' };
+  'FILE_DELETED': { path: string };
+  'FILE_RENAMED': { oldPath: string; newPath: string };
+
   /** Fired when a user closes a tab in the Top Display. */
   'TAB_CLOSED': { path: string };
 
@@ -126,7 +129,8 @@ export interface EditorEventPayloads {
   'TAB_ACTIVATED': { path: string };
 
   /** Fired by Monaco on keystroke. Triggers the 'dirty' dot on the UI tab. */
-  'CONTENT_CHANGED': { path: string; newContent: string; isDirty: boolean };
+  // [PATCHED] isDirty is now optional so the Test Harness doesn't throw errors!
+  'CONTENT_CHANGED': { path: string; newContent: string; isDirty?: boolean };
 
   /** Fired by Ctrl+S or the TopNav File -> Save button. */
   'SAVE_REQUESTED': { path: string };
@@ -137,25 +141,12 @@ export interface EditorEventPayloads {
   /** Fired when a file/folder is created or deleted, prompting the Explorer to re-render. */
   'TREE_UPDATED': { rootNode: FileNode };
 
+  /** Fired by the VFS engine whenever the memory map changes so the UI can rebuild the tree */
+  'VFS_TREE_UPDATED': { tree: FileNode[] };
+
   // --- Snapshot Events ---
-
-  /** 
-   * Fired when a user clicks the "Share Snapshot" button. 
-   * The top-level component intercepts this, calls getState() on its children, 
-   * and compiles the WorkspaceSnapshot payload.
-   */
-  'SNAPSHOT_CREATE_REQUESTED': { ttlSeconds?: number }; // Optional Time-to-Live
-
-  /** 
-   * Fired when the payload is successfully built and saved to the backend. 
-   * Useful for showing a toast notification with the shareable link.
-   */
+  'SNAPSHOT_CREATE_REQUESTED': { ttlSeconds?: number }; 
   'SNAPSHOT_CREATED': { shareableUrl: string; snapshot: WorkspaceSnapshot };
-
-  /** 
-   * Fired when the IDE is booted up via a shared snapshot URL.
-   * Instructs the components to pause normal boot and instead run restoreState().
-   */
   'SNAPSHOT_LOAD_REQUESTED': { snapshotId: string };
 
   // --- EDITOR COMMANDS ---
@@ -169,9 +160,6 @@ export interface EditorEventPayloads {
     position: { lineNumber: number; column: number };
     word: string;
   };
-
-  // vfs file syncing emits
-  'VFS_TREE_UPDATED': { tree: FileNode[] };
 }
 
 export type EditorEventType = keyof EditorEventPayloads;
@@ -180,17 +168,12 @@ export type EditorEventType = keyof EditorEventPayloads;
  * ==========================================
  * 3. STATE & DATA MODELS
  * ==========================================
- * The data models that your context provider or main workspace component will track.
  */
-
-
 
 export interface OpenFileContext {
   path: string;
   isDirty: boolean;
-  content?: string; // Optional: we can choose to keep this here or let Monaco be the single source of truth for file content.  
-  // We don't store the raw text content here to save RAM. 
-  // Monaco manages the active text buffer internally via its ITextModel.
+  content?: string; 
 }
 
 export interface IEditorState {
@@ -203,59 +186,41 @@ export interface IEditorState {
  * ==========================================
  * 4. PLUGINS / MIDDLEWARE (Future Proofing)
  * ==========================================
- * Contract for adding features like auto-formatters, Claude Code, or syntax linting.
  */
 export interface IEditorPlugin {
   name: string;
-  /** Allows the plugin to hook into the Event Bus when the workspace boots. */
-  onInit(eventBus: any /* Type this to your actual EventBus class */): void;
+  onInit(eventBus: any): void;
 }
 
 /**
  * ==========================================
  * 5. SNAPSHOT TRAITS (State Restoration)
  * ==========================================
- * Every major UI component must implement this contract. 
- * This allows the root IDE component to extract and inject state blindly.
  */
 export interface ISerializable<T> {
-  /** Extracts the current context of the component */
   getState(): T;
-  /** Injects a previous context back into the component */
   restoreState(state: T): void;
 }
-
 
 /**
  * ==========================================
  * 6. SNAPSHOT PAYLOADS
  * ==========================================
  */
-
-/** 
- * Represents Monaco's internal view state (cursor position, scroll, selections). 
- * Kept generic as a Record so we don't have to import heavy Monaco types here.
- */
 export type EditorViewState = Record<string, any>;
 
 export interface FileSnapshotState {
   path: string;
-  content: string;             // The raw text buffer at the time of the snapshot
-  viewState?: EditorViewState; // Where the cursor and scrollbar were
+  content: string;             
+  viewState?: EditorViewState; 
 }
 
 export interface WorkspaceSnapshot {
-  id: string;                  // The UUID used for the shareable link
-  
-  // Metadata for your "timed limits" feature
-  createdAt: number;           // Unix timestamp
-  expiresAt?: number;          // Unix timestamp for auto-destructing links
-  ownerId: string;             // The user who generated the snapshot
-  
-  // Visual Context
+  id: string;                  
+  createdAt: number;           
+  expiresAt?: number;          
+  ownerId: string;             
   activeFilePath: string | null;
   openFiles: FileSnapshotState[];
-  
-  // Optional layout data (e.g., how wide the sidebar was, terminal height)
   layoutState?: Record<string, any>; 
 }

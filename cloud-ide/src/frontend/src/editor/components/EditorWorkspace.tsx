@@ -204,7 +204,7 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
       {/* ZONE 1: TOP NAVIGATION */}
       <TopNavBar 
         menus={DEFAULT_MENUS}
-        activeFileName={workspaceState.activeFilePath?.split('/').pop()} 
+        activeFilePath={workspaceState.activeFilePath} 
         workspaceName={workspaceState.workspaceName}
         eventBus={eventBus}
       />

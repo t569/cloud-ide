@@ -4,7 +4,6 @@ import { FileIcon } from '@frontend/common/FileIcon';
 import { FileNode, EditorEventPayloads } from '../types/editor';
 import { EditorEventBus } from '../core/EditorEventBus';
 
-
 // --- 1. RECURSIVE NODE COMPONENT ---
 interface FileExplorerNodeProps {
   node: FileNode;
@@ -35,6 +34,14 @@ const FileExplorerNode = ({
     }
   };
 
+  // THE DELETE TRIGGER
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent the file from opening
+    if (window.confirm(`Are you sure you want to delete '${node.name}'?`)) {
+      eventBus.emit('FILE_DELETED', { path: node.path });
+    }
+  };
+
   return (
     <div>
       {/* The Actual Item Row */}
@@ -43,15 +50,15 @@ const FileExplorerNode = ({
         className={`
           flex items-center group cursor-pointer mx-2 px-2 py-1.5 rounded-md text-[13px] font-sans transition-colors select-none
           ${isActive 
-            ? 'bg-[#313338] text-[#dbdee1]' 
-            : 'text-[#949ba4] hover:bg-[#2b2d31] hover:text-[#dbdee1]'
+            ? 'bg-ide-accent/20 text-ide-text font-medium' 
+            : 'text-ide-muted hover:bg-ide-hover hover:text-ide-text'
           }
         `}
-        style={{ paddingLeft: `${(level * 12) + 8}px` }} // Dynamic indentation
+        style={{ paddingLeft: `${(level * 12) + 8}px` }} 
       >
         {/* Render Chevron for Directories, or File Icon for Files */}
         {isDir ? (
-          <div className="w-4 h-4 mr-1 flex items-center justify-center flex-shrink-0 text-gray-500 group-hover:text-gray-300">
+          <div className="w-4 h-4 mr-1 flex items-center justify-center flex-shrink-0 text-ide-muted group-hover:text-ide-text">
             <svg 
               width="12" height="12" viewBox="0 0 16 16" fill="currentColor"
               className={`transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
@@ -66,10 +73,23 @@ const FileExplorerNode = ({
         )}
 
         {/* File/Folder Name */}
-        <span className="truncate">{node.name}</span>
+        <span className="truncate flex-1">{node.name}</span>
+
+        {/* Trash Icon (Only visible on hover) */}
+        <div className="hidden group-hover:flex items-center ml-auto pl-2">
+          <button 
+            onClick={handleDelete}
+            className="p-1 text-red-400 hover:bg-red-500/20 rounded transition-colors"
+            title="Delete"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"></path>
+            </svg>
+          </button>
+        </div>
       </div>
 
-      {/* Recursive Render for Children (If Directory is Expanded) */}
+      {/* Recursive Render for Children */}
       {isDir && isExpanded && node.children && (
         <div>
           {node.children.map(child => (
@@ -94,12 +114,10 @@ interface FileExplorerProps {
   workspaceName: string;
   files: FileNode[];
   activeFilePath: string | null;
-  eventBus: any; // Type to your EventBus instance
+  eventBus: EditorEventBus; 
 }
 
 export const FileExplorer = ({ workspaceName, files, activeFilePath, eventBus }: FileExplorerProps) => {
-  // Local state to track which folders are toggled open
-  // In a full implementation, you might want this to implement `ISerializable` for snapshots!
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['/src', '/cogs']));
 
   const toggleFolder = (path: string) => {
@@ -112,17 +130,15 @@ export const FileExplorer = ({ workspaceName, files, activeFilePath, eventBus }:
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#252526] text-[#cccccc] py-2 overflow-y-auto custom-scrollbar-hide">
+    <div className="flex flex-col h-full bg-ide-panel py-2 overflow-y-auto custom-scrollbar-hide">
       
-      {/* Workspace Header (Matches "Discord Bot" in your image) */}
+      {/* Workspace Header */}
       <div className="flex items-center justify-between px-4 pb-2 mb-2">
-        <span className="text-xs font-bold uppercase tracking-wider text-[#cccccc]">
+        <span className="text-xs font-bold uppercase tracking-wider text-ide-muted">
           {workspaceName}
         </span>
         
-        {/* Three dots menu from the image */}
-        {/* TODO: implement srop down menu for this */}
-        <button className="text-gray-500 hover:text-white p-1 rounded hover:bg-[#333333] transition-colors">
+        <button className="text-ide-muted hover:text-ide-text p-1 rounded hover:bg-ide-hover transition-colors">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
             <path d="M3 9.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3zm5 0a1.5 1.5 0 110-3 1.5 1.5 0 010 3z" />
           </svg>
@@ -132,7 +148,7 @@ export const FileExplorer = ({ workspaceName, files, activeFilePath, eventBus }:
       {/* Render the File Tree */}
       <div className="flex-col">
         {files.length === 0 ? (
-          <div className="px-4 text-xs text-gray-500 italic mt-2">No files in workspace</div>
+          <div className="px-4 text-xs text-ide-muted italic mt-2">No files in workspace</div>
         ) : (
           files.map(node => (
             <FileExplorerNode

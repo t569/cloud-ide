@@ -96,14 +96,50 @@ export class VFSController {
     }));
   }
 
+  // TODO: make this more robust by actually analyzing the file content or using a library like 'highlight.js' instead of just relying on file extensions
+  // In essence build an engine
+  /**
+   * Maps file extensions to Monaco Editor's internal language identifiers.
+   * Ensures the editor applies the correct syntax highlighting and language server rules.
+   */
   private guessLanguage(path: string): string {
     const ext = path.split('.').pop()?.toLowerCase();
-    switch (ext) {
-      case 'js': case 'jsx': return 'javascript';
-      case 'ts': case 'tsx': return 'typescript';
-      case 'py': return 'python';
-      default: return 'plaintext';
-    }
+    
+    const languageMap: Record<string, string> = {
+      // Web
+      'js': 'javascript', 'jsx': 'javascript', 'mjs': 'javascript',
+      'ts': 'typescript', 'tsx': 'typescript',
+      'html': 'html', 'htm': 'html',
+      'css': 'css', 'scss': 'scss', 'less': 'less',
+      'json': 'json',
+      
+      // Backend & Systems
+      'py': 'python', 'pyw': 'python',
+      'java': 'java',
+      'c': 'c', 'h': 'c',
+      'cpp': 'cpp', 'hpp': 'cpp', 'cc': 'cpp', 'cxx': 'cpp',
+      'cs': 'csharp',
+      'go': 'go',
+      'rs': 'rust',
+      'rb': 'ruby',
+      'php': 'php',
+      
+      // Configs & Scripts
+      'sh': 'shell', 'bash': 'shell', 'zsh': 'shell',
+      'yaml': 'yaml', 'yml': 'yaml',
+      'xml': 'xml',
+      'sql': 'sql',
+      'md': 'markdown',
+      'dockerfile': 'dockerfile',
+      'env': 'plaintext', 'gitignore': 'plaintext'
+    };
+
+    // Special cases for files without standard extensions (e.g., 'Dockerfile')
+    const filename = path.split('/').pop()?.toLowerCase();
+    if (filename === 'dockerfile') return 'dockerfile';
+    if (filename === 'makefile') return 'makefile';
+
+    return languageMap[ext || ''] || 'plaintext';
   }
 
   // ==========================================

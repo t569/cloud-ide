@@ -25,6 +25,18 @@ import { LocalStorageManager } from '../utils/LocalStoragemanager';
 // WORK SPACE STATE
 import { WorkspaceLayoutState } from '../types/editor';
 
+
+// TERMINAL
+// TODO: remember to sync the backend with chokidar
+/**
+ * B. Active Backend Mutations (Git, NPM, Touch): This requires Backend Daemon support.
+Your frontend terminal cannot know if npm install changed 10,000 files.
+
+What you need to do: In your Docker container/sandbox backend, you must run a lightweight file-watcher (like chokidar in Node or inotify in Linux). 
+When the disk changes, the backend sends a WebSocket message to the frontend: { type: 'FS_EVENT', action: 'reload_tree' }. 
+Your VFSController listens for this WebSocket message and triggers vfs.hydrateWorkspace() to fetch the new files.
+ */
+
 // ==========================================
 // MOCK CONFIGURATION 
 // ==========================================

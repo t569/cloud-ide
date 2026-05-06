@@ -116,7 +116,7 @@ const EMPTY_PLUGINS: ITerminalPlugin[] = [];
 // TerminalProps encapsulates ITerminalConfig
 export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
   // default values 
-  theme = 'dark',
+  theme = 'dark', // fallback to 'dark' theme if none provided, we MUST provide a default theme to prevent xterm from falling back to its own default (which is very slow to render)
   fontFamily = '"JetBrains Mono", Consolas, Menlo, Monaco, "Courier New", monospace',
   fontSize = 14,
   transport,

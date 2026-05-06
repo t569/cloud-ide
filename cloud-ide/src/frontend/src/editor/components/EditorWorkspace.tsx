@@ -10,6 +10,12 @@ import { FileExplorer } from './FileExplorer';
 import { MonacoEditorWrapper } from './MonacoEditorWrapper';
 import { LanguageRegistry } from '../core/EditorRegistry';
 import { AVAILABLE_PLUGINS } from '../plugins/PluginManifest';
+
+
+// TERMINAL
+import { IDETerminal } from './IDETerminal';
+
+
 // import { EditorEventBus } from './core/EditorEventBus';
 // import { IVirtualFileSystem } from './types/editor';
 // --- NEW CORE IMPORTS ---
@@ -215,7 +221,10 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
               style={{ height: `${layout.bottomPanelHeight}px` }}
               className="border-t border-[#333333] bg-[#1e1e1e] flex flex-col flex-shrink-0"
             >
-              {/* Drop Terminal Here */}
+              <IDETerminal 
+                sandboxId={sandboxId}
+                editorEventBus={eventBus}
+              />
             </div>
           )}
 

@@ -7,12 +7,22 @@ import { ActivityBarItem } from '../types/editor';
 import { ActivityBar } from './ActivityBar';
 import { FileNode } from '../types/editor';
 import { FileExplorer } from './FileExplorer';
+import { useDesignSystem } from '../context/DesignSystemContext';
 import { MonacoEditorWrapper } from './MonacoEditorWrapper';
 import { LanguageRegistry } from '../core/EditorRegistry';
 import { AVAILABLE_PLUGINS } from '../plugins/PluginManifest';
 
 
 // TERMINAL
+// TODO: remember to sync the backend with chokidar
+/**
+ * B. Active Backend Mutations (Git, NPM, Touch): This requires Backend Daemon support.
+Your frontend terminal cannot know if npm install changed 10,000 files.
+
+What you need to do: In your Docker container/sandbox backend, you must run a lightweight file-watcher (like chokidar in Node or inotify in Linux). 
+When the disk changes, the backend sends a WebSocket message to the frontend: { type: 'FS_EVENT', action: 'reload_tree' }. 
+Your VFSController listens for this WebSocket message and triggers vfs.hydrateWorkspace() to fetch the new files.
+ */
 import { IDETerminal } from './IDETerminal';
 
 
@@ -110,6 +120,9 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
   // 1. Hook into our new UI State Engine
   const { state: workspaceState, dispatch } = useWorkspace();
 
+  // Hook into the Theme Engine
+  const { settings } = useDesignSystem();
+
   // 2. Instantiate the Central Event Bus exactly ONCE
   const eventBus = useMemo(() => new EditorEventBus(), []);
 
@@ -117,8 +130,15 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
   useEffect(() => {
     // The VFS starts listening to the eventBus immediately.
     // When you click a file in the sidebar, it fetches the data and injects it into Monaco!
-    const vfs = new VFSController(eventBus, dispatch);
-  }, [eventBus, dispatch]);
+    const vfs = new VFSController(eventBus, dispatch, sandboxId);
+    
+    vfs.initWorkspace();
+
+    return () => {
+      vfs.destroy();
+    }
+  
+  }, [eventBus, dispatch, sandboxId]);
 
   // 4. Dynamically Load Plugins from the Manifest
   const langRegistry = useMemo(() => {
@@ -161,13 +181,6 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
   ) || null;
 
 
-  // Add a safe fallback
-  // TODO: make this system more robust by enforcing that settings are always present in the context (even if it's just defaults)
-  const safeSettings = workspaceState.globalSettings || {
-    fontFamily: "'JetBrains Mono', monospace",
-    fontSize: 14,
-    theme: 'dark'
-  };
   return (
     <div className="h-screen w-screen flex flex-col bg-[#1e1e1e] text-[#cccccc] font-sans overflow-hidden">
       {/* ZONE 1: TOP NAVIGATION */}
@@ -208,7 +221,7 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
             <div className="flex-1 relative">
               <MonacoEditorWrapper 
                 activeFile={activeFile}
-                globalSettings={safeSettings}
+                globalSettings={settings}
                 eventBus={eventBus}
                 registry={langRegistry} 
               />
@@ -230,7 +243,7 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
 
           {/* ZONE 6: STATUS BAR */}
           <StatusBar 
-            settings={safeSettings}
+            settings={settings}
             cursor={{ line: 5, column: 36 }}
             formatting={{ eol: 'LF', encoding: 'UTF8', indentMode: 'spaces', indentSize: 2 }}
             git={{ branch: 'main', hasChanges: false }}

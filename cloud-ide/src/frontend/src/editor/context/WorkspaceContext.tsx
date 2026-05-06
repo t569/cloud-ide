@@ -1,9 +1,6 @@
 // frontend/src/editor/context/WorkspaceContext.tsx
 import React, { createContext, useReducer, useContext } from 'react';
 import { SyncStatus, OpenFileContext } from '../types/editor';
-import { IDEGlobalSettings } from '../types/editor';
-
-// TODO: import export IDEGlobalSettings and SyncStatus from our types definition file to ensure consistency across the app.
 
 // --- STATE & ACTIONS ---
 interface WorkspaceState {
@@ -11,7 +8,6 @@ interface WorkspaceState {
   activeFilePath: string | null;
   openFiles: OpenFileContext[];
   syncStatus: SyncStatus;
-  globalSettings: IDEGlobalSettings;
 }
 
 type WorkspaceAction =
@@ -20,19 +16,13 @@ type WorkspaceAction =
   | { type: 'CLOSE_FILE'; payload: { path: string } }
   | { type: 'SET_ACTIVE_FILE'; payload: { path: string } }
   | { type: 'MARK_DIRTY'; payload: { path: string; isDirty: boolean } }
-  | { type: 'SET_SYNC_STATUS'; payload: { status: SyncStatus } }
-  | { type: 'SET_GLOBAL_SETTINGS'; payload: { settings: IDEGlobalSettings } };
+  | { type: 'SET_SYNC_STATUS'; payload: { status: SyncStatus } };
 
 const initialState: WorkspaceState = {
   workspaceName: 'Loading Project...',
   activeFilePath: null,
   openFiles: [],
   syncStatus: 'synced',
-  globalSettings: {
-    fontFamily: "'JetBrains Mono', monospace",
-    fontSize: 14,
-    theme: 'dark'
-  }
 };
 
 // --- REDUCER ---
@@ -67,8 +57,6 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       return { ...state, syncStatus: action.payload.status };
     case 'SET_WORKSPACE_NAME':
       return { ...state, workspaceName: action.payload.name };
-    case 'SET_GLOBAL_SETTINGS':
-      return { ...state, globalSettings: action.payload.settings };
     default:
       return state;
   }

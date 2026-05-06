@@ -4,6 +4,12 @@ import { TerminalTabs, TerminalSession } from '../../terminal/components/Termina
 import { ITransportStream } from '../../terminal/types/terminal';
 import { EditorEventBus } from '../core/EditorEventBus';
 
+
+// DESIGN SYSTEM
+import { useDesignSystem } from '../context/DesignSystemContext';
+import { toXtermTheme } from '../utils/themeAdapters';
+
+
 // ==========================================
 // 1. THE TRANSPORT INTERFACE (Backend Bridge)
 // ==========================================
@@ -45,6 +51,9 @@ interface IDETerminalProps {
 export const IDETerminal = ({ sandboxId, editorEventBus }: IDETerminalProps) => {
   const [sessions, setSessions] = useState<TerminalSession[]>([]);
   const hasBooted = useRef(false);
+  // 1. Grab the Global Palette from the Design System
+  const { palette } = useDesignSystem();
+
 
   // 1. Boot up a new terminal tab
   const addTab = () => {
@@ -77,6 +86,13 @@ export const IDETerminal = ({ sandboxId, editorEventBus }: IDETerminalProps) => 
     });
   };
 
+  useEffect(() => {
+    if(!hasBooted.current) {
+      hasBooted.current = true;
+      addTab();
+    }
+  }, []);
+
   // ==========================================
   // 3. THE CROSS-SYSTEM BRIDGE
   // ==========================================
@@ -102,6 +118,7 @@ export const IDETerminal = ({ sandboxId, editorEventBus }: IDETerminalProps) => 
       onCloseTab={closeTab}
       onFileClick={handleContextFileClick}
       onLinkClick={handleLinkClick}
+      theme={toXtermTheme(palette)}
     />
   );
 };

@@ -5,8 +5,9 @@
  * and snapshot traits. This serves as the single source of truth for all type definitions related to the editor.
  */
 import { SyncStatus } from '../../vfs/types/vfs';
-// [PATCHED] Removed the duplicate FileNode import to prevent collision with your local definition!
 
+
+export type {SyncStatus};
 /**
  * ==========================================
  * GLOBAL IDE SETTINGS
@@ -90,6 +91,14 @@ export interface FileNode {
   type: 'file' | 'directory';
   extension?: string; // Useful for the Icon Engine (e.g., 'js', 'ts', 'md')
   children?: FileNode[]; // Only populated if type === 'directory'
+}
+
+// state tracked in the EditorWorkspace component related to layout (e.g., sidebar open/closed, active panel, bottom panel height)
+export interface WorkspaceLayoutState {
+  sidebarOpen: boolean;
+  activeSidebarPanel: string; // e.g., 'explorer', 'search'
+  bottomPanelOpen: boolean;
+  bottomPanelHeight: number;  // in pixels
 }
 
 export interface IVirtualFileSystem {

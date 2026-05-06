@@ -28,6 +28,7 @@ import { LinkSnifferPlugin } from '../core/plugins/LinkSnifferPluggin';
 
 // TRANSPORT LAYER
 import { ITransportStream } from '../types/terminal';
+import { ITheme } from '@xterm/xterm';
 
 /**
  * Props for the TerminalPanel.
@@ -43,13 +44,15 @@ interface TerminalPanelProps {
   onFileClick: (file: string) => void;
   /** Callback fired when a URL is clicked in the Context HUD. */
   onLinkClick: (url: string) => void;
+  /** The theme to apply to the terminal. */
+  theme?: ITheme;
 }
 
 /**
  * A self-contained terminal environment that manages its own layout, events, and UI overlays.
  * * @param {TerminalPanelProps} props - The component props.
  */
-export const TerminalPanel = ({ transport, isActive, onFileClick, onLinkClick }: TerminalPanelProps) => {
+export const TerminalPanel = ({ transport, isActive, onFileClick, onLinkClick, theme }: TerminalPanelProps) => {
   /** Ref to directly command the underlying xterm.js instance. */
   const terminalRef = useRef<TerminalHandle>(null);
   
@@ -165,7 +168,7 @@ export const TerminalPanel = ({ transport, isActive, onFileClick, onLinkClick }:
         {/* Core Canvas Wrapper */}
         <TerminalComponent 
           ref={terminalRef}
-          theme="dark" 
+          theme={theme}
           transport={transport} 
           plugins={plugins}
           eventBus={isolatedEventBus} 

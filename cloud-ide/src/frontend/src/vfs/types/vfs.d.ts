@@ -15,11 +15,26 @@ export interface VFSNode {
   name: string;          // Display name (e.g., 'bot.py')
   type: 'file' | 'directory';
   content: string | null; // Null if it's a directory or if content isn't fetched yet
+  sha: string | null;       // For future Git integration and conflict resolution
   isDirty: boolean;      // True if the user edited it but it hasn't successfully synced
   markedForDeletion: boolean; // True if the user deleted it but it hasn't successfully synced
   lastModified: number;  // Timestamp of last local edit
   version: number;       // Incremented on every save to handle conflict resolution
 }
+
+// The Git-style Sync Payload
+export interface GitSyncPayload {
+  sandboxId: string;
+  expectedBaseSha: string; // The root hash BEFORE these changes (for conflict detection)
+  newRootSha: string;      // The root hash AFTER these changes
+  blobs: {                 // Only sending the files that actually changed
+    path: string;
+    sha: string;
+    content: string;
+  }[];
+  deletes: string[];       // Array of paths to rm
+}
+
 
 // the UI filenode type for local syncing logic
 export interface FileNode {
@@ -65,6 +80,20 @@ export interface VFSBulkSyncPayload {
   updates: {
     path: string;
     content: string;
+    version: number;
+  }[];
+}
+
+// We are tacking this on for testing
+// The JSON format your backend will send when the IDE first loads
+export interface WorkspaceHydrationPayload {
+  sandboxId: string;
+  rootSha?: string; // For future Merkle integration
+  files: {
+    path: string;
+    type: 'file' | 'directory';
+    content: string | null; // Null for directories or large files we want to lazy-load later
+    lastModified: number;
     version: number;
   }[];
 }

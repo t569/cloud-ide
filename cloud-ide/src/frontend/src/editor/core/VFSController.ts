@@ -65,6 +65,8 @@ export class VFSController {
     });
   }
 
+  // TODO: make this more robust by using the file extension to guess the language,
+  // which Monaco can use to enable syntax highlighting and language features.
   private guessLanguage(path: string): string {
     const ext = path.split('.').pop()?.toLowerCase();
     switch (ext) {
@@ -78,5 +80,12 @@ export class VFSController {
   // Cleanup method for when the IDE is closed
   public destroy() {
     this.vfs.destroy();
+  }
+
+  public async initWorkspace() {
+    const initialTree = await this.vfs.hydrateWorkspace();
+    
+    // Dispatch the loaded tree to your React Context/EventBus so the File Explorer renders it
+    this.eventBus.emit('VFS_TREE_UPDATED', { tree: initialTree });
   }
 }

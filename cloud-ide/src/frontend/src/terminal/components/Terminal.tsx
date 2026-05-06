@@ -77,6 +77,10 @@ import { TerminalRegistry } from '../core/TerminalRegistry';
  * ============================================================================
  */
 
+// TODO: we need to add a few more props here to allow for better customization of the terminal,
+// TODO: we need to monitor terminal state with chokidar
+// TODO: we need to add a few more events to the event bus for better interactivity (e.g., onCommand, onResize, onSelectionChange)
+// TODO: we need to add performance monitoring
 
 
 // 1. COMBINING PROPS AND CONFIG

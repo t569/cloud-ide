@@ -34,20 +34,55 @@ export const TopNavBar = ({ menus, activeFilePath, workspaceName, eventBus }: To
     // 1. Close the menu
     setActiveMenuId(null);
 
-    // 2. Handle specific predefined actions
-    if (item.action === 'SAVE_REQUESTED') {
+    // 2. SAVE SINGLE FILE
+    if (item.id === 'save') {
       if (activeFilePath) {
         eventBus.emit('SAVE_REQUESTED', { path: activeFilePath });
+      } else {
+        console.warn("[TopNavBar] No active file to save.");
       }
       return;
     }
 
-    // 3. Handle custom UI interactions (like "New File")
+    // 3. SAVE ALL
+    if (item.id === 'save-all') {
+      // Sending a blank/ALL path signals the VFSController to flush the entire dirty queue
+      eventBus.emit('SAVE_REQUESTED', { path: 'ALL' }); 
+      return;
+    }
+
+    // 4. NEW FILE
     if (item.id === 'new-file') {
-      const fileName = window.prompt('Enter new file name (e.g., /src/utils.ts):', '/new_file.ts');
+      const fileName = window.prompt('Enter new file name (e.g., /jack/robinson.asm):', '/new_file.txt');
       if (fileName) {
-        eventBus.emit('FILE_CREATED', { path: fileName, type: 'file' });
+        // Ensure path starts with /
+        const safePath = fileName.startsWith('/') ? fileName : `/${fileName}`;
+        eventBus.emit('FILE_CREATED', { path: safePath, type: 'file' });
       }
+      return;
+    }
+
+    // 5. OPEN FILE (Native Upload to VFS)
+    if (item.id === 'open-file') {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.onchange = async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (file) {
+          const text = await file.text();
+          const newPath = `/${file.name}`;
+          
+          // Inject it into the VFS!
+          eventBus.emit('FILE_CREATED', { path: newPath, type: 'file' });
+          
+          // Wait a tiny fraction of a second for the VFS node to initialize, then populate it
+          setTimeout(() => {
+            eventBus.emit('CONTENT_CHANGED', { path: newPath, newContent: text, isDirty: true });
+            eventBus.emit('FILE_OPEN_REQUESTED', { path: newPath });
+          }, 50);
+        }
+      };
+      input.click(); // Trigger the browser's native file picker
       return;
     }
 
@@ -58,6 +93,9 @@ export const TopNavBar = ({ menus, activeFilePath, workspaceName, eventBus }: To
       console.log(`[TopNavBar] Unhandled menu item clicked: ${item.id}`);
     }
   };
+
+  // Extract just the filename for UI display (e.g., "/jack/robinson.asm" -> "robinson.asm")
+  const displayFileName = activeFilePath ? activeFilePath.split('/').pop() : '';
 
   return (
     <div 
@@ -127,6 +165,7 @@ export const TopNavBar = ({ menus, activeFilePath, workspaceName, eventBus }: To
 
       {/* RIGHT: Workspace Name / Status */}
       <div className="text-xs text-ide-muted px-4 font-ide flex items-center gap-2">
+        {displayFileName && <span className="text-ide-text border-r border-ide-border pr-2 mr-2">{displayFileName}</span>}
         <span>{workspaceName}</span>
       </div>
     </div>

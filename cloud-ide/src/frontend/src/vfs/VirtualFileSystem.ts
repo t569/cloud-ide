@@ -11,37 +11,33 @@ import {
  * ============================================================================
  * VIRTUAL FILE SYSTEM (VFS) ENGINE
  * ============================================================================
- * 
- * ARCHITECTURE OVERVIEW:
+ * * ARCHITECTURE OVERVIEW:
  * This class is the definitive Single Source of Truth for file data in the browser.
  * It is fully decoupled from the React UI and the EventBus. It acts purely as a 
  * high-performance data engine and sync coordinator.
- * 
- * THE DATA FLOW (Frontend -> Backend):
+ * * THE DATA FLOW (Frontend -> Backend):
  * 1. UI Interaction: User types in Monaco or clicks "New File" in the Explorer.
  * 2. Controller Routing: The VFSController hears the UI event via the EventBus 
- *    and calls the appropriate CRUD method here (e.g., `vfs.updateFile()`).
+ * and calls the appropriate CRUD method here (e.g., `vfs.updateFile()`).
  * 3. Optimistic Update: The VFS instantly updates its O(1) `fileMap` in memory 
- *    and adds the file path to the `syncQueue`.
+ * and adds the file path to the `syncQueue`.
  * 4. Background Hashing (Lazy Merkle): Every 2 seconds, the sync loop wakes up. 
- *    It generates SHA-256 hashes *only* for the files that changed in the queue, 
- *    then calculates a new `Root SHA` for the entire workspace.
+ * It generates SHA-256 hashes *only* for the files that changed in the queue, 
+ * then calculates a new `Root SHA` for the entire workspace.
  * 5. Network Push: The VFS sends a Git-style payload to the backend API containing 
- *    only the changed blobs, the old Root SHA, and the new Root SHA.
+ * only the changed blobs, the old Root SHA, and the new Root SHA.
  * 6. Backend Resolution: The backend verifies the SHAs against its own internal 
- *    Git worktree. If successful, it writes the files and returns 200 OK.
+ * Git worktree. If successful, it writes the files and returns 200 OK.
  * 7. State Confirmation: The VFS removes the files from the queue and updates 
- *    the UI Traffic Light to 'synced'.
+ * the UI Traffic Light to 'synced'.
  */
 export class VirtualFileSystem {
-  /** 
-   * The O(1) Flat Map memory store. 
+  /** * The O(1) Flat Map memory store. 
    * Stores files flatly (e.g., map.get('/src/app.ts')) for instant read/write latency. 
    */
   private fileMap: Map<string, VFSNode> = new Map();
   
-  /** 
-   * The Debounce Queue. 
+  /** * The Debounce Queue. 
    * Tracks paths that have been modified locally but not yet acknowledged by the backend. 
    */
   private syncQueue: Set<string> = new Set();
@@ -50,8 +46,7 @@ export class VirtualFileSystem {
   private syncIntervalId: number | null = null;
   private readonly SYNC_INTERVAL_MS = 2000;
   
-  /** 
-   * The Merkle Root Hash. 
+  /** * The Merkle Root Hash. 
    * Represents the cryptographic state of the workspace as currently acknowledged by the backend. 
    */
   private currentRootSha: string = '';
@@ -130,6 +125,7 @@ export class VirtualFileSystem {
   // 2. CORE CRUD OPERATIONS (Optimistic UI)
   // ==========================================
 
+  
   /**
    * Retrieves file content instantly from memory.
    */
@@ -160,10 +156,48 @@ export class VirtualFileSystem {
   }
 
   /**
+   * Helper method to recursively ensure parent directories exist in the VFS before
+   * creating nested files (e.g. creating '/jack' before '/jack/robinson.asm').
+   */
+  private ensureDirectoriesExist(filePath: string): void {
+    const parts = filePath.split('/').filter(Boolean);
+    parts.pop(); // Remove the actual file name at the end
+
+    let currentPath = '';
+    
+    for (const part of parts) {
+      currentPath += `/${part}`;
+      
+      // If this directory doesn't exist in our memory map, create it
+      if (!this.fileMap.has(currentPath)) {
+        console.log(`[VFS] Auto-creating missing directory: ${currentPath}`);
+        
+        const newDir: VFSNode = {
+          path: currentPath,
+          name: part,
+          type: 'directory',
+          content: null,
+          sha: null,
+          isDirty: true,
+          markedForDeletion: false,
+          lastModified: Date.now(),
+          version: 1
+        };
+        
+        this.fileMap.set(currentPath, newDir);
+        this.syncQueue.add(currentPath);
+      }
+    }
+  }
+
+  /**
    * Creates a new file or directory locally and queues the creation for the backend.
    */
   public createFileOrDir(path: string, type: 'file' | 'directory') {
     if (this.fileMap.has(path)) throw new Error("Path already exists");
+
+    // Force the creation of intermediate folders first
+    this.ensureDirectoriesExist(path);
 
     this.fileMap.set(path, {
       path, 
@@ -307,8 +341,7 @@ export class VirtualFileSystem {
   // 5. THE GIT-STYLE SYNC LOOP
   // ==========================================
 
-  /** 
-   * Bypasses the 2-second timer to sync immediately. Called when the user hits Ctrl+S.
+  /** * Bypasses the 2-second timer to sync immediately. Called when the user hits Ctrl+S.
    */
   public async forceSync() { 
     await this.flushSyncQueue(); 

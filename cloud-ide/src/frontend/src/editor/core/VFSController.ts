@@ -1,53 +1,61 @@
 // frontend/src/editor/core/VFSController.ts
 import { EditorEventBus } from './EditorEventBus';
+import { VirtualFileSystem } from '../../vfs/VirtualFileSystem';
+import React from 'react';
 
 export class VFSController {
-  private eventBus: EditorEventBus;
-  private dispatch: React.Dispatch<any>; // Passed in from WorkspaceContext
+  private vfs: VirtualFileSystem;
 
-  constructor(eventBus: EditorEventBus, dispatch: React.Dispatch<any>) {
-    this.eventBus = eventBus;
-    this.dispatch = dispatch;
+  constructor(
+    private eventBus: EditorEventBus, 
+    private dispatch: React.Dispatch<any>,
+    private sandboxId: string
+  ) {
+    // 1. Instantiate the VFS Engine, passing a callback to update React's status
+    this.vfs = new VirtualFileSystem(sandboxId, (status) => {
+      this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status } });
+    });
+
+    // 2. Start listening to UI events
     this.initListeners();
   }
 
   private initListeners() {
-    // 1. Handle File Opens
+    // UI requests a file to be opened
     this.eventBus.on('FILE_OPEN_REQUESTED', async ({ path }) => {
-      // Tell the UI to create the tab immediately so it feels fast
       this.dispatch({ type: 'OPEN_FILE', payload: { path } });
       this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'syncing' } });
 
       try {
-        // MOCK: Fetch the actual file content from your remote sandbox/local cache
-        const content = await this.mockFetchContent(path);
+        // ASKING THE VFS FOR THE DATA
+        const content = await this.vfs.readFile(path);
         
-        // Broadcast the loaded content so Monaco can inject it into its internal model
+        // Telling Monaco to render it
         this.eventBus.emit('FILE_LOADED', { path, content, language: this.guessLanguage(path) });
         this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'synced' } });
       } catch (error) {
-        console.error("Failed to load file:", error);
         this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'conflict' } });
       }
     });
 
-    // 2. Handle File Saves
-    this.eventBus.on('SAVE_REQUESTED', async ({ path }) => {
-      this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'syncing' } });
+    // User types in Monaco
+    this.eventBus.on('CONTENT_CHANGED', ({ path, newContent }) => {
+      this.dispatch({ type: 'MARK_DIRTY', payload: { path, isDirty: true } });
       
-      try {
-        // MOCK: In reality, you'd ask Monaco for the current text buffer here, 
-        // then POST it to your sandbox backend.
-        await new Promise(resolve => setTimeout(resolve, 800)); // Simulate network latency
-        
-        this.dispatch({ type: 'MARK_DIRTY', payload: { path, isDirty: false } });
-        this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'synced' } });
-      } catch (error) {
-        this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'conflict' } });
-      }
+      // TELLING THE VFS TO UPDATE ITS MAP & QUEUE IT FOR SYNC
+      this.vfs.updateFile(path, newContent); 
     });
 
-    // 3. Handle General UI State Updates
+    // User hits Ctrl+S or clicks "Save" in the menu
+    this.eventBus.on('SAVE_REQUESTED', async ({ path }) => {
+      // TELLING THE VFS TO SKIP THE TIMER AND SYNC IMMEDIATELY
+      await this.vfs.forceSync();
+      
+      // Only mark clean in the UI if the VFS successfully synced it
+      this.dispatch({ type: 'MARK_DIRTY', payload: { path, isDirty: false } });
+    });
+
+    // --- Standard UI State Routing ---
     this.eventBus.on('TAB_ACTIVATED', ({ path }) => {
       this.dispatch({ type: 'SET_ACTIVE_FILE', payload: { path } });
     });
@@ -55,25 +63,8 @@ export class VFSController {
     this.eventBus.on('TAB_CLOSED', ({ path }) => {
       this.dispatch({ type: 'CLOSE_FILE', payload: { path } });
     });
-
-    this.eventBus.on('CONTENT_CHANGED', ({ path }) => {
-      this.dispatch({ type: 'MARK_DIRTY', payload: { path, isDirty: true } });
-    });
   }
 
-  // Temporary mock fetcher
-  // TODO: Replace this with real API calls to your backend/sandbox to read file contents
-  private async mockFetchContent(path: string): Promise<string> {
-    return new Promise(resolve => {
-      setTimeout(() => {
-        if (path.endsWith('.py')) resolve('import os\n\nprint("Hello from VFS!")');
-        else if (path.endsWith('.env')) resolve('DISCORD_TOKEN=super_secret');
-        else resolve('// Default content');
-      }, 300);
-    });
-  }
-
-  // TODO: make this more robust by using a library like "language-detect" or maintaining a mapping of extensions to languages
   private guessLanguage(path: string): string {
     const ext = path.split('.').pop()?.toLowerCase();
     switch (ext) {
@@ -82,5 +73,10 @@ export class VFSController {
       case 'py': return 'python';
       default: return 'plaintext';
     }
+  }
+
+  // Cleanup method for when the IDE is closed
+  public destroy() {
+    this.vfs.destroy();
   }
 }

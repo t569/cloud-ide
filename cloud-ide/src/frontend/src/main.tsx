@@ -14,7 +14,8 @@ import { VFSTestHarness } from './vfs/dev/VFSTestHarness';
 import { UITestHarness } from './editor/dev/UITestHarness';
 // It is looking for 'root' here
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+  // TODO: EDITOR BUS IS CURRENTLY BROKEN, PLEASE FIX IT
   <React.StrictMode>
-    <EditorWorkspace sandboxId='test'/>
+    <UITestHarness/>
   </React.StrictMode>
 );

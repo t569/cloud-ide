@@ -51,15 +51,19 @@ export class IdleSweeper {
            
            if (status.state === 'ERROR' || status.state === 'STOPPED') {
               console.warn(`[IdleSweeper] Sandbox ${sandbox.sandboxId} is in ${status.state} state in Rust. Triggering cleanup.`);
-              await this.sandboxManager.destroy(sandbox.sandboxId);
+              // Never force: a dirty worktree makes destroy throw, preserving
+              // uncommitted work. Log and let a human (or force-destroy) decide.
+              await this.sandboxManager.destroy(sandbox.sandboxId)
+                .catch((err) => console.warn(`[IdleSweeper] Cleanup of ${sandbox.sandboxId} skipped: ${err.message}`));
               continue;
            }
        } catch (error: any) {
            // Rust returns a 404/NOT_FOUND equivalent
            console.error(`[IdleSweeper] Sandbox ${sandbox.sandboxId} NOT_FOUND in Rust. Pruning ghost record.`);
            // Call destroy to ensure DB and Worktree are cleaned up!
-           await this.sandboxManager.destroy(sandbox.sandboxId);
-           continue; 
+           await this.sandboxManager.destroy(sandbox.sandboxId)
+             .catch((err) => console.warn(`[IdleSweeper] Prune of ${sandbox.sandboxId} skipped: ${err.message}`));
+           continue;
        }
     }
 

@@ -24,6 +24,17 @@ export interface VolumeMutationResult {
   sandbox: SandboxRecord;
   restartRequired: boolean;
 }
+
+/**
+ * Thrown when destroy() is blocked by uncommitted changes in the sandbox's
+ * worktree. Controllers map this to HTTP 409 by type, not by message text.
+ */
+export class DirtyWorktreeError extends Error {
+  constructor(sandboxId: string) {
+    super(`Sandbox ${sandboxId} has uncommitted changes in its worktree. Commit them or retry with ?force=true.`);
+    this.name = 'DirtyWorktreeError';
+  }
+}
 /**
  * @class SandboxManager
  * @description The central domain service for the Sandbox module.
@@ -37,17 +48,18 @@ export interface VolumeMutationResult {
  */
 export class SandboxManager {
 
-  private worktreeEngine: WorktreeEngine;
+  private baseRepoReady?: Promise<void>;
+
   constructor(
     private sandboxRepo: ISandboxRepository,
-    private rustClient: IRustEngineClient = new RustEngineClient()
-  ) {
-
-    // Initialize the engine pointing to a data folder on the server
-    const baseRepoPath = path.resolve(process.cwd(), 'data/central-repo.git');
-    const worktreesRoot = path.resolve(process.cwd(), 'data/worktrees');
-    this.worktreeEngine = new WorktreeEngine(baseRepoPath, worktreesRoot);
-  }
+    private rustClient: IRustEngineClient = new RustEngineClient(),
+    // Injected like rustClient so tests and alternate storage layouts can
+    // swap it; the default points at the server's data folder.
+    private worktreeEngine: WorktreeEngine = new WorktreeEngine(
+      path.resolve(process.cwd(), 'data/central-repo.git'),
+      path.resolve(process.cwd(), 'data/worktrees')
+    )
+  ) {}
 
 
   /**
@@ -57,6 +69,14 @@ export class SandboxManager {
    * to the Rust engine.
    */
   public async provision(spec: SandboxSpec): Promise<SandboxRecord> {
+    // 0. Ensure the central bare repo exists (memoized — runs once per process;
+    // a failure resets the memo so a transient error doesn't brick provisioning)
+    this.baseRepoReady ??= this.worktreeEngine.initializeBaseRepo().catch((err) => {
+      this.baseRepoReady = undefined;
+      throw err;
+    });
+    await this.baseRepoReady;
+
     // 1. Generate a dedicated ID for the storage layer
     const worktreeId = crypto.randomUUID();
 
@@ -94,6 +114,20 @@ export class SandboxManager {
 
   public async getRecord(sandboxId: string): Promise<SandboxRecord | null> {
     return this.sandboxRepo.get(sandboxId);
+  }
+
+  /**
+   * @description Resolves the absolute HOST path of a sandbox's `/workspace`.
+   * Because the worktree is bind-mounted into the container, host-side services
+   * (the VFS, future file watchers) can operate on these files directly with
+   * zero container round-trips — and even while the sandbox is PAUSED.
+   */
+  public async getWorkspaceHostPath(sandboxId: string): Promise<string> {
+    const record = await this.getSandboxOrThrow(sandboxId);
+    if (!record.worktreeId) {
+      throw new Error(`Sandbox ${sandboxId} has no worktree attached.`);
+    }
+    return this.worktreeEngine.getWorktreePath(record.worktreeId);
   }
 
 
@@ -157,9 +191,15 @@ export class SandboxManager {
    * @param sandboxId The ID of the sandbox to destroy.
    * @returns A promise resolving to a boolean indicating success.
    */
-  public async destroy(sandboxId: string): Promise<boolean> {
+  public async destroy(sandboxId: string, force = false): Promise<boolean> {
     const record = await this.getRecord(sandboxId);
     if (!record) return false;
+
+    // Pre-flight (1b): refuse to destroy a sandbox whose worktree has
+    // uncommitted changes unless the caller explicitly forces it.
+    if (!force && record.worktreeId && await this.worktreeEngine.isDirty(record.worktreeId)) {
+      throw new DirtyWorktreeError(sandboxId);
+    }
 
     console.log(`[SandboxManager] Requesting Rust to destroy ${sandboxId}...`);
     const success = await this.rustClient.destroySandbox(sandboxId);

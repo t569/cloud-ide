@@ -1,130 +1,65 @@
 // frontend/src/api/vfs.js
 
 /*
-* frontend api endpoints for CRUD operations on the virtual file system in the backend
-* this file defines all the various endpoints for CRUD operations on a file/directory, mounted on our backend virtaul file system
+* Frontend client for the backend Virtual File System (mounted at /api/fs).
+* Endpoints mirror backend/src/api/FileSystemRoutes.ts exactly:
+*   GET    /fs/:sandboxId/ls?path=...      -> flat directory listing
+*   GET    /fs/:sandboxId/read?path=...    -> { content }
+*   POST   /fs/:sandboxId/write            -> { path, content }
+*   DELETE /fs/:sandboxId/delete?path=...
 */
 import { API_BASE_URL } from "../config/env";
 
+async function handle(response, fallbackMessage) {
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || fallbackMessage);
+  }
+  return response.json();
+}
+
 export const VirtualFileSystem = {
   /**
-   * Pushes the file content to the OS physical hard drive.
+   * Pushes the file content to the sandbox filesystem.
    */
-  saveFile: async (sessionId, filePath, content) => {
-    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/save`, {
-      method: 'PUT',
+  saveFile: async (sandboxId, filePath, content) => {
+    const response = await fetch(`${API_BASE_URL}/fs/${sandboxId}/write`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ path: filePath, content })
     });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to save file to VFS');
-    }
-
-    return response.json();
+    return handle(response, 'Failed to save file to VFS');
   },
 
   /**
-   * Pulls the raw file content from the OS physical hard drive.
+   * Pulls the raw file content. Returns { content: "raw string data..." }.
    */
-  getFile: async (sessionId, filePath) => {
-    // Safely encode the path as a query parameter
+  getFile: async (sandboxId, filePath) => {
     const query = new URLSearchParams({ path: filePath }).toString();
-    
-    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/file?${query}`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to read file from VFS');
-    }
-
-    return response.json(); // Returns { content: "raw string data..." }
+    const response = await fetch(`${API_BASE_URL}/fs/${sandboxId}/read?${query}`);
+    return handle(response, 'Failed to read file from VFS');
   },
 
   /**
-   * Creates a new file and sends it to the backend
-   * @param {*} sessionId 
-   * @param {*} filePath 
-   * @returns 
+   * Deletes a file or directory (recursive).
    */
-  createFile: async (sessionId, filePath) => {
-    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/file`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: filePath })
-    });
-    if (!response.ok) throw new Error((await response.json()).error);
-    return response.json();
-  },
-
-  /**
-   * Creates a new directory and sends it to the backend
-   * @param {*} sessionId 
-   * @param {*} dirPath 
-   * @returns 
-   */
-  createDirectory: async (sessionId, dirPath) => {
-    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/directory`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: dirPath })
-    });
-    if (!response.ok) throw new Error((await response.json()).error);
-    return response.json();
-  },
-
-  /**
-   * Rename a particular file or directory
-   * @param {*} sessionId 
-   * @param {*} oldPath 
-   * @param {*} newPath 
-   * @returns 
-   */
-  renameEntity: async (sessionId, oldPath, newPath) => {
-    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/rename`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ oldPath, newPath })
-    });
-    if (!response.ok) throw new Error((await response.json()).error);
-    return response.json();
-  },
-
-  /**
-   * Delete a file or directory
-   * @param {*} sessionId 
-   * @param {*} targetPath 
-   * @returns 
-   */
-  deleteEntity: async (sessionId, targetPath) => {
+  deleteEntity: async (sandboxId, targetPath) => {
     const query = new URLSearchParams({ path: targetPath }).toString();
-    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/entity?${query}`, {
+    const response = await fetch(`${API_BASE_URL}/fs/${sandboxId}/delete?${query}`, {
       method: 'DELETE'
     });
-    if (!response.ok) throw new Error((await response.json()).error);
-    return response.json();
+    return handle(response, 'Failed to delete path');
   },
 
-
   /**
-   * Fetches the nested directory structure for the sidebar explorer.
+   * Lists one directory level for the sidebar explorer.
+   * Returns [{ name, path, type: 'file' | 'directory' }, ...].
+   * ponytail: flat per-directory listing, not a recursive tree — the sidebar
+   * lazy-loads children on expand. Add a /tree endpoint if that ever hurts.
    */
-  getTree: async (sessionId) => {
-    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/tree`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to fetch directory tree');
-    }
-
-    const data = await response.json();
-    return data.tree; // Returns an array of nested file/folder objects
+  listDirectory: async (sandboxId, dirPath = '/workspace') => {
+    const query = new URLSearchParams({ path: dirPath }).toString();
+    const response = await fetch(`${API_BASE_URL}/fs/${sandboxId}/ls?${query}`);
+    return handle(response, 'Failed to list directory');
   }
 };

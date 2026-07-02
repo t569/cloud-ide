@@ -73,6 +73,31 @@ export class WorktreeEngine {
     
 
     /**
+     * Resolves the absolute host path of a sandbox's worktree.
+     * Single source of truth for the worktree layout — nothing outside this
+     * class should join paths under `worktreesRoot` itself.
+     */
+    public getWorktreePath(sandboxId: string): string {
+        return path.join(this.worktreesRoot, sandboxId);
+    }
+
+    /**
+     * Returns true if the worktree has uncommitted changes (staged, unstaged, or untracked).
+     * A missing worktree directory is treated as clean — there is nothing to lose.
+     */
+    public async isDirty(sandboxId: string): Promise<boolean> {
+        const targetPath = path.join(this.worktreesRoot, sandboxId);
+        try {
+            await fs.access(targetPath);
+        } catch {
+            return false;
+        }
+
+        const { stdout } = await execAsync('git status --porcelain', { cwd: targetPath });
+        return stdout.trim().length > 0;
+    }
+
+    /**
     * Safely deletes the worktree from the disk and the Git tracking database.
     */
 

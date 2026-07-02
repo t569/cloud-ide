@@ -5,7 +5,7 @@
 */
 import React, { useState } from 'react';
 import { VirtualFileSystem } from '../api/vfs';
-import WorkspaceEditor from '../components/';
+import WorkspaceEditor from '../editor/components/WorkspaceEditor';
 
 // TODO: implement this
 // import FileExplorerSidebar from '../components/FileExplorerSidebar'; 

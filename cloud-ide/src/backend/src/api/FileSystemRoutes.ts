@@ -1,11 +1,11 @@
 // backend/src/api/FileSystemRoutes.ts
 import { Router, Request, Response, NextFunction } from 'express';
 import { FileSystemManager } from '../services/FileSystemManager';
-import { SandboxManager } from '../services/sandbox/SandboxManager';
 
-export function createFileSystemRouter(sandboxManager: SandboxManager): Router {
+// The router is pure transport: it depends on the FileSystemManager it is
+// given and knows nothing about how or where files are actually stored.
+export function createFileSystemRouter(fsManager: FileSystemManager): Router {
   const router = Router();
-  const fsManager = new FileSystemManager(sandboxManager);
   /**
    * PARAMETER VALIDATION MIDDLEWARE
    * Intercepts any route containing ':sandboxId' and validates it first.

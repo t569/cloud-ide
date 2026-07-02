@@ -4,10 +4,6 @@ import Editor from '@monaco-editor/react';
 import { getLanguageFromExtension } from '../../utils/editorUtils';
 import { useWorkspaceEditor } from '../hooks/useWorkspaceEditor';
 
-// THIS IS BROKEN
-
-// import { EditorOverlay } from './EditorOverlay'; // Modular sub-component
-
 export default function WorkspaceEditor({ sessionId, file, onFileStateChange }) {
   const { isSaving, onMount, onChange } = useWorkspaceEditor(sessionId, file, onFileStateChange);
 
@@ -17,8 +13,12 @@ export default function WorkspaceEditor({ sessionId, file, onFileStateChange }) 
 
   return (
     <div className="workspace-container" style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <EditorOverlay isSaving={isSaving} />
-      
+      {isSaving && (
+        <div style={{ position: 'absolute', top: 8, right: 16, zIndex: 10, color: '#9ca3af', fontSize: 12 }}>
+          Saving…
+        </div>
+      )}
+
       <Editor
         height="100%"
         theme="vs-dark"

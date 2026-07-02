@@ -33,8 +33,8 @@ export class AdminController {
     }
 
     try {
-      // Tell Rust to kill the container entirely
-      await this.sandboxManager.destroy(sandboxId);
+      // Tell Rust to kill the container entirely (god-mode skips the dirty-worktree pre-flight)
+      await this.sandboxManager.destroy(sandboxId, true);
       res.status(200).json({ message: `Sandbox ${sandboxId} obliterated.` });
     } catch (error: any) {
       res.status(500).json({ error: error.message });

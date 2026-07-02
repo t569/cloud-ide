@@ -1,6 +1,22 @@
 // backend/src/services/FileSystemManager.ts
-import { SandboxExecRequest } from '@cloud-ide/shared/types/sandbox';
+//
+// Host-direct Virtual File System.
+//
+// The sandbox's /workspace is a Git worktree bind-mounted from the host SSD,
+// so every VFS operation runs against the host filesystem with node:fs —
+// zero container round-trips, no shell involved (no injection surface), and
+// it works even while the sandbox is PAUSED, which keeps Scale-to-Zero intact.
+//
+// The previous implementation shelled into the container per operation
+// (ls/base64 via execd); it was removed once every sandbox got a host mount.
+// ponytail: single-node assumption — gateway and worktrees share a disk.
+// If the gateway ever splits from sandbox hosts, reintroduce a provider
+// interface and an agent-backed implementation behind it.
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { SandboxManager } from './sandbox/SandboxManager';
+
+const CONTAINER_WORKSPACE = '/workspace';
 
 export interface FileNode {
   name: string;
@@ -11,88 +27,80 @@ export interface FileNode {
 export class FileSystemManager {
   constructor(private sandboxManager: SandboxManager) {}
 
-  private async execContainerCommand(sandboxId: string, request: SandboxExecRequest): Promise<string> {
-    const result = await this.sandboxManager.execBuffered(sandboxId, request);
+  /**
+   * Maps a container-visible path (e.g. `/workspace/src/index.js`) to its
+   * host equivalent inside the sandbox's worktree, and guarantees the result
+   * cannot escape the worktree root (`..`, absolute tricks, etc.).
+   * This guard is the VFS's trust boundary — every public method goes through it.
+   */
+  private async resolveHostPath(sandboxId: string, containerPath: string): Promise<string> {
+    const hostRoot = await this.sandboxManager.getWorkspaceHostPath(sandboxId);
 
-    if (result.exitCode !== 0) {
-      throw new Error(
-        `Container Command Failed (Code ${result.exitCode}):\n${result.stderr || 'Unknown Error'}`
-      );
+    let relative = containerPath;
+    if (relative === CONTAINER_WORKSPACE) {
+      relative = '.';
+    } else if (relative.startsWith(`${CONTAINER_WORKSPACE}/`)) {
+      relative = relative.slice(CONTAINER_WORKSPACE.length + 1);
+    } else {
+      relative = relative.replace(/^\/+/, '');
     }
 
-    return result.stdout.trim();
+    const resolved = path.resolve(hostRoot, relative);
+    if (resolved !== hostRoot && !resolved.startsWith(hostRoot + path.sep)) {
+      throw new Error(`Path escapes the workspace: ${containerPath}`);
+    }
+    return resolved;
   }
-  /**
-   * Lists all files and directories in a given path
-   */
-  public async listDirectory(sandboxId: string, dirPath: string = '/workspace'): Promise<FileNode[]> {
-    // Uses standard Linux 'ls' to format output as "filename|type" (e.g., "src|d" or "index.js|f")
-    const shellScript = `ls -1p "${dirPath}" | awk '{if(substr($0,length($0),1)=="/") print substr($0,1,length($0)-1)"|d"; else print $0"|f"}'`;
-    
-    try {
-      const output = await this.execContainerCommand(sandboxId, {
-        command: ['/bin/sh', '-c', shellScript],
-        cwd: '/workspace',
-      });
-      
-      if (!output.trim()) return [];
 
-      return output.trim().split('\n').map(line => {
-        const [name, typeChar] = line.split('|');
-        return {
-          name,
-          path: `${dirPath === '/' ? '' : dirPath}/${name}`,
-          type: typeChar === 'd' ? 'directory' : 'file'
-        };
-      });
+  /**
+   * Lists all files and directories in a given path (container-relative).
+   * Returns container-visible paths so the frontend never sees host layout.
+   */
+  public async listDirectory(sandboxId: string, dirPath: string = CONTAINER_WORKSPACE): Promise<FileNode[]> {
+    const hostPath = await this.resolveHostPath(sandboxId, dirPath);
+
+    let entries;
+    try {
+      entries = await fs.readdir(hostPath, { withFileTypes: true });
     } catch (err: any) {
-      if (err.message.includes('No such file or directory')) return [];
+      if (err.code === 'ENOENT') return [];
       throw err;
     }
+
+    return entries.map((entry) => ({
+      name: entry.name,
+      path: `${dirPath === '/' ? '' : dirPath}/${entry.name}`,
+      type: entry.isDirectory() ? 'directory' as const : 'file' as const,
+    }));
   }
 
   /**
-   * Reads a file's content securely using Base64
+   * Reads a file's content as UTF-8.
    */
- public async readFile(sandboxId: string, filePath: string): Promise<string> {
-    // We encode the file to base64 inside the container before sending it over HTTP
-    // This perfectly preserves line breaks, emojis, and special characters.
-    const base64Output = await this.execContainerCommand(sandboxId, {
-      command: ['/bin/sh', '-c', `base64 "${filePath}"`],
-      cwd: '/workspace',
-    });
-    return Buffer.from(base64Output.trim(), 'base64').toString('utf-8');
+  public async readFile(sandboxId: string, filePath: string): Promise<string> {
+    const hostPath = await this.resolveHostPath(sandboxId, filePath);
+    return fs.readFile(hostPath, 'utf-8');
   }
 
   /**
-   * Writes content to a file securely using Base64
+   * Writes content to a file, creating parent directories as needed.
    */
   public async writeFile(sandboxId: string, filePath: string, content: string): Promise<void> {
-     const b64Content = Buffer.from(content).toString('base64');
-    
-    // Ensure the parent directory exists first (mkdir -p)
-    const dirName = filePath.substring(0, filePath.lastIndexOf('/'));
-    await this.execContainerCommand(sandboxId, {
-      command: ['/bin/sh', '-c', `mkdir -p "${dirName}"`],
-      cwd: '/workspace',
-    });
-
-    // Write the file
-    await this.execContainerCommand(sandboxId, {
-      command: ['/bin/sh', '-c', `echo "${b64Content}" | base64 -d > "${filePath}"`],
-      cwd: '/workspace',
-    });
+    const hostPath = await this.resolveHostPath(sandboxId, filePath);
+    await fs.mkdir(path.dirname(hostPath), { recursive: true });
+    await fs.writeFile(hostPath, content, 'utf-8');
   }
 
   /**
-   * Deletes a file or directory
+   * Deletes a file or directory (recursive). Refuses to delete the workspace
+   * root itself — that would destroy the worktree's own Git link.
    */
   public async deletePath(sandboxId: string, pathToRemove: string): Promise<void> {
-    // rm -rf safely removes files or recursively deletes folders
-    await this.execContainerCommand(sandboxId, {
-      command: ['/bin/sh', '-c', `rm -rf "${pathToRemove}"`],
-      cwd: '/workspace',
-    });
+    const hostPath = await this.resolveHostPath(sandboxId, pathToRemove);
+    const hostRoot = await this.sandboxManager.getWorkspaceHostPath(sandboxId);
+    if (hostPath === hostRoot) {
+      throw new Error('Refusing to delete the workspace root.');
+    }
+    await fs.rm(hostPath, { recursive: true, force: true });
   }
 }
-

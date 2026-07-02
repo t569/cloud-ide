@@ -5,7 +5,7 @@ import {
   SandboxSpec,
   VolumeMount,
 } from '@cloud-ide/shared/types/sandbox';
-import { SandboxManager } from '../services/sandbox/SandboxManager';
+import { DirtyWorktreeError, SandboxManager } from '../services/sandbox/SandboxManager';
 
 
 /**
@@ -187,11 +187,15 @@ export class SandboxController {
       return;
     }
 
+    const force = req.query.force === 'true';
+
     try {
-      await this.sandboxManager.destroy(sandboxId);
+      await this.sandboxManager.destroy(sandboxId, force);
       res.status(200).json({ sandboxId, destroyed: true });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      // Dirty-worktree pre-flight rejection (1b) is a conflict, not a server fault
+      const status = error instanceof DirtyWorktreeError ? 409 : 500;
+      res.status(status).json({ error: error.message });
     }
   };
 

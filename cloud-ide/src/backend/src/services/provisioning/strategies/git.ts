@@ -1,6 +1,6 @@
 // backend/src/services/provisioning/strategies/git.ts
 
-
+// DEPRECIATED
 // strategy to inject git repo after boot up of sandbox
 
 // TODO; we need to handle a case where we try terminating a sandbox when our work tree isnt clean

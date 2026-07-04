@@ -27,6 +27,7 @@ import { csrfProtection } from './api/middleware/security';
 
 // File Routers
 import { createFileSystemRouter } from './api/FileSystemRoutes';
+import { createPreviewRouter } from './api/PreviewRoutes';
 import { createEnvironmentRouter } from './api/routes/environment.routes';
 
 import { EventEmitter } from 'events';
@@ -36,6 +37,7 @@ import { JsonSessionRepository } from './database/json/JsonSessionRepository';
 import { PersistenceLayer } from './database/PersistenceLayer';
 import { SandboxManager } from './services/sandbox/SandboxManager';
 import { IdleSweeper } from './services/sandbox/IdleSweeper';
+import { FileSystemManager } from './services/FileSystemManager';
 
 // Docker clean up services
 import { GarbageCollector } from './services/builder';
@@ -99,9 +101,13 @@ app.use('/api/environment', createEnvironmentRouter(envRepo, sessionRepo));
 // GARBAGE COLLECTION: RUNS IN THE BACKGROUND
 GarbageCollector.init();
 
-// NEW: Mount the Virtual File System routes.
+// NEW: Mount the Virtual File System routes (host-direct against the worktrees).
 // sessionRepo is injected so the router can enforce sandbox ownership (IDOR).
-app.use('/api/fs', createFileSystemRouter(sandboxManager, sessionRepo));
+const fileSystemManager = new FileSystemManager(sandboxManager);
+app.use('/api/fs', createFileSystemRouter(fileSystemManager, sessionRepo));
+
+// NEW: Mount the Ingress Router (Step 3) — proxies browser traffic into sandbox services
+app.use('/preview', createPreviewRouter(sandboxManager));
 
 /**
  * 🌟 The Gateway HTTP Server

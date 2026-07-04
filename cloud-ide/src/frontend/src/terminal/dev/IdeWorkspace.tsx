@@ -105,6 +105,7 @@ import { FileIconPlugin } from '../../terminal/core/plugins/FileIconPlugin';
 // 1. IMPORT THE TYPE
 import { ITransportStream } from '../../terminal/types/terminal';
 import { LinkSnifferPlugin } from '../core/plugins/LinkSnifferPluggin';
+import { API_BASE_URL } from '../../config/env';
 
 // 2. DEFINE THE PROPS INTERFACE
 interface IdeWorkspaceProps {
@@ -134,14 +135,14 @@ export const IdeWorkspace = ({ transport, sandboxId }: IdeWorkspaceProps) => {
     if (!portMatch) return;
     const port = portMatch[1];
 
-    // 2. Build your proxy URL based on your backend architecture
-    // Example: If your OpenSandbox assigns domains like https://3000-sbx123.yourdomain.com
-    const proxiedUrl = `https://${port}-${sandboxId}.your-cloud-ide.com`;
+    // 2. Route through the Gateway's Ingress proxy (Step 3):
+    //    /preview/:sandboxId/:port -> container-internal localhost:port
+    const proxiedUrl = `${API_BASE_URL.replace(/\/api$/, '')}/preview/${sandboxId}/${port}/`;
 
-    console.log(`[IDE Action] Intercepted ${rawUrl}. Opening split pane for ${proxiedUrl}`);
-    
-    // 3. Dispatch action to open the built-in browser tab in your IDE!
-    // dispatch(openPreviewTab(proxiedUrl));
+    console.log(`[IDE Action] Intercepted ${rawUrl}. Opening preview for ${proxiedUrl}`);
+
+    // 3. Broadcast so the PreviewPane (or any listener) opens the app
+    sharedEventBus.emit('PREVIEW_URL', { url: proxiedUrl });
   };
 
   return (

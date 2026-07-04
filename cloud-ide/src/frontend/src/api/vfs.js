@@ -1,8 +1,12 @@
 // frontend/src/api/vfs.js
 
 /*
-* frontend api endpoints for CRUD operations on the virtual file system in the backend
-* this file defines all the various endpoints for CRUD operations on a file/directory, mounted on our backend virtaul file system
+* Frontend client for the backend Virtual File System (mounted at /api/fs).
+* Endpoints mirror backend/src/api/FileSystemRoutes.ts exactly:
+*   GET    /fs/:sandboxId/ls?path=...      -> flat directory listing
+*   GET    /fs/:sandboxId/read?path=...    -> { content }
+*   POST   /fs/:sandboxId/write            -> { path, content }
+*   DELETE /fs/:sandboxId/delete?path=...
 *
 * All calls route through the shared apiClient, which attaches the session cookie
 * (credentials: 'include') and a CSRF double-submit token on state-changing
@@ -11,37 +15,30 @@
 import { apiClient } from "../lib/apiClient";
 
 export const VirtualFileSystem = {
-  /** Pushes the file content to the OS physical hard drive. */
-  saveFile: (sessionId, filePath, content) =>
-    apiClient.put(`/fs/${sessionId}/save`, { path: filePath, content }),
+  /** Pushes the file content to the sandbox filesystem. */
+  saveFile: (sandboxId, filePath, content) =>
+    apiClient.post(`/fs/${sandboxId}/write`, { path: filePath, content }),
 
-  /** Pulls the raw file content from the OS physical hard drive. */
-  getFile: (sessionId, filePath) => {
+  /** Pulls the raw file content. Returns { content: "..." }. */
+  getFile: (sandboxId, filePath) => {
     const query = new URLSearchParams({ path: filePath }).toString();
-    return apiClient.get(`/fs/${sessionId}/file?${query}`); // -> { content: "..." }
+    return apiClient.get(`/fs/${sandboxId}/read?${query}`);
   },
 
-  /** Creates a new file and sends it to the backend. */
-  createFile: (sessionId, filePath) =>
-    apiClient.post(`/fs/${sessionId}/file`, { path: filePath }),
-
-  /** Creates a new directory and sends it to the backend. */
-  createDirectory: (sessionId, dirPath) =>
-    apiClient.post(`/fs/${sessionId}/directory`, { path: dirPath }),
-
-  /** Rename a particular file or directory. */
-  renameEntity: (sessionId, oldPath, newPath) =>
-    apiClient.put(`/fs/${sessionId}/rename`, { oldPath, newPath }),
-
-  /** Delete a file or directory. */
-  deleteEntity: (sessionId, targetPath) => {
+  /** Deletes a file or directory (recursive). */
+  deleteEntity: (sandboxId, targetPath) => {
     const query = new URLSearchParams({ path: targetPath }).toString();
-    return apiClient.delete(`/fs/${sessionId}/entity?${query}`);
+    return apiClient.delete(`/fs/${sandboxId}/delete?${query}`);
   },
 
-  /** Fetches the nested directory structure for the sidebar explorer. */
-  getTree: async (sessionId) => {
-    const data = await apiClient.get(`/fs/${sessionId}/tree`);
-    return data.tree; // Returns an array of nested file/folder objects
+  /**
+   * Lists one directory level for the sidebar explorer.
+   * Returns [{ name, path, type: 'file' | 'directory' }, ...].
+   * ponytail: flat per-directory listing, not a recursive tree — the sidebar
+   * lazy-loads children on expand. Add a /tree endpoint if that ever hurts.
+   */
+  listDirectory: (sandboxId, dirPath = '/workspace') => {
+    const query = new URLSearchParams({ path: dirPath }).toString();
+    return apiClient.get(`/fs/${sandboxId}/ls?${query}`);
   },
 };

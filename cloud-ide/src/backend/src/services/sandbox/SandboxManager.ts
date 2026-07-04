@@ -13,6 +13,9 @@ import {
 import { ISandboxRepository } from '../../database/interfaces/ISandboxRepository';
 import { ExecConnectionInfo } from '../../types/engine';
 import { IRustEngineClient, RustEngineClient } from './rustClient';
+import { WorktreeEngine } from '../storage/WorktreeEngine';
+import { WorkspaceProvisioner } from '../provisioning';
+import { WorktreeStrategy } from '../provisioning/strategies/git/WorktreeStrategy';
 
 const DEFAULT_WORKSPACE_MOUNT_PATH = '/workspace';
 const USER_VOLUME_ROOT = `${DEFAULT_WORKSPACE_MOUNT_PATH}/mounts`;
@@ -20,6 +23,17 @@ const USER_VOLUME_ROOT = `${DEFAULT_WORKSPACE_MOUNT_PATH}/mounts`;
 export interface VolumeMutationResult {
   sandbox: SandboxRecord;
   restartRequired: boolean;
+}
+
+/**
+ * Thrown when destroy() is blocked by uncommitted changes in the sandbox's
+ * worktree. Controllers map this to HTTP 409 by type, not by message text.
+ */
+export class DirtyWorktreeError extends Error {
+  constructor(sandboxId: string) {
+    super(`Sandbox ${sandboxId} has uncommitted changes in its worktree. Commit them or retry with ?force=true.`);
+    this.name = 'DirtyWorktreeError';
+  }
 }
 /**
  * @class SandboxManager
@@ -33,9 +47,18 @@ export interface VolumeMutationResult {
  * - Safe volume mutation semantics (handling hostPath resolution).
  */
 export class SandboxManager {
+
+  private baseRepoReady?: Promise<void>;
+
   constructor(
     private sandboxRepo: ISandboxRepository,
-    private rustClient: IRustEngineClient = new RustEngineClient()
+    private rustClient: IRustEngineClient = new RustEngineClient(),
+    // Injected like rustClient so tests and alternate storage layouts can
+    // swap it; the default points at the server's data folder.
+    private worktreeEngine: WorktreeEngine = new WorktreeEngine(
+      path.resolve(process.cwd(), 'data/central-repo.git'),
+      path.resolve(process.cwd(), 'data/worktrees')
+    )
   ) {}
 
 
@@ -46,18 +69,40 @@ export class SandboxManager {
    * to the Rust engine.
    */
   public async provision(spec: SandboxSpec): Promise<SandboxRecord> {
-    console.log('[SandboxManager] Delegating boot sequence to Rust Core...');
+    // 0. Ensure the central bare repo exists (memoized — runs once per process;
+    // a failure resets the memo so a transient error doesn't brick provisioning)
+    this.baseRepoReady ??= this.worktreeEngine.initializeBaseRepo().catch((err) => {
+      this.baseRepoReady = undefined;
+      throw err;
+    });
+    await this.baseRepoReady;
 
-    const prepared = await this.prepareProvisionSpec(spec);
-    const rustStatus = await this.rustClient.bootSandbox(prepared.spec);
+    // 1. Generate a dedicated ID for the storage layer
+    const worktreeId = crypto.randomUUID();
 
+    // 2. Request the host path from the Engine
+    const hostPath = await this.worktreeEngine.createWorktree(worktreeId);
+
+    // 3. Use your Provisioner Strategy to mutate the spec flawlessly
+    const strategy = new WorktreeStrategy(hostPath);
+    const provisioner = new WorkspaceProvisioner(strategy);
+    const mutatedSpec = provisioner.prepareSpec(spec);
+    
+    // 4. Normalize any user-defined volumes (replaces prepareProvisionSpec)
+    const finalSpec = this.normalizeUserVolumes(mutatedSpec);
+
+    // 5. Boot the container via Rust
+    const rustStatus = await this.rustClient.bootSandbox(finalSpec);
+
+    // 6. Save the record, explicitly linking the Rust ID to the Worktree ID
     const record: SandboxRecord = {
-      sandboxId: rustStatus.sandboxId,
+      sandboxId: rustStatus.sandboxId,     // The OpenSandbox ID (e.g., sbx-1234)
+      worktreeId: worktreeId,              // The Host SSD folder ID (e.g., uuid)
       environmentId: spec.imageTag,
       state: rustStatus.state,
       ipAddress: rustStatus.ipAddress,
       execdPort: rustStatus.execdPort,
-      desiredVolumes: prepared.desiredVolumes,
+      desiredVolumes: finalSpec.volumes || [],
       workspaceMountPath: DEFAULT_WORKSPACE_MOUNT_PATH,
       requiresReprovision: false,
       createdAt: Date.now(),
@@ -69,6 +114,20 @@ export class SandboxManager {
 
   public async getRecord(sandboxId: string): Promise<SandboxRecord | null> {
     return this.sandboxRepo.get(sandboxId);
+  }
+
+  /**
+   * @description Resolves the absolute HOST path of a sandbox's `/workspace`.
+   * Because the worktree is bind-mounted into the container, host-side services
+   * (the VFS, future file watchers) can operate on these files directly with
+   * zero container round-trips — and even while the sandbox is PAUSED.
+   */
+  public async getWorkspaceHostPath(sandboxId: string): Promise<string> {
+    const record = await this.getSandboxOrThrow(sandboxId);
+    if (!record.worktreeId) {
+      throw new Error(`Sandbox ${sandboxId} has no worktree attached.`);
+    }
+    return this.worktreeEngine.getWorktreePath(record.worktreeId);
   }
 
 
@@ -132,12 +191,25 @@ export class SandboxManager {
    * @param sandboxId The ID of the sandbox to destroy.
    * @returns A promise resolving to a boolean indicating success.
    */
-  public async destroy(sandboxId: string): Promise<boolean> {
+  public async destroy(sandboxId: string, force = false): Promise<boolean> {
+    const record = await this.getRecord(sandboxId);
+    if (!record) return false;
+
+    // Pre-flight (1b): refuse to destroy a sandbox whose worktree has
+    // uncommitted changes unless the caller explicitly forces it.
+    if (!force && record.worktreeId && await this.worktreeEngine.isDirty(record.worktreeId)) {
+      throw new DirtyWorktreeError(sandboxId);
+    }
+
     console.log(`[SandboxManager] Requesting Rust to destroy ${sandboxId}...`);
     const success = await this.rustClient.destroySandbox(sandboxId);
 
     if (success) {
       await this.sandboxRepo.delete(sandboxId);
+      // Clean up using the dedicated worktree ID!
+      if (record.worktreeId) {
+          await this.worktreeEngine.removeWorktree(record.worktreeId);
+      }
     }
 
     return success;
@@ -242,6 +314,7 @@ export class SandboxManager {
    * @param spec 
    * @returns 
    */
+  // DEPRECIATED - Replaced by normalizeUserVolumes and the WorktreeStrategy
   private async prepareProvisionSpec(
     spec: SandboxSpec
   ): Promise<{ spec: SandboxSpec; desiredVolumes: VolumeMount[] }> {
@@ -258,6 +331,22 @@ export class SandboxManager {
         volumes: desiredVolumes,
       },
       desiredVolumes,
+    };
+  }
+
+  /**
+   * Replaces prepareProvisionSpec. Only normalizes extra volumes the user requested.
+   */
+  private normalizeUserVolumes(spec: SandboxSpec): SandboxSpec {
+    const userVolumes = (spec.volumes || [])
+      .filter((volume) => volume.kind !== 'workspace')
+      .map((volume) => this.normalizeUserVolume(volume));
+
+    const workspaceVolume = spec.volumes?.find(v => v.kind === 'workspace');
+    
+    return {
+      ...spec,
+      volumes: workspaceVolume ? [workspaceVolume, ...userVolumes] : userVolumes,
     };
   }
 

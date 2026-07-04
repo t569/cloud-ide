@@ -6,6 +6,7 @@ import { ISessionRepository, ISandboxRepository } from '../database/interfaces';
 import { SandboxManager } from '../services/sandbox/SandboxManager';
 import { SessionRecord } from '../database/models';
 import { config } from '../config/env';
+import { SID_COOKIE, SESSION_COOKIE_OPTIONS } from '../api/middleware/security';
 
 /**
  * @class SessionController
@@ -87,6 +88,11 @@ export class SessionController {
 
       // 5. Link the session and mark it active
       this.systemEvents.emit('session:active', { sessionId, sandboxId: targetSandboxId });
+
+      // 5b. Issue the session as an httpOnly cookie. This is the bearer the
+      // /api/fs ownership guard checks against — it never leaves JS, so it is
+      // not readable by XSS, and SameSite blocks cross-site use.
+      res.cookie(SID_COOKIE, sessionId, SESSION_COOKIE_OPTIONS);
 
       // 6. Return the connection details to the frontend
       res.status(200).json({

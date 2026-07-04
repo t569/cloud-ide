@@ -35,6 +35,7 @@ editor/
 │   ├── FileExplorer.tsx      # Recursive tree, driven by VFS_TREE_UPDATED
 │   ├── EditorTabs.tsx        # Open-file tabs (dirty dot, delete strike-through)
 │   ├── MonacoEditorWrapper.tsx # The Monaco boundary (models, themes, LSP install)
+│   ├── CommandPalette.tsx    # Quick-open file switcher (Ctrl+P), bus-driven
 │   ├── IDETerminal.tsx       # Bridges the terminal module into the editor bus
 │   └── StatusBar.tsx         # Cursor / EOL / git info
 ├── context/              # React state engines
@@ -54,6 +55,7 @@ editor/
 │   └── manifest.ts           # THE one place you wire backends
 ├── utils/
 │   ├── LocalStoragemanager.ts # Namespaced, per-sandbox layout persistence
+│   ├── quickOpen.ts           # Pure helpers for the Command Palette (flatten/fuzzy)
 │   └── themeAdapters.ts       # Palette -> CSS vars / xterm / monaco themes
 ├── types/editor.d.ts     # Single source of truth for editor types + bus payloads
 ├── SECURITY.md           # Security audit (findings + fixes)
@@ -204,3 +206,43 @@ or the registry.
   prop-drilled cascades.
 * Keep new work behind these seams: a new feature is usually a new **transport**,
   a new **bus event**, or a new **dumb component** — not a change to the core.
+
+---
+
+# 🗺️ Roadmap & TODO
+
+### ✅ Phase 1: Core Shell (Completed)
+- [x] Event-bus kernel (`EditorEventBus`) with fully-typed payloads.
+- [x] VFS routing via `VFSController` (open/save/create/delete/rename).
+- [x] `WorkspaceContext` reducer (tabs, active file, sync status).
+- [x] Monaco integration: one model per path, theme, keybindings.
+- [x] Zones: TopNav, ActivityBar, Explorer, Tabs, Terminal, StatusBar.
+- [x] Per-sandbox layout persistence + drag-resize.
+
+### ✅ Phase 2: Security Hardening (Completed — see `SECURITY.md`)
+- [x] `safePath()` path-traversal guard on every file op.
+- [x] Credentialed + CSRF-protected API client; backend ownership (IDOR) guard.
+- [x] REPL worker network lockdown; CSP + security headers.
+
+### ✅ Phase 3: Language Services & UX (Completed)
+- [x] **Ports & Adapters LSP** — `ILanguageServerTransport`, one Monaco bridge,
+      swappable transports (Mock + WebSocket).
+- [x] **Diagnostics** — push-based `onDiagnostics` → Monaco markers (squiggles).
+- [x] **Command Palette / Quick Open** (`Ctrl+P`) — fuzzy file switcher.
+
+### ⏳ Phase 4: Deeper Intelligence (Next Up)
+- [ ] **Go-to-definition** — add `provideDefinition` to the port + a bridge
+      `registerDefinitionProvider`; implement in `WebSocketLSPTransport`.
+- [ ] **Signature help & rename** — same pattern, new port capabilities.
+- [ ] **Real `Save All`** — `TopNavBar` emits `SAVE_REQUESTED { path: 'ALL' }`
+      but `VFSController` doesn't special-case it yet; flush the whole dirty
+      queue on `'ALL'`.
+- [ ] **Format on save / `COMMAND_FORMAT`** — currently emitted, unhandled.
+
+### ⏳ Phase 5: Backend Wiring (Blocked on backend)
+- [ ] Point `lsp/manifest.ts` at a real language-server daemon over
+      `WebSocketLSPTransport` (protocol already implemented).
+- [ ] Replace the VFS mock (`vfs/VirtualFileSystem.ts` hydrate/sync TODOs) with
+      the live `apiClient` calls (auth already wired).
+- [ ] `chokidar` FS-watch → `VFS_TREE_UPDATED` so external file changes (npm
+      install, git) refresh the explorer.

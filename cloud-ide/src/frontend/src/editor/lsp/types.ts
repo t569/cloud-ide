@@ -85,3 +85,27 @@ export const toPortPosition = (lineNumber: number, column: number): Position => 
   line: lineNumber - 1,
   character: column - 1,
 });
+
+/** monaco-shaped marker rectangle (1-based), minus the editor-specific severity enum. */
+export interface MarkerData {
+  message: string;
+  severity: Diagnostic['severity'];
+  startLineNumber: number;
+  startColumn: number;
+  endLineNumber: number;
+  endColumn: number;
+}
+
+/**
+ * Converts a transport `Diagnostic` (0-based) into a 1-based marker rectangle.
+ * Pure/exported: the off-by-one boundary is the bug-prone part, so it is tested
+ * here and the bridge only maps the severity string onto monaco's enum.
+ */
+export const diagnosticToMarker = (d: Diagnostic): MarkerData => ({
+  message: d.message,
+  severity: d.severity,
+  startLineNumber: d.start.line + 1,
+  startColumn: d.start.character + 1,
+  endLineNumber: d.end.line + 1,
+  endColumn: d.end.character + 1,
+});

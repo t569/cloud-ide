@@ -7,8 +7,15 @@
 // single file you rewrite; the transports and registry are untouched.
 
 import * as monaco from 'monaco-editor';
-import { ILanguageServerTransport, CompletionKind } from './types';
-import { toPortPosition } from './types';
+import { ILanguageServerTransport, CompletionKind, Diagnostic } from './types';
+import { toPortPosition, diagnosticToMarker } from './types';
+
+const SEVERITY_MAP: Record<Diagnostic['severity'], monaco.MarkerSeverity> = {
+  error: monaco.MarkerSeverity.Error,
+  warning: monaco.MarkerSeverity.Warning,
+  info: monaco.MarkerSeverity.Info,
+  hint: monaco.MarkerSeverity.Hint,
+};
 
 const KIND_MAP: Record<CompletionKind, monaco.languages.CompletionItemKind> = {
   text: monaco.languages.CompletionItemKind.Text,
@@ -95,6 +102,21 @@ export class MonacoLanguageBridge {
           return { contents: hover.contents.map(value => ({ value })) };
         },
       }));
+    }
+
+    // Diagnostics are push-based (server -> editor). Translate each batch into
+    // monaco markers (the squiggly underlines) on the matching model. Owner is
+    // the languageId so languages never clobber each other's markers.
+    if (this.transport.onDiagnostics) {
+      const unsubscribe = this.transport.onDiagnostics((path, diagnostics) => {
+        const model = m.editor.getModel(m.Uri.parse(path));
+        if (!model) return;
+        m.editor.setModelMarkers(model, lang, diagnostics.map(d => {
+          const marker = diagnosticToMarker(d);
+          return { ...marker, severity: SEVERITY_MAP[marker.severity] };
+        }));
+      });
+      disposables.push({ dispose: unsubscribe });
     }
 
     return disposables;

@@ -10,6 +10,7 @@ import { FileExplorer } from './FileExplorer';
 import { useDesignSystem } from '../context/DesignSystemContext';
 import { DesignSystemProvider } from '../context/DesignSystemContext';
 import { MonacoEditorWrapper } from './MonacoEditorWrapper';
+import { CommandPalette } from './CommandPalette';
 import { LanguageServiceRegistry, createLanguageTransports } from '../lsp';
 
 // TERMINAL
@@ -202,8 +203,11 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-ide-bg text-ide-text font-sans overflow-hidden">
+      {/* Quick-open overlay (Ctrl+P). Bus-driven; renders nothing until opened. */}
+      <CommandPalette files={fileTree} eventBus={eventBus} />
+
       {/* ZONE 1: TOP NAVIGATION */}
-      <TopNavBar 
+      <TopNavBar
         menus={DEFAULT_MENUS}
         activeFilePath={workspaceState.activeFilePath} 
         workspaceName={workspaceState.workspaceName}

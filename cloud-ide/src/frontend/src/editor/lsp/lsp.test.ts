@@ -1,11 +1,30 @@
 import { describe, it, expect } from 'vitest';
-import { toPortPosition } from './types';
+import { toPortPosition, diagnosticToMarker } from './types';
 import { MockLSPTransport } from './transports/MockLSPTransport';
 
 describe('toPortPosition', () => {
   it('converts monaco 1-based to LSP 0-based', () => {
     expect(toPortPosition(1, 1)).toEqual({ line: 0, character: 0 });
     expect(toPortPosition(10, 5)).toEqual({ line: 9, character: 4 });
+  });
+});
+
+describe('diagnosticToMarker', () => {
+  it('converts 0-based diagnostic to a 1-based marker rectangle', () => {
+    const marker = diagnosticToMarker({
+      message: 'undefined name',
+      severity: 'error',
+      start: { line: 2, character: 4 },
+      end: { line: 2, character: 9 },
+    });
+    expect(marker).toEqual({
+      message: 'undefined name',
+      severity: 'error',
+      startLineNumber: 3,
+      startColumn: 5,
+      endLineNumber: 3,
+      endColumn: 10,
+    });
   });
 });
 

@@ -20,6 +20,8 @@ export type {
   FormattingParams,
   SignatureHelp,
   SignatureHelpParams,
+  RenameParams,
+  WorkspaceEdit,
   Diagnostic,
 } from './lsp';
 export { LanguageServiceRegistry, MockLSPTransport, WebSocketLSPTransport } from './lsp';

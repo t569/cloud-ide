@@ -20,12 +20,14 @@ export class LocalStorageManager {
   private static readonly DEFAULT_GLOBAL_SETTINGS: IDEGlobalSettings = {
     fontFamily: "'JetBrains Mono', monospace",
     fontSize: 14,
-    theme: 'dark'
+    theme: 'dark',
+    formatOnSave: false
   };
 
   private static readonly DEFAULT_WORKSPACE_STATE: WorkspaceLayoutState = {
     sidebarOpen: true,
     activeSidebarPanel: 'explorer',
+    sidebarWidth: 250,
     bottomPanelOpen: true,
     bottomPanelHeight: 250
   };

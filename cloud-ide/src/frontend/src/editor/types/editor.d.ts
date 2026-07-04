@@ -17,6 +17,7 @@ export interface IDEGlobalSettings {
   fontFamily: string;      // e.g., "'JetBrains Mono', monospace"
   fontSize: number;        // Global UI font size (Monaco and Terminal might have overrides)
   theme: 'dark' | 'light';
+  formatOnSave: boolean;   // Run the format command before each save
 }
 
 /**

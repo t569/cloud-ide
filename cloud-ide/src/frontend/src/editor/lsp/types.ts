@@ -93,6 +93,19 @@ export interface SignatureHelp {
 /** signature help uses the same shape as hover (a position in a document). */
 export type SignatureHelpParams = HoverParams;
 
+// --- Rename ---
+export interface RenameParams {
+  path: string;
+  languageId: string;
+  position: Position;
+  newName: string;
+}
+
+/** Edits grouped by file — a rename can touch many files at once. */
+export interface WorkspaceEdit {
+  changes: { path: string; edits: TextEdit[] }[];
+}
+
 export interface Diagnostic {
   message: string;
   severity: 'error' | 'warning' | 'info' | 'hint';
@@ -122,6 +135,7 @@ export interface ILanguageServerTransport {
   provideDefinition?(params: DefinitionParams, signal: AbortSignal): Promise<Location[]>;
   provideFormatting?(params: FormattingParams, signal: AbortSignal): Promise<TextEdit[]>;
   provideSignatureHelp?(params: SignatureHelpParams, signal: AbortSignal): Promise<SignatureHelp | null>;
+  provideRename?(params: RenameParams, signal: AbortSignal): Promise<WorkspaceEdit | null>;
 
   /** Push-based (server -> editor). Returns an unsubscribe fn. */
   onDiagnostics?(cb: (path: string, diagnostics: Diagnostic[]) => void): () => void;

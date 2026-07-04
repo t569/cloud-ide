@@ -230,7 +230,7 @@ or the registry.
 - [x] **Diagnostics** — push-based `onDiagnostics` → Monaco markers (squiggles).
 - [x] **Command Palette / Quick Open** (`Ctrl+P`) — fuzzy file switcher.
 
-### ⏳ Phase 4: Deeper Intelligence (In Progress)
+### ✅ Phase 4: Deeper Intelligence (Completed)
 - [x] **Go-to-definition** — `provideDefinition` on the port, a bridge
       `registerDefinitionProvider`, and the `'definition'` method in
       `WebSocketLSPTransport`.
@@ -242,9 +242,16 @@ or the registry.
 - [x] **Format document** — `COMMAND_FORMAT` (Shift+Alt+F) runs monaco's format
       action; `provideFormatting` on the port lets a language server supply the
       edits via `registerDocumentFormattingEditProvider`.
-- [ ] **Rename symbol** — same pattern: a `provideRename` capability +
-      `registerRenameProvider`.
-- [ ] **Format on save** — call the format command from the save flow.
+- [x] **Rename symbol** — `provideRename` capability + a bridge
+      `registerRenameProvider` returning a multi-file `WorkspaceEdit`.
+- [x] **Format on save** — `formatOnSave` global setting; the `Ctrl+S` handler
+      runs the format command (awaited) before emitting `SAVE_REQUESTED`, so the
+      formatting edits are queued into the VFS before the flush.
+
+> Every Phase-4 feature is an **optional port capability** — the language
+> intelligence lives entirely in transports, and the editor lights up whatever a
+> transport advertises. This is the payoff of the ports-and-adapters refactor:
+> six features added, zero changes to the core kernel or the components.
 
 ### ⏳ Phase 5: Backend Wiring (Blocked on backend)
 - [ ] Point `lsp/manifest.ts` at a real language-server daemon over

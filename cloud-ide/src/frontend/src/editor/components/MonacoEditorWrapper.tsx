@@ -17,6 +17,9 @@ interface MonacoEditorProps {
 export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, registry }: MonacoEditorProps) => {
   const editorRef = useRef<any>(null);
   const disposablesRef = useRef<any[]>([]); // Track disposables for cleanup
+  // Latest settings, readable from the (mount-time) input manager closure.
+  const settingsRef = useRef(globalSettings);
+  settingsRef.current = globalSettings;
 
 
   // 1. Handle Editor Mount
@@ -36,7 +39,10 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
     });
     // 1. Setup Theme & Input Interception (Ctrl+S, etc.)
     monaco.editor.setTheme('cloud-ide-dark');
-    const inputManager = new EditorInputManager(editor, eventBus, activeFile?.path || '');
+    const inputManager = new EditorInputManager(
+      editor, eventBus, activeFile?.path || '',
+      () => settingsRef.current.formatOnSave,
+    );
 
     // 2. Install all language services (completion/hover/...) via their monaco
     //    bridges. The registry owns the transports; this call is UI-only.

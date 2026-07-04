@@ -6,15 +6,19 @@ export class EditorInputManager {
   private editor: monaco.editor.IStandaloneCodeEditor;
   private eventBus: EditorEventBus;
   private currentPath: string;
+  // A live getter (not a snapshot) so toggling the setting takes effect at once.
+  private getFormatOnSave: () => boolean;
 
   constructor(
-    editor: monaco.editor.IStandaloneCodeEditor, 
+    editor: monaco.editor.IStandaloneCodeEditor,
     eventBus: EditorEventBus,
-    initialPath: string
+    initialPath: string,
+    getFormatOnSave: () => boolean = () => false,
   ) {
     this.editor = editor;
     this.eventBus = eventBus;
     this.currentPath = initialPath;
+    this.getFormatOnSave = getFormatOnSave;
 
     this.registerShortcuts();
   }
@@ -27,8 +31,12 @@ export class EditorInputManager {
    * Registers global shortcuts overriding browser defaults.
    */
   private registerShortcuts() {
-    // Intercept Ctrl+S / Cmd+S
-    this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+    // Intercept Ctrl+S / Cmd+S. Format first (if enabled) so the formatting
+    // edits are queued into the VFS before SAVE_REQUESTED triggers the flush.
+    this.editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, async () => {
+      if (this.getFormatOnSave()) {
+        await this.editor.getAction('editor.action.formatDocument')?.run();
+      }
       this.eventBus.emit('SAVE_REQUESTED', { path: this.currentPath });
     });
 

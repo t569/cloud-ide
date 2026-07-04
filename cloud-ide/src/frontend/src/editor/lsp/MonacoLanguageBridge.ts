@@ -178,6 +178,38 @@ export class MonacoLanguageBridge {
       }));
     }
 
+    if (this.transport.provideRename) {
+      disposables.push(m.languages.registerRenameProvider(lang, {
+        provideRenameEdits: async (model, position, newName, token) => {
+          const workspaceEdit = await this.transport.provideRename!(
+            {
+              path: model.uri.path,
+              languageId: lang,
+              position: toPortPosition(position.lineNumber, position.column),
+              newName,
+            },
+            signalFromToken(token),
+          );
+          if (!workspaceEdit) return { edits: [] };
+          return {
+            edits: workspaceEdit.changes.flatMap(change =>
+              change.edits.map(edit => {
+                const r = toEditorRange(edit.range);
+                return {
+                  resource: m.Uri.parse(change.path),
+                  versionId: undefined,
+                  textEdit: {
+                    range: new m.Range(r.startLineNumber, r.startColumn, r.endLineNumber, r.endColumn),
+                    text: edit.newText,
+                  },
+                };
+              }),
+            ),
+          };
+        },
+      }));
+    }
+
     // Diagnostics are push-based (server -> editor). Translate each batch into
     // monaco markers (the squiggly underlines) on the matching model. Owner is
     // the languageId so languages never clobber each other's markers.

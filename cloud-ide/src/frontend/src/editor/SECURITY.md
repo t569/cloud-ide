@@ -69,14 +69,28 @@ credentials handling.
 
 ---
 
-## 3. `jsWorker.js` runs `eval()` on REPL input · **Medium (by design, under-sandboxed)**
+## 3. `jsWorker.js` runs `eval()` on REPL input · **Medium (by design, under-sandboxed)** · ✅ FIXED
 
-`repl/jsWorker.js:47` — `(1, eval)(code)`. It's a REPL, so execution is the
-point, and it runs in a Web Worker (no DOM). But the worker still has `fetch`,
-`postMessage`, and network access, so "run my JS" is also "exfiltrate anything
-reachable from the worker origin." Acceptable for a local REPL; if it ever runs
-untrusted/shared snippets, move it into a sandboxed iframe with a locked-down
-CSP `connect-src`.
+`repl/jsWorker.js` — `(1, eval)(code)`. It's a REPL, so execution is the point,
+and it runs in a Web Worker (no DOM). But the worker had `fetch` + network
+access, so "run my JS" was also "exfiltrate anything reachable from the worker
+origin" — and after finding #2 those same-origin calls ride the user's session
+cookie, so a shared/pasted snippet could read authenticated VFS data and beacon
+it out.
+
+**Fixed:** The worker now revokes every network + code-loading primitive
+(`fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, `importScripts`,
+`Worker`, `SharedWorker`, `navigator.sendBeacon`) in a locked
+`Object.defineProperty` (writable/configurable `false`) at the very top of the
+file, before any user code runs. This REPL needs zero network, so nothing
+breaks; `importScripts`/`Worker` are revoked too, so eval'd code can't pull a
+fresh reference, and the lock blocks reassignment. `postMessage` (the legit
+channel back to xterm) is intentionally preserved.
+
+Note: the Python/Ruby REPL workers are **not** given this treatment — they fetch
+their WASM runtimes (Pyodide / ruby.wasm) from a CDN at init and genuinely need
+network. If they ever run untrusted code, they need the iframe+CSP approach
+instead of blanket revocation.
 
 ---
 

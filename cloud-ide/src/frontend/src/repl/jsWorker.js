@@ -1,6 +1,32 @@
 // src/jsWorker.js
 // REPL for JavaScript
 
+// ==========================================
+// SECURITY: sandbox the eval() below (finding #3)
+// ==========================================
+// This REPL eval()s arbitrary code. A Worker has no DOM/cookie access, but it
+// CAN reach the network — and same-origin fetches ride the user's session
+// cookie (credentials: 'include' on our apiClient). A malicious or shared
+// snippet could read authenticated VFS/API data and exfiltrate it. This REPL
+// needs ZERO network, so revoke every egress + code-loading primitive before
+// any user code runs. importScripts/Worker are revoked too, so eval'd code
+// cannot pull in a fresh reference. Locked (writable/configurable: false) so it
+// can't be reassigned. Keep this block FIRST — nothing may run before it.
+for (const name of [
+  'fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource',
+  'importScripts', 'Worker', 'SharedWorker',
+]) {
+  try {
+    Object.defineProperty(self, name, { value: undefined, writable: false, configurable: false });
+  } catch (_) { /* best-effort: some hosts mark these non-configurable */ }
+}
+// navigator.sendBeacon is a fire-and-forget exfil channel; neutralize just it
+// (leave the rest of navigator, which is harmless read-only info in a worker).
+try {
+  if (self.navigator) {
+    Object.defineProperty(self.navigator, 'sendBeacon', { value: undefined, writable: false, configurable: false });
+  }
+} catch (_) { /* best-effort */ }
 
 let codeBuffer = "";
 

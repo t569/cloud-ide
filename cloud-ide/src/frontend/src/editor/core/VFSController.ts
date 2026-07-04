@@ -3,6 +3,23 @@ import { EditorEventBus } from './EditorEventBus';
 import { VirtualFileSystem } from '../../vfs/VirtualFileSystem';
 import React from 'react';
 
+/**
+ * Sanitizes a workspace path before it reaches the VFS or the backend filesystem.
+ * This is the front-end's single choke point for path safety: it rejects
+ * traversal (`..`), null bytes, and non-rooted junk, and forces a clean
+ * `/`-rooted path. The backend MUST re-validate — this is not a substitute.
+ *
+ * @returns a clean absolute path, or null if the input is unsafe/empty.
+ */
+export function safePath(rawPath: string): string | null {
+  if (!rawPath || rawPath.includes('\0')) return null;
+  // Drop empty segments (collapses `//`) and current-dir `.` segments.
+  const segments = rawPath.split('/').filter(seg => seg !== '' && seg !== '.');
+  if (segments.length === 0) return null;
+  if (segments.some(seg => seg === '..')) return null;
+  return '/' + segments.join('/');
+}
+
 export class VFSController {
   private vfs: VirtualFileSystem;
   // An array to hold all our event un-subscribers to prevent memory leaks
@@ -32,7 +49,10 @@ export class VFSController {
     // CORE FILE I/O ROUTING
     // ==========================================
 
-    this.unsubs.push(this.eventBus.on('FILE_OPEN_REQUESTED', async ({ path }) => {
+    this.unsubs.push(this.eventBus.on('FILE_OPEN_REQUESTED', async ({ path: rawPath }) => {
+      const path = safePath(rawPath);
+      if (!path) { console.warn('[Controller] Rejected unsafe path:', rawPath); return; }
+
       this.dispatch({ type: 'OPEN_FILE', payload: { path } });
       this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'syncing' } });
 
@@ -45,9 +65,11 @@ export class VFSController {
       }
     }));
 
-    this.unsubs.push(this.eventBus.on('CONTENT_CHANGED', ({ path, newContent }) => {
+    this.unsubs.push(this.eventBus.on('CONTENT_CHANGED', ({ path: rawPath, newContent }) => {
+      const path = safePath(rawPath);
+      if (!path) { console.warn('[Controller] Rejected unsafe path:', rawPath); return; }
       this.dispatch({ type: 'MARK_DIRTY', payload: { path, isDirty: true } });
-      this.vfs.updateFile(path, newContent); 
+      this.vfs.updateFile(path, newContent);
     }));
 
     this.unsubs.push(this.eventBus.on('SAVE_REQUESTED', async ({ path }) => {
@@ -59,7 +81,9 @@ export class VFSController {
     // THE MISSING CRUD ROUTING (Create, Delete, Rename)
     // ==========================================
 
-    this.unsubs.push(this.eventBus.on('FILE_CREATED', ({ path, type }) => {
+    this.unsubs.push(this.eventBus.on('FILE_CREATED', ({ path: rawPath, type }) => {
+      const path = safePath(rawPath);
+      if (!path) { console.warn('[Controller] Rejected unsafe path:', rawPath); return; }
       try {
         this.vfs.createFileOrDir(path, type);
         // Instantly generate the new tree and tell the UI to re-render
@@ -70,15 +94,22 @@ export class VFSController {
     }));
 
     this.unsubs.push(this.eventBus.on('FILE_DELETED', (payload) => {
-      this.vfs.deleteNode(payload.path);
+      const path = safePath(payload.path);
+      if (!path) { console.warn('[Controller] Rejected unsafe path:', payload.path); return; }
+
+      this.vfs.deleteNode(path);
       // Instantly remove from the UI
       this.eventBus.emit('VFS_TREE_UPDATED', { tree: this.vfs.getNestedTree() });
-      
+
       // INSTEAD OF CLOSING IT, WE INVALIDATE IT:
-      this.dispatch({ type: 'MARK_DELETED', payload: { path: payload.path, isDeleted: true } });
+      this.dispatch({ type: 'MARK_DELETED', payload: { path, isDeleted: true } });
     }));
 
-    this.unsubs.push(this.eventBus.on('FILE_RENAMED', ({ oldPath, newPath }) => {
+    this.unsubs.push(this.eventBus.on('FILE_RENAMED', ({ oldPath: rawOld, newPath: rawNew }) => {
+      const oldPath = safePath(rawOld);
+      const newPath = safePath(rawNew);
+      if (!oldPath || !newPath) { console.warn('[Controller] Rejected unsafe rename:', rawOld, '->', rawNew); return; }
+
       this.vfs.renameNode(oldPath, newPath);
       this.eventBus.emit('VFS_TREE_UPDATED', { tree: this.vfs.getNestedTree() });
     }));

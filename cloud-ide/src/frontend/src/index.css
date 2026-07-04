@@ -6,7 +6,7 @@
 
 
 @theme {
-  /* VS Code inspired color palette */
+  /* VS Code inspired color palette
   --color-vscode-bg: #1e1e1e;
   --color-vscode-sidebar: #252526;
   --color-vscode-tab: #2d2d2d;
@@ -14,10 +14,23 @@
   --color-vscode-accent: #007acc;
   --color-vscode-textDim: #cccccc;
 
-  /* Font Overrides */
   --font-mono: 'JetBrains Mono', monospace;
-  --font-jetbrains: 'JetBrains Mono', monospace;
+  --font-jetbrains: 'JetBrains Mono', monospace; */
 
+  /* Colors */
+  --color-ide-bg: var(--ide-bg-primary);
+  --color-ide-panel: var(--ide-bg-secondary);
+  --color-ide-hover: var(--ide-bg-tertiary);
+  --color-ide-text: var(--ide-text-primary);
+  --color-ide-muted: var(--ide-text-muted);
+  --color-ide-border: var(--ide-border);
+  --color-ide-accent: var(--ide-accent);
+
+  /* Fonts (Overrides Tailwind's default font-mono) */
+  --font-mono: var(--ide-font-family), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  
+  /* You can even override default text sizes if needed */
+  --text-ide: var(--ide-font-size);
 }
 
 body {

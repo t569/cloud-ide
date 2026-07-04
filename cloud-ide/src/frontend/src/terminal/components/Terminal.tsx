@@ -77,12 +77,16 @@ import { TerminalRegistry } from '../core/TerminalRegistry';
  * ============================================================================
  */
 
+// TODO: we need to add a few more props here to allow for better customization of the terminal,
+// TODO: we need to monitor terminal state with chokidar
+// TODO: we need to add a few more events to the event bus for better interactivity (e.g., onCommand, onResize, onSelectionChange)
+// TODO: we need to add performance monitoring
 
 
 // 1. COMBINING PROPS AND CONFIG
 // We extend your ITerminalConfig so the parent can pass styling AND the backend transport
 export interface TerminalProps extends Omit<ITerminalConfig, 'theme'> {
-  theme?: BuiltInTheme | ITheme;        // A theme we knwo or a completely new theme
+  theme?: BuiltInTheme | ITheme;        // A theme we knwo or a completely new theme, remember to try and pass in an ITheme
   transport?: ITransportStream | null; // Injected dependency (e.g., SessionStream)
   isReadOnly?: boolean;                // True for Docker build logs, False for IDE
   plugins?: ITerminalPlugin[];          // Inject plugins for our terminal
@@ -112,7 +116,7 @@ const EMPTY_PLUGINS: ITerminalPlugin[] = [];
 // TerminalProps encapsulates ITerminalConfig
 export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
   // default values 
-  theme = 'dark',
+  theme = 'dark', // fallback to 'dark' theme if none provided, we MUST provide a default theme to prevent xterm from falling back to its own default (which is very slow to render)
   fontFamily = '"JetBrains Mono", Consolas, Menlo, Monaco, "Courier New", monospace',
   fontSize = 14,
   transport,

@@ -2,8 +2,10 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { FileSystemManager } from '../services/FileSystemManager';
 import { SandboxManager } from '../services/sandbox/SandboxManager';
+import { ISessionRepository } from '../database/interfaces';
+import { requireSandboxOwnership } from './middleware/security';
 
-export function createFileSystemRouter(sandboxManager: SandboxManager): Router {
+export function createFileSystemRouter(sandboxManager: SandboxManager, sessionRepo: ISessionRepository): Router {
   const router = Router();
   const fsManager = new FileSystemManager(sandboxManager);
   /**
@@ -31,6 +33,10 @@ export function createFileSystemRouter(sandboxManager: SandboxManager): Router {
     // If it passes all checks, proceed to the actual route handler
     next();
   });
+
+  // IDOR: every sandbox-scoped route requires a session cookie linked to this
+  // sandbox. Runs after the param validation above, before any handler.
+  router.use('/:sandboxId', requireSandboxOwnership(sessionRepo));
 
   /**
    * GET /api/fs/:sandboxId/ls?path=/workspace

@@ -17,6 +17,7 @@ import React, { useState } from 'react';
 import { Icon } from '@iconify/react';
 import { TerminalPanel } from './TerminalPanel';
 import { ITransportStream } from '../types/terminal';
+import { ITheme } from '@xterm/xterm';
 
 /**
  * Represents a single instance of a connected backend terminal.
@@ -44,6 +45,8 @@ interface TerminalTabsProps {
   onFileClick: (file: string) => void;
   /** Passthrough callback for the Context HUD: fired when a URL is clicked. */
   onLinkClick: (url: string) => void;
+  
+  theme?: ITheme;
 }
 
 /**
@@ -55,7 +58,8 @@ export const TerminalTabs = ({
   onAddTab, 
   onCloseTab, 
   onFileClick, 
-  onLinkClick 
+  onLinkClick,
+  theme
 }: TerminalTabsProps) => {
   
   /** * Tracks which session is currently visible to the user. 
@@ -164,6 +168,7 @@ export const TerminalTabs = ({
               isActive={activeTabId === session.id}
               onFileClick={onFileClick}
               onLinkClick={onLinkClick}
+              theme={theme}
             />
           ))
         )}

@@ -3,128 +3,45 @@
 /*
 * frontend api endpoints for CRUD operations on the virtual file system in the backend
 * this file defines all the various endpoints for CRUD operations on a file/directory, mounted on our backend virtaul file system
+*
+* All calls route through the shared apiClient, which attaches the session cookie
+* (credentials: 'include') and a CSRF double-submit token on state-changing
+* requests. Do NOT hand-roll fetch() here — that bypasses those protections.
 */
-import { API_BASE_URL } from "../config/env";
+import { apiClient } from "../lib/apiClient";
 
 export const VirtualFileSystem = {
-  /**
-   * Pushes the file content to the OS physical hard drive.
-   */
-  saveFile: async (sessionId, filePath, content) => {
-    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/save`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: filePath, content })
-    });
+  /** Pushes the file content to the OS physical hard drive. */
+  saveFile: (sessionId, filePath, content) =>
+    apiClient.put(`/fs/${sessionId}/save`, { path: filePath, content }),
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to save file to VFS');
-    }
-
-    return response.json();
-  },
-
-  /**
-   * Pulls the raw file content from the OS physical hard drive.
-   */
-  getFile: async (sessionId, filePath) => {
-    // Safely encode the path as a query parameter
+  /** Pulls the raw file content from the OS physical hard drive. */
+  getFile: (sessionId, filePath) => {
     const query = new URLSearchParams({ path: filePath }).toString();
-    
-    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/file?${query}`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to read file from VFS');
-    }
-
-    return response.json(); // Returns { content: "raw string data..." }
+    return apiClient.get(`/fs/${sessionId}/file?${query}`); // -> { content: "..." }
   },
 
-  /**
-   * Creates a new file and sends it to the backend
-   * @param {*} sessionId 
-   * @param {*} filePath 
-   * @returns 
-   */
-  createFile: async (sessionId, filePath) => {
-    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/file`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: filePath })
-    });
-    if (!response.ok) throw new Error((await response.json()).error);
-    return response.json();
-  },
+  /** Creates a new file and sends it to the backend. */
+  createFile: (sessionId, filePath) =>
+    apiClient.post(`/fs/${sessionId}/file`, { path: filePath }),
 
-  /**
-   * Creates a new directory and sends it to the backend
-   * @param {*} sessionId 
-   * @param {*} dirPath 
-   * @returns 
-   */
-  createDirectory: async (sessionId, dirPath) => {
-    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/directory`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: dirPath })
-    });
-    if (!response.ok) throw new Error((await response.json()).error);
-    return response.json();
-  },
+  /** Creates a new directory and sends it to the backend. */
+  createDirectory: (sessionId, dirPath) =>
+    apiClient.post(`/fs/${sessionId}/directory`, { path: dirPath }),
 
-  /**
-   * Rename a particular file or directory
-   * @param {*} sessionId 
-   * @param {*} oldPath 
-   * @param {*} newPath 
-   * @returns 
-   */
-  renameEntity: async (sessionId, oldPath, newPath) => {
-    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/rename`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ oldPath, newPath })
-    });
-    if (!response.ok) throw new Error((await response.json()).error);
-    return response.json();
-  },
+  /** Rename a particular file or directory. */
+  renameEntity: (sessionId, oldPath, newPath) =>
+    apiClient.put(`/fs/${sessionId}/rename`, { oldPath, newPath }),
 
-  /**
-   * Delete a file or directory
-   * @param {*} sessionId 
-   * @param {*} targetPath 
-   * @returns 
-   */
-  deleteEntity: async (sessionId, targetPath) => {
+  /** Delete a file or directory. */
+  deleteEntity: (sessionId, targetPath) => {
     const query = new URLSearchParams({ path: targetPath }).toString();
-    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/entity?${query}`, {
-      method: 'DELETE'
-    });
-    if (!response.ok) throw new Error((await response.json()).error);
-    return response.json();
+    return apiClient.delete(`/fs/${sessionId}/entity?${query}`);
   },
 
-
-  /**
-   * Fetches the nested directory structure for the sidebar explorer.
-   */
+  /** Fetches the nested directory structure for the sidebar explorer. */
   getTree: async (sessionId) => {
-    const response = await fetch(`/${API_BASE_URL}/fs/${sessionId}/tree`, {
-      method: 'GET',
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to fetch directory tree');
-    }
-
-    const data = await response.json();
+    const data = await apiClient.get(`/fs/${sessionId}/tree`);
     return data.tree; // Returns an array of nested file/folder objects
-  }
+  },
 };

@@ -15,7 +15,8 @@
 
 import {
   ILanguageServerTransport, CompletionItem, CompletionParams, HoverParams, Hover,
-  DefinitionParams, Location, Diagnostic,
+  DefinitionParams, Location, FormattingParams, TextEdit,
+  SignatureHelpParams, SignatureHelp, Diagnostic,
 } from '../types';
 
 interface Pending { resolve: (value: any) => void; reject: (reason?: any) => void; }
@@ -80,6 +81,14 @@ export class WebSocketLSPTransport implements ILanguageServerTransport {
 
   provideDefinition(params: DefinitionParams, signal: AbortSignal): Promise<Location[]> {
     return this.request('definition', params, signal);
+  }
+
+  provideFormatting(params: FormattingParams, signal: AbortSignal): Promise<TextEdit[]> {
+    return this.request('formatting', params, signal);
+  }
+
+  provideSignatureHelp(params: SignatureHelpParams, signal: AbortSignal): Promise<SignatureHelp | null> {
+    return this.request('signatureHelp', params, signal);
   }
 
   onDiagnostics(cb: (path: string, d: Diagnostic[]) => void): () => void {

@@ -126,6 +126,58 @@ export class MonacoLanguageBridge {
       }));
     }
 
+    if (this.transport.provideFormatting) {
+      disposables.push(m.languages.registerDocumentFormattingEditProvider(lang, {
+        provideDocumentFormattingEdits: async (model, options, token) => {
+          const edits = await this.transport.provideFormatting!(
+            {
+              path: model.uri.path,
+              languageId: lang,
+              tabSize: options.tabSize,
+              insertSpaces: options.insertSpaces,
+            },
+            signalFromToken(token),
+          );
+          return edits.map(edit => {
+            const r = toEditorRange(edit.range);
+            return {
+              range: new m.Range(r.startLineNumber, r.startColumn, r.endLineNumber, r.endColumn),
+              text: edit.newText,
+            };
+          });
+        },
+      }));
+    }
+
+    if (this.transport.provideSignatureHelp) {
+      disposables.push(m.languages.registerSignatureHelpProvider(lang, {
+        signatureHelpTriggerCharacters: ['(', ','],
+        provideSignatureHelp: async (model, position, token, _context) => {
+          const help = await this.transport.provideSignatureHelp!(
+            {
+              path: model.uri.path,
+              languageId: lang,
+              position: toPortPosition(position.lineNumber, position.column),
+            },
+            signalFromToken(token),
+          );
+          if (!help) return null;
+          return {
+            value: {
+              signatures: help.signatures.map(sig => ({
+                label: sig.label,
+                documentation: sig.documentation,
+                parameters: sig.parameters.map(p => ({ label: p.label, documentation: p.documentation })),
+              })),
+              activeSignature: help.activeSignature,
+              activeParameter: help.activeParameter,
+            },
+            dispose: () => {},
+          };
+        },
+      }));
+    }
+
     // Diagnostics are push-based (server -> editor). Translate each batch into
     // monaco markers (the squiggly underlines) on the matching model. Owner is
     // the languageId so languages never clobber each other's markers.

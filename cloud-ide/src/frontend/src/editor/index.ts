@@ -16,6 +16,10 @@ export type {
   DefinitionParams,
   Location,
   Range,
+  TextEdit,
+  FormattingParams,
+  SignatureHelp,
+  SignatureHelpParams,
   Diagnostic,
 } from './lsp';
 export { LanguageServiceRegistry, MockLSPTransport, WebSocketLSPTransport } from './lsp';

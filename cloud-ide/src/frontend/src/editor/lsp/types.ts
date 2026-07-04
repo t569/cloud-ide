@@ -59,6 +59,40 @@ export interface Location {
   range: Range;
 }
 
+// --- Formatting ---
+export interface TextEdit {
+  range: Range;
+  newText: string;
+}
+
+export interface FormattingParams {
+  path: string;
+  languageId: string;
+  tabSize: number;
+  insertSpaces: boolean;
+}
+
+// --- Signature help ---
+export interface ParameterInfo {
+  label: string;
+  documentation?: string;
+}
+
+export interface SignatureInfo {
+  label: string;
+  documentation?: string;
+  parameters: ParameterInfo[];
+}
+
+export interface SignatureHelp {
+  signatures: SignatureInfo[];
+  activeSignature: number;
+  activeParameter: number;
+}
+
+/** signature help uses the same shape as hover (a position in a document). */
+export type SignatureHelpParams = HoverParams;
+
 export interface Diagnostic {
   message: string;
   severity: 'error' | 'warning' | 'info' | 'hint';
@@ -86,6 +120,8 @@ export interface ILanguageServerTransport {
   provideCompletions?(params: CompletionParams, signal: AbortSignal): Promise<CompletionItem[]>;
   provideHover?(params: HoverParams, signal: AbortSignal): Promise<Hover | null>;
   provideDefinition?(params: DefinitionParams, signal: AbortSignal): Promise<Location[]>;
+  provideFormatting?(params: FormattingParams, signal: AbortSignal): Promise<TextEdit[]>;
+  provideSignatureHelp?(params: SignatureHelpParams, signal: AbortSignal): Promise<SignatureHelp | null>;
 
   /** Push-based (server -> editor). Returns an unsubscribe fn. */
   onDiagnostics?(cb: (path: string, diagnostics: Diagnostic[]) => void): () => void;

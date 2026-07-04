@@ -237,8 +237,14 @@ or the registry.
 - [x] **Real `Save All`** — `VFSController` special-cases `SAVE_REQUESTED
       { path: 'ALL' }`: `forceSync()` flushes the whole dirty queue, then the
       `MARK_ALL_SAVED` reducer clears every open tab's dirty flag.
-- [ ] **Signature help & rename** — same pattern, new port capabilities.
-- [ ] **Format on save / `COMMAND_FORMAT`** — currently emitted, unhandled.
+- [x] **Signature help** — `provideSignatureHelp` on the port + a bridge
+      `registerSignatureHelpProvider` (triggers on `(` and `,`).
+- [x] **Format document** — `COMMAND_FORMAT` (Shift+Alt+F) runs monaco's format
+      action; `provideFormatting` on the port lets a language server supply the
+      edits via `registerDocumentFormattingEditProvider`.
+- [ ] **Rename symbol** — same pattern: a `provideRename` capability +
+      `registerRenameProvider`.
+- [ ] **Format on save** — call the format command from the save flow.
 
 ### ⏳ Phase 5: Backend Wiring (Blocked on backend)
 - [ ] Point `lsp/manifest.ts` at a real language-server daemon over

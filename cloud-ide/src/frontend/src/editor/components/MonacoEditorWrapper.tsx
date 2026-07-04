@@ -42,6 +42,14 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
     //    bridges. The registry owns the transports; this call is UI-only.
     disposablesRef.current.push(...registry.install(monaco));
 
+    // Shift+Alt+F (or File menu) -> run monaco's format action, which invokes
+    // whichever formatting provider is registered (a language transport's via
+    // the bridge, or a monaco built-in). No-op if none is registered.
+    const unsubscribeFormat = eventBus.on('COMMAND_FORMAT', () => {
+      editor.getAction('editor.action.formatDocument')?.run();
+    });
+    disposablesRef.current.push({ dispose: unsubscribeFormat });
+
     // Listen for incoming file data from the VFS
     const unsubscribeLoaded = eventBus.on('FILE_LOADED', ({ path, content, language }) => {
       // Check if a model for this file already exists in Monaco's memory

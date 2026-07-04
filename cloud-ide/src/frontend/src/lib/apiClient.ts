@@ -10,19 +10,41 @@ export class ApiError extends Error {
   }
 }
 
+const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/**
+ * Reads the CSRF token from a cookie string (double-submit cookie pattern).
+ * The backend sets a non-httpOnly `csrf-token` cookie; we echo it back in the
+ * X-CSRF-Token header so the server can confirm the request came from our app
+ * and not a cross-site forgery. Pure/exported so it is unit-testable.
+ */
+export function parseCsrfToken(cookieString: string): string {
+  const match = cookieString.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : '';
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   // endpoint will now look like "/environment/export"
   // API_BASE_URL already contains "/api"
   const url = `${API_BASE_URL}${endpoint}`;
-  
-  const headers: HeadersInit = {
+  const method = (options.method || 'GET').toUpperCase();
+
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...options.headers,
+    ...(options.headers as Record<string, string>),
   };
+
+  // CSRF: attach the double-submit token on state-changing requests only.
+  if (MUTATING_METHODS.has(method)) {
+    headers['X-CSRF-Token'] = parseCsrfToken(document.cookie);
+  }
 
   const config: RequestInit = {
     ...options,
     headers,
+    // Send the httpOnly session cookie even to a cross-origin backend
+    // (Vite :5173 -> API :3000). Backend must set CORS allow-credentials.
+    credentials: 'include',
   };
 
   try {

@@ -38,22 +38,34 @@ defense at the client, not a substitute.
 
 ---
 
-## 2. Sync/CRUD requests carry no auth or CSRF token · **High (design)**
+## 2. Sync/CRUD requests carry no auth or CSRF token · **High (design)** · ⚠️ PARTIALLY FIXED (client half done; IDOR is backend)
 
 `vfs/VirtualFileSystem.ts` (`flushSyncQueue`, the git-sync POST) and every method
-in `api/vfs.js` send only `sandboxId` — no bearer token, no CSRF token, no
-credentials handling. When the real endpoints land:
+in `api/vfs.js` sent only `sandboxId` — no bearer token, no CSRF token, no
+credentials handling.
 
-- **IDOR:** `sandboxId` is the only thing naming the target sandbox. If it's
-  guessable/sequential, one user can read/write another user's sandbox. Use an
-  unguessable id **and** verify session ownership server-side.
-- **CSRF:** State-changing PUT/POST/DELETE with `Content-Type: application/json`
-  still need CSRF defense — SameSite cookies + token, or an `Authorization`
-  header a cross-site form can't set. Nothing enforces it today.
+**Client half — FIXED:**
+- `lib/apiClient.ts` (the shared HTTP client, already used by env-manager) now
+  sends `credentials: 'include'` on every request so the httpOnly session cookie
+  reaches the backend, and attaches an `X-CSRF-Token` header (double-submit
+  cookie pattern, via the pure `parseCsrfToken()` helper) on all state-changing
+  methods (POST/PUT/PATCH/DELETE). Covered by `lib/apiClient.test.ts`.
+- `api/vfs.js` was rewritten to route every VFS call through `apiClient` instead
+  of hand-rolled `fetch()`, so all CRUD inherits the credential + CSRF handling
+  (and this fixed a latent `/${API_BASE_URL}` double-slash URL bug).
+- The still-mocked fetches in `vfs/VirtualFileSystem.ts` now carry TODOs that
+  point at `apiClient`, so whoever wires the real backend inherits protection by
+  default instead of hand-rolling an unprotected `fetch()`.
 
-Flagged now because the contract is being frozen in `vfs/types/vfs.d.ts` and
-`api/vfs.js` — cheaper to bake the token field into `GitSyncPayload` before the
-backend is written than after.
+**Still required (backend — cannot be fixed in the front-end):**
+- **CSRF cookie:** backend must set the `csrf-token` cookie (non-httpOnly) and
+  the session cookie as `SameSite=Strict/Lax; Secure; HttpOnly`, and **reject**
+  requests whose `X-CSRF-Token` header is missing or doesn't match the cookie.
+- **CORS:** must set `Access-Control-Allow-Credentials: true` with an explicit
+  (non-wildcard) origin for `credentials: 'include'` to work.
+- **IDOR:** `sandboxId` is the only thing naming the target sandbox. Use an
+  unguessable id **and** verify session ownership server-side on every request —
+  the client cannot enforce this.
 
 ---
 

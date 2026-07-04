@@ -76,9 +76,10 @@ export class VirtualFileSystem {
     this.onSyncStatusChange('syncing');
 
     try {
-      // TODO: Replace with actual fetch to your backend API
-      // const res = await fetch(`/api/sandboxes/${this.sandboxId}/workspace`);
-      // const payload: WorkspaceHydrationPayload = await res.json();
+      // TODO: Replace with a call through the shared apiClient (carries the
+      // session cookie + CSRF token; never hand-roll fetch() here):
+      //   import { apiClient } from '../lib/apiClient';
+      //   const payload = await apiClient.get<WorkspaceHydrationPayload>(`/sandboxes/${this.sandboxId}/workspace`);
       
       // MOCK BACKEND RESPONSE: What your backend should ideally return on boot.
       const mockPayload: WorkspaceHydrationPayload = {
@@ -397,8 +398,10 @@ export class VirtualFileSystem {
     };
 
     try {
-      // TODO: POST payload to your backend.
-      // e.g., await fetch(`/api/v1/sandboxes/${this.sandboxId}/git-sync`, { method: 'POST', body: JSON.stringify(payload) })
+      // TODO: POST payload through the shared apiClient (attaches the session
+      // cookie + CSRF token automatically; never hand-roll fetch() here):
+      //   import { apiClient } from '../lib/apiClient';
+      //   await apiClient.post(`/sandboxes/${this.sandboxId}/git-sync`, payload);
       await new Promise(resolve => setTimeout(resolve, 600)); // Simulate network request
 
       // STEP 4: Cleanup on success (Backend accepted the push)

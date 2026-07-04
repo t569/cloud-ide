@@ -10,8 +10,7 @@ import { FileExplorer } from './FileExplorer';
 import { useDesignSystem } from '../context/DesignSystemContext';
 import { DesignSystemProvider } from '../context/DesignSystemContext';
 import { MonacoEditorWrapper } from './MonacoEditorWrapper';
-import { LanguageRegistry } from '../core/EditorRegistry';
-import { AVAILABLE_PLUGINS } from '../plugins/PluginManifest';
+import { LanguageServiceRegistry, createLanguageTransports } from '../lsp';
 
 // TERMINAL
 import { IDETerminal } from './IDETerminal';
@@ -119,14 +118,16 @@ const EditorWorkspaceInner = ({ sandboxId }: EditorWorkspaceProps) => {
     }
   }, [eventBus, dispatch, sandboxId]);
 
-  // 4. Dynamically Load Plugins from the Manifest
+  // 4. Build the language-service registry from the manifest. Each transport is
+  //    a swappable backend (mock, WebSocket, your own) — see lsp/manifest.ts.
   const langRegistry = useMemo(() => {
-    const reg = new LanguageRegistry();
-    AVAILABLE_PLUGINS.forEach(PluginClass => {
-      reg.register(new PluginClass());
-    });
+    const reg = new LanguageServiceRegistry();
+    createLanguageTransports(/* sandboxId */).forEach(t => reg.register(t));
     return reg;
   }, []);
+
+  // Tear down transports (close sockets) when the workspace unmounts.
+  useEffect(() => () => langRegistry.dispose(), [langRegistry]);
 
   // ==========================================
   // LAYOUT & PERSISTENCE ENGINE

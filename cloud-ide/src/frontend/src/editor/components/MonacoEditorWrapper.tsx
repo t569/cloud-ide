@@ -2,7 +2,7 @@
 import React, { useRef, useEffect } from 'react';
 import Editor, { OnMount, OnChange } from '@monaco-editor/react';
 import { EditorInputManager } from '../core/EditorInputManager';
-import { LanguageRegistry } from '../core/EditorRegistry';
+import { LanguageServiceRegistry } from '../lsp';
 import { OpenFileContext, IDEGlobalSettings, EditorEventPayloads } from '../types/editor';
 import { EditorEventBus } from '../core/EditorEventBus';
 
@@ -11,7 +11,7 @@ interface MonacoEditorProps {
   activeFile: OpenFileContext | null;
   globalSettings: IDEGlobalSettings;
   eventBus: EditorEventBus;
-  registry: LanguageRegistry;
+  registry: LanguageServiceRegistry;
 }
 
 export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, registry }: MonacoEditorProps) => {
@@ -38,12 +38,9 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
     monaco.editor.setTheme('cloud-ide-dark');
     const inputManager = new EditorInputManager(editor, eventBus, activeFile?.path || '');
 
-    // 2. Install ALL Language Extensions from the Registry
-    const allExtensions = registry.getAllExtensions();
-    allExtensions.forEach(extension => {
-      // Install returns an array of disposables. We spread them into our tracker.
-      disposablesRef.current.push(...extension.install(eventBus));
-    });
+    // 2. Install all language services (completion/hover/...) via their monaco
+    //    bridges. The registry owns the transports; this call is UI-only.
+    disposablesRef.current.push(...registry.install(monaco));
 
     // Listen for incoming file data from the VFS
     const unsubscribeLoaded = eventBus.on('FILE_LOADED', ({ path, content, language }) => {

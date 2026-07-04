@@ -162,14 +162,10 @@ export interface EditorEventPayloads {
   // --- EDITOR COMMANDS ---
   'COMMAND_FORMAT': { path: string };
   'COMMAND_PALETTE': {};
-  
-  // --- LANGUAGE SERVER ---
-  'COMPLETION_REQUESTED': { 
-    path: string; 
-    language: string;
-    position: { lineNumber: number; column: number };
-    word: string;
-  };
+
+  // NOTE: Language-server requests (completion/hover/...) do NOT go through the
+  // event bus — they are request/response and are handled by the transport port
+  // in `editor/lsp/`. The bus is for one-way notifications only.
 }
 
 export type EditorEventType = keyof EditorEventPayloads;

@@ -94,15 +94,31 @@ instead of blanket revocation.
 
 ---
 
-## 4. No Content-Security-Policy; `FileIcon` fetches from CDN + injects `img src` · **Low**
+## 4. No Content-Security-Policy; `FileIcon` fetches from CDN + injects `img src` · **Low** · ✅ FIXED
 
-- `common/FileIcon.tsx:22-31` builds `` src={`src/common/icons/${localName}.svg`} ``
-  from the icon registry. `localName` is registry-controlled today (not user
-  input), and SVGs rendered via `<img>` don't execute script — so even a hostile
-  slug is contained. The real gap: Iconify pulls SVGs from the network with no
-  CSP restricting `img-src`/`connect-src`.
-- **Add a CSP.** It's the single highest-leverage mitigation for the whole app:
-  it backstops any future XSS and locks down where the REPL/worker can talk.
+- `common/FileIcon.tsx` builds `` src={`src/common/icons/${localName}.svg`} ``
+  from the icon registry. `localName` is registry-controlled (not user input),
+  and SVGs rendered via `<img>` don't execute script — so even a hostile slug is
+  contained. The real gap was: no CSP restricting `img-src`/`connect-src`.
+
+**Fixed:** CSP + companion security headers are set in `frontend/vite.config.ts`:
+- `X-Content-Type-Options: nosniff`, `Referrer-Policy`, and `X-Frame-Options:
+  DENY` (clickjacking) on **both** dev and preview (they never break anything).
+- A full **Content-Security-Policy** on `vite preview` (the built artifact) —
+  **not** on `vite dev`, which needs inline scripts + an HMR websocket a strict
+  policy would block. The policy locks `default-src 'self'`, `object-src 'none'`,
+  `base-uri 'self'`, `frame-ancestors 'none'`, and — the high-value directive —
+  an egress allowlist (`connect-src 'self'` + the Iconify CDNs) that caps where
+  any script can send data, backstopping XSS and the REPL worker. It allowlists
+  exactly what the app needs: `worker-src blob:` (Monaco), `'unsafe-eval'`
+  (REPL/Monaco), Google Fonts (`style-src`/`font-src`), and `img-src 'self'
+  data:`.
+
+**Still required (backend/edge — cannot be set by Vite):** serve the same CSP as
+a real response header at the production edge/backend, add
+`Strict-Transport-Security` (HSTS only works as a header), and tighten
+`script-src` from `'unsafe-inline'`/`'unsafe-eval'` to per-request nonces/hashes.
+Add your API/WS origin to `connect-src` if it is not same-origin.
 
 ---
 

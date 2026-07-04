@@ -45,6 +45,20 @@ export interface Hover {
   contents: string[];
 }
 
+/** go-to-definition uses the same shape as hover (a position in a document). */
+export type DefinitionParams = HoverParams;
+
+export interface Range {
+  start: Position;
+  end: Position;
+}
+
+/** A place in the workspace a symbol is defined. */
+export interface Location {
+  path: string;
+  range: Range;
+}
+
 export interface Diagnostic {
   message: string;
   severity: 'error' | 'warning' | 'info' | 'hint';
@@ -71,6 +85,7 @@ export interface ILanguageServerTransport {
 
   provideCompletions?(params: CompletionParams, signal: AbortSignal): Promise<CompletionItem[]>;
   provideHover?(params: HoverParams, signal: AbortSignal): Promise<Hover | null>;
+  provideDefinition?(params: DefinitionParams, signal: AbortSignal): Promise<Location[]>;
 
   /** Push-based (server -> editor). Returns an unsubscribe fn. */
   onDiagnostics?(cb: (path: string, diagnostics: Diagnostic[]) => void): () => void;
@@ -108,4 +123,20 @@ export const diagnosticToMarker = (d: Diagnostic): MarkerData => ({
   startColumn: d.start.character + 1,
   endLineNumber: d.end.line + 1,
   endColumn: d.end.character + 1,
+});
+
+/** monaco-shaped rectangle (1-based), independent of the monaco Range class. */
+export interface EditorRange {
+  startLineNumber: number;
+  startColumn: number;
+  endLineNumber: number;
+  endColumn: number;
+}
+
+/** Converts a transport `Range` (0-based) into a 1-based editor rectangle. */
+export const toEditorRange = (r: Range): EditorRange => ({
+  startLineNumber: r.start.line + 1,
+  startColumn: r.start.character + 1,
+  endLineNumber: r.end.line + 1,
+  endColumn: r.end.character + 1,
 });

@@ -8,7 +8,7 @@
 
 import * as monaco from 'monaco-editor';
 import { ILanguageServerTransport, CompletionKind, Diagnostic } from './types';
-import { toPortPosition, diagnosticToMarker } from './types';
+import { toPortPosition, diagnosticToMarker, toEditorRange } from './types';
 
 const SEVERITY_MAP: Record<Diagnostic['severity'], monaco.MarkerSeverity> = {
   error: monaco.MarkerSeverity.Error,
@@ -100,6 +100,28 @@ export class MonacoLanguageBridge {
           );
           if (!hover) return null;
           return { contents: hover.contents.map(value => ({ value })) };
+        },
+      }));
+    }
+
+    if (this.transport.provideDefinition) {
+      disposables.push(m.languages.registerDefinitionProvider(lang, {
+        provideDefinition: async (model, position, token) => {
+          const locations = await this.transport.provideDefinition!(
+            {
+              path: model.uri.path,
+              languageId: lang,
+              position: toPortPosition(position.lineNumber, position.column),
+            },
+            signalFromToken(token),
+          );
+          return locations.map(loc => {
+            const r = toEditorRange(loc.range);
+            return {
+              uri: m.Uri.parse(loc.path),
+              range: new m.Range(r.startLineNumber, r.startColumn, r.endLineNumber, r.endColumn),
+            };
+          });
         },
       }));
     }

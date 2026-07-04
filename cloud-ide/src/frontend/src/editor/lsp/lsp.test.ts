@@ -1,11 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { toPortPosition, diagnosticToMarker } from './types';
+import { toPortPosition, diagnosticToMarker, toEditorRange } from './types';
 import { MockLSPTransport } from './transports/MockLSPTransport';
 
 describe('toPortPosition', () => {
   it('converts monaco 1-based to LSP 0-based', () => {
     expect(toPortPosition(1, 1)).toEqual({ line: 0, character: 0 });
     expect(toPortPosition(10, 5)).toEqual({ line: 9, character: 4 });
+  });
+});
+
+describe('toEditorRange', () => {
+  it('converts a 0-based range to a 1-based editor rectangle', () => {
+    expect(toEditorRange({ start: { line: 0, character: 0 }, end: { line: 4, character: 7 } }))
+      .toEqual({ startLineNumber: 1, startColumn: 1, endLineNumber: 5, endColumn: 8 });
   });
 });
 

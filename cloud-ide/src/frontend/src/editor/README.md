@@ -230,13 +230,14 @@ or the registry.
 - [x] **Diagnostics** — push-based `onDiagnostics` → Monaco markers (squiggles).
 - [x] **Command Palette / Quick Open** (`Ctrl+P`) — fuzzy file switcher.
 
-### ⏳ Phase 4: Deeper Intelligence (Next Up)
-- [ ] **Go-to-definition** — add `provideDefinition` to the port + a bridge
-      `registerDefinitionProvider`; implement in `WebSocketLSPTransport`.
+### ⏳ Phase 4: Deeper Intelligence (In Progress)
+- [x] **Go-to-definition** — `provideDefinition` on the port, a bridge
+      `registerDefinitionProvider`, and the `'definition'` method in
+      `WebSocketLSPTransport`.
+- [x] **Real `Save All`** — `VFSController` special-cases `SAVE_REQUESTED
+      { path: 'ALL' }`: `forceSync()` flushes the whole dirty queue, then the
+      `MARK_ALL_SAVED` reducer clears every open tab's dirty flag.
 - [ ] **Signature help & rename** — same pattern, new port capabilities.
-- [ ] **Real `Save All`** — `TopNavBar` emits `SAVE_REQUESTED { path: 'ALL' }`
-      but `VFSController` doesn't special-case it yet; flush the whole dirty
-      queue on `'ALL'`.
 - [ ] **Format on save / `COMMAND_FORMAT`** — currently emitted, unhandled.
 
 ### ⏳ Phase 5: Backend Wiring (Blocked on backend)

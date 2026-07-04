@@ -73,8 +73,14 @@ export class VFSController {
     }));
 
     this.unsubs.push(this.eventBus.on('SAVE_REQUESTED', async ({ path }) => {
+      // forceSync() flushes the ENTIRE dirty queue regardless of path, so both
+      // single-save and save-all just need to flush, then clear the dirty flag.
       await this.vfs.forceSync();
-      this.dispatch({ type: 'MARK_DIRTY', payload: { path, isDirty: false } });
+      if (path === 'ALL') {
+        this.dispatch({ type: 'MARK_ALL_SAVED' });
+      } else {
+        this.dispatch({ type: 'MARK_DIRTY', payload: { path, isDirty: false } });
+      }
     }));
 
     // ==========================================

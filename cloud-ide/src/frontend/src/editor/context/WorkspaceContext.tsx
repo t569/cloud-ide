@@ -16,6 +16,7 @@ type WorkspaceAction =
   | { type: 'CLOSE_FILE'; payload: { path: string } }
   | { type: 'SET_ACTIVE_FILE'; payload: { path: string } }
   | { type: 'MARK_DIRTY'; payload: { path: string; isDirty: boolean } }
+  | { type: 'MARK_ALL_SAVED' }
   | { type: 'MARK_DELETED'; payload: { path: string; isDeleted: boolean } }
   | { type: 'SET_SYNC_STATUS'; payload: { status: SyncStatus } };
 
@@ -50,11 +51,17 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
     case 'MARK_DIRTY':
       return {
         ...state,
-        openFiles: state.openFiles.map(f => 
+        openFiles: state.openFiles.map(f =>
           f.path === action.payload.path ? { ...f, isDirty: action.payload.isDirty } : f
         )
       };
-    
+
+    case 'MARK_ALL_SAVED':
+      return {
+        ...state,
+        openFiles: state.openFiles.map(f => f.isDirty ? { ...f, isDirty: false } : f)
+      };
+
     case 'MARK_DELETED': 
       return {
         ...state,

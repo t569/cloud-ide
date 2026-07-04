@@ -13,6 +13,9 @@ export type {
   CompletionParams,
   HoverParams,
   Hover,
+  DefinitionParams,
+  Location,
+  Range,
   Diagnostic,
 } from './lsp';
 export { LanguageServiceRegistry, MockLSPTransport, WebSocketLSPTransport } from './lsp';

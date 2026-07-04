@@ -14,7 +14,8 @@
 // the editor needs to change to go from mock to live.
 
 import {
-  ILanguageServerTransport, CompletionItem, CompletionParams, HoverParams, Hover, Diagnostic,
+  ILanguageServerTransport, CompletionItem, CompletionParams, HoverParams, Hover,
+  DefinitionParams, Location, Diagnostic,
 } from '../types';
 
 interface Pending { resolve: (value: any) => void; reject: (reason?: any) => void; }
@@ -75,6 +76,10 @@ export class WebSocketLSPTransport implements ILanguageServerTransport {
 
   provideHover(params: HoverParams, signal: AbortSignal): Promise<Hover | null> {
     return this.request('hover', params, signal);
+  }
+
+  provideDefinition(params: DefinitionParams, signal: AbortSignal): Promise<Location[]> {
+    return this.request('definition', params, signal);
   }
 
   onDiagnostics(cb: (path: string, d: Diagnostic[]) => void): () => void {

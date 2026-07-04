@@ -1,17 +1,32 @@
-// frontend/src/editor/hooks/useWorkspaceEditor.js
+// frontend/src/editor/hooks/useWorkspaceEditor.ts
 
 /* this file handles all the heavy lifting of our editor state management and interactions with the VFS API.
     By abstracting this logic into a custom hook, we can keep our WorkspaceEditor component clean and focused on rendering,
     while this hook manages the editor's lifecycle, state, and side effects related to file saving and dirty state tracking.
 */
 import { useState, useRef, useEffect, useCallback } from 'react';
+import type { OnMount, OnChange } from '@monaco-editor/react';
 import { VirtualFileSystem } from '../../api/vfs';
 
 const AUTOSAVE_DEBOUNCE_MS = 1000;
 
-export const useWorkspaceEditor = (sessionId, file, onFileStateChange) => {
-  const editorRef = useRef(null);
-  const autosaveTimer = useRef(null);
+/** The file object the editor operates on — freshly loaded or being edited. */
+export interface WorkspaceFile {
+  name: string;
+  path: string;
+  content: string;
+  isDirty: boolean;
+}
+
+type FileStateChange = (path: string, updates: Partial<WorkspaceFile>) => void;
+
+export const useWorkspaceEditor = (
+  sessionId: string,
+  file: WorkspaceFile | null,
+  onFileStateChange?: FileStateChange,
+) => {
+  const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [isSaving, setIsSaving] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
 
@@ -41,13 +56,14 @@ export const useWorkspaceEditor = (sessionId, file, onFileStateChange) => {
     }
   }, [file, sessionId, onFileStateChange]);
 
-  const onMount = (editor, monaco) => {
+  const onMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     // Add Save Shortcut
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, saveFile);
   };
 
-  const onChange = (value) => {
+  const onChange: OnChange = () => {
+    if (!file) return;
     if (!isDirty) {
       setIsDirty(true);
       onFileStateChange?.(file.path, { isDirty: true });

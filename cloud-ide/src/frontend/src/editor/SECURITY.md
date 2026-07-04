@@ -1,7 +1,7 @@
 # 🔐 Editor Security Audit
 
 Security review of `frontend/src/editor` and the trust boundaries it touches
-(`vfs/`, `api/vfs.js`, `repl/`, `common/FileIcon.tsx`).
+(`vfs/`, `api/vfs.ts`, `repl/`, `common/FileIcon.tsx`).
 
 **TL;DR:** The editor is a React front-end whose real trust boundary is the
 **path string** and **file content** it hands to the backend VFS. Classic
@@ -25,7 +25,7 @@ unvalidated:
 | Terminal file-click bridge | `components/IDETerminal.tsx:99-107` | `handleContextFileClick` takes a filename **sniffed out of terminal output** and emits `FILE_OPEN_REQUESTED` with `` /${fileName} ``. Terminal output is attacker-influenceable (any program can print a path), so a crafted build log becomes a file-read primitive. |
 | Open File picker | `components/TopNavBar.tsx:66-83` | Uses `` /${file.name} ``; a filename containing `..` is possible on some platforms. |
 
-These flow through `core/VFSController.ts` and eventually to `api/vfs.js`, which
+These flow through `core/VFSController.ts` and eventually to `api/vfs.ts`, which
 PUTs/GETs the `path` verbatim (`saveFile`, `getFile`, `deleteEntity`).
 
 **Fixed:** Added a pure `safePath()` guard exported from `core/VFSController.ts`,
@@ -41,7 +41,7 @@ defense at the client, not a substitute.
 ## 2. Sync/CRUD requests carry no auth or CSRF token · **High** · ✅ FIXED (client + server)
 
 `vfs/VirtualFileSystem.ts` (`flushSyncQueue`, the git-sync POST) and every method
-in `api/vfs.js` sent only `sandboxId` — no bearer token, no CSRF token, no
+in `api/vfs.ts` sent only `sandboxId` — no bearer token, no CSRF token, no
 credentials handling.
 
 **Client half — FIXED:**
@@ -50,7 +50,7 @@ credentials handling.
   reaches the backend, and attaches an `X-CSRF-Token` header (double-submit
   cookie pattern, via the pure `parseCsrfToken()` helper) on all state-changing
   methods (POST/PUT/PATCH/DELETE). Covered by `lib/apiClient.test.ts`.
-- `api/vfs.js` was rewritten to route every VFS call through `apiClient` instead
+- `api/vfs.ts` was rewritten to route every VFS call through `apiClient` instead
   of hand-rolled `fetch()`, so all CRUD inherits the credential + CSRF handling
   (and this fixed a latent `/${API_BASE_URL}` double-slash URL bug).
 - The still-mocked fetches in `vfs/VirtualFileSystem.ts` now carry TODOs that

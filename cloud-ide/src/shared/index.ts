@@ -27,3 +27,4 @@ export type { SessionRecord, SessionState } from './types/session';
 export type { EnvironmentConfig, BuildStep, InstallStepType } from './types/env';
 export type { DeveloperTool, EcosystemToolkit } from './types/ecosystem';
 export type { IFileWatcher } from './types/sync';
+export type { VfsNode, VfsReadResult, VfsMutationResult } from './types/vfs';

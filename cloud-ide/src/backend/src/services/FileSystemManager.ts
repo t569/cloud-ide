@@ -15,14 +15,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { SandboxManager } from './sandbox/SandboxManager';
+import { VfsNode } from '@cloud-ide/shared';
 
 const CONTAINER_WORKSPACE = '/workspace';
-
-export interface FileNode {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
-}
 
 export class FileSystemManager {
   constructor(private sandboxManager: SandboxManager) {}
@@ -56,7 +51,7 @@ export class FileSystemManager {
    * Lists all files and directories in a given path (container-relative).
    * Returns container-visible paths so the frontend never sees host layout.
    */
-  public async listDirectory(sandboxId: string, dirPath: string = CONTAINER_WORKSPACE): Promise<FileNode[]> {
+  public async listDirectory(sandboxId: string, dirPath: string = CONTAINER_WORKSPACE): Promise<VfsNode[]> {
     const hostPath = await this.resolveHostPath(sandboxId, dirPath);
 
     let entries;

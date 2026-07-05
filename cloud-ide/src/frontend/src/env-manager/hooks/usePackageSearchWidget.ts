@@ -1,8 +1,7 @@
 // src/components/env-manager/hooks/usePackageSearchWidget.ts
 import { useState, useEffect, useCallback } from 'react';
-import { searchRegistry } from '../services/package-registry';
+import { searchRegistry, PackageSearchResult } from '../registry';
 import { InstallStepType } from '@cloud-ide/shared/types/env';
-import { PackageSearchResult } from '../services/package-registry';
 interface UsePackageSearchWidgetProps {
   fixedType?: InstallStepType;
   onSelect?: (pkgName: string, version?: string) => void;

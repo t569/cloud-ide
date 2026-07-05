@@ -16,6 +16,6 @@ import { UITestHarness } from './editor/dev/UITestHarness';
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   // TODO: EDITOR BUS IS CURRENTLY BROKEN, PLEASE FIX IT
   <React.StrictMode>
-    <UITestHarness/>
+    <EnvManager/>
   </React.StrictMode>
 );

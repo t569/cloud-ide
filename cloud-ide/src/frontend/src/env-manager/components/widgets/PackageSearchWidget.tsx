@@ -1,7 +1,7 @@
 // src/components/env-manager/widgets/PackageSearchWidget.tsx
 import React from 'react';
-import { InstallStepType } from '@cloud-ide/shared/types/env';
-import { RegistryIcon } from '../icons/RegistryIcon';
+import { InstallStepType, INSTALL_STEPS } from '@cloud-ide/shared/types/env';
+import { EnvIcon } from '../../registry/EnvIcon';
 import { PackageIcon } from '../icons/PackageIcon';
 import { VscError } from 'react-icons/vsc';
 import { usePackageSearchWidget } from '@frontend/env-manager/hooks/usePackageSearchWidget';
@@ -29,7 +29,7 @@ export const PackageSearchWidget = ({ fixedType, onSelect, hideHeader }: Package
       <div className={`flex items-center bg-vscode-bg border rounded transition ${error ? 'border-red-500/50' : 'border-vscode-border focus-within:border-vscode-accent'} ${hideHeader ? 'h-full' : ''}`}>
         
         <div className={`flex items-center pl-3 ${fixedType ? 'pr-3 border-r border-vscode-border opacity-80' : 'pr-1'}`}>
-          <RegistryIcon type={type} size={18} />
+          <EnvIcon type={type} size={18} />
           
           {!fixedType && (
             <select 
@@ -37,7 +37,7 @@ export const PackageSearchWidget = ({ fixedType, onSelect, hideHeader }: Package
               onChange={(e) => setType(e.target.value as InstallStepType)}
               className="bg-transparent text-vscode-accent font-bold font-jetbrains text-sm p-2 outline-none appearance-none cursor-pointer"
             >
-              {['npm', 'pip', 'cargo', 'apt', 'go', 'ruby', 'maven', 'gradle', 'zig', 'shell'].map(t => (
+              {INSTALL_STEPS.map(t => (
                 <option key={t} value={t} className="bg-vscode-bg text-gray-200 uppercase">{t}</option>
               ))}
             </select>

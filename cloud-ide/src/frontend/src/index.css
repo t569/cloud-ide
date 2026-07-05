@@ -6,7 +6,7 @@
 
 
 @theme {
-  /* VS Code inspired color palette
+  /* VS Code inspired color palette */
   --color-vscode-bg: #1e1e1e;
   --color-vscode-sidebar: #252526;
   --color-vscode-tab: #2d2d2d;
@@ -14,8 +14,7 @@
   --color-vscode-accent: #007acc;
   --color-vscode-textDim: #cccccc;
 
-  --font-mono: 'JetBrains Mono', monospace;
-  --font-jetbrains: 'JetBrains Mono', monospace; */
+  --font-jetbrains: 'JetBrains Mono', monospace;
 
   /* Colors */
   --color-ide-bg: var(--ide-bg-primary);
@@ -35,6 +34,7 @@
 
 body {
   margin: 0;
+  color-scheme: dark; /* native controls (select popups, scrollbars) render dark */
   font-family: var(--font-mono);
   background-color: var(--color-vscode-bg);
   color: white;

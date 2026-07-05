@@ -1,7 +1,7 @@
 // src/components/env-manager/hooks/useDependencyParser.ts
 import { useState } from 'react';
 import { InstallStepType } from '@cloud-ide/shared/types/env';
-import { DependencyParserRegistry } from '../utils/parsers/DependecyParserRegistry';
+import { parseFile as parseManifest, acceptExtsFor } from '../registry';
 
 export const useDependencyParser = (stepType: InstallStepType) => {
   const [isParsing, setIsParsing] = useState(false);
@@ -12,7 +12,7 @@ export const useDependencyParser = (stepType: InstallStepType) => {
     setParseError(null);
 
     try {
-      return await DependencyParserRegistry.parseFile(file, stepType);
+      return await parseManifest(file, stepType);
     } catch (error) {
       const errorMessage = (error as Error).message;
       setParseError(errorMessage);
@@ -22,7 +22,7 @@ export const useDependencyParser = (stepType: InstallStepType) => {
     }
   };
 
-  const acceptedExtensions = DependencyParserRegistry.getAcceptedExtensions(stepType);
+  const acceptedExtensions = acceptExtsFor(stepType);
 
   return { parseFile, isParsing, parseError, acceptedExtensions, setParseError };
 };

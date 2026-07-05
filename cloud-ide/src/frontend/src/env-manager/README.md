@@ -50,6 +50,32 @@ Business logic is strictly isolated into custom hooks to ensure maximum testabil
 
 ---
 
+## 📦 Package Manager Registry (`registry/`)
+
+Every package manager (npm, pip, apt, cargo, go, ruby, maven, gradle, zig, shell) is
+described in **exactly one place**: a manifest keyed by `InstallStepType`.
+
+```
+registry/
+  types.ts          # PackageManager + PackageSearchResult
+  index.ts          # MANAGERS: Record<InstallStepType, PackageManager> + searchRegistry() / parseFile() / acceptExtsFor()
+  managers/*.ts     # one file per manager: { label, icon, color, search, parse?, canParse?, acceptExts? }
+  EnvIcon.tsx       # <EnvIcon type=... /> — manifest icon via @iconify/react (cached SVG)
+```
+
+Each `managers/<type>.ts` owns that manager's **registry search**, **file parser**, and
+**icon** together. The rest of the module never switches on type — it reads the manifest:
+`searchRegistry(query, type)`, `parseFile(file, type)`, `acceptExtsFor(type)`, `<EnvIcon type=.../>`.
+
+**Adding a package manager** = create `managers/<type>.ts` and add one line to `MANAGERS`
+in `index.ts`. Because `MANAGERS` is a `Record<InstallStepType, …>`, a missing entry is a
+compile error — the type list in `shared/types/env.ts` is the single source of truth.
+
+Icons render through the shared Iconify pipeline (inline SVG, cached after first load) —
+no per-render network requests.
+
+---
+
 ## 🎨 UI/UX Design System
 
 The environment manager is styled to feel like a native, premium desktop application, ensuring deep visual consistency with the rest of the IDE:

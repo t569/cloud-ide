@@ -1,75 +1,50 @@
-// src/components/env-manager/icons/BaseImageIcon.tsx
+// Resolves an icon for a Docker base image from its name (e.g. "python:3.11-slim").
+// Known bases get a themed brand icon; anything else tries the cleaned name as a
+// simple-icons slug and falls back to the Docker whale. Cached inline SVG via
+// @iconify/react — no per-render network request.
 
-// This file defines the BaseImageIcon component,
-//  which dynamically resolves icons for base images based on their name.
-//  It first tries to load an icon from a CDN using the cleaned image name,
-//  and if that fails, it falls back to a predefined set of icons based on common base images
-//  (e.g., ubuntu, alpine, python). If all else fails, it shows a generic Docker icon.
-//  This enhances the visual clarity of the environment configuration by providing intuitive icons for each base image.
-
-import React, { useState } from 'react';
-import { 
-  SiDocker, SiUbuntu, SiDebian, SiAlpinelinux, 
-  SiPython, SiNodedotjs, SiRust, SiGo, SiRuby, 
-  SiOpenjdk, SiRedhat, SiFedora 
-} from 'react-icons/si';
+import { Icon } from '@iconify/react';
 
 interface BaseImageIconProps {
-  imageName: string; // e.g., "python:3.11-slim" or "library/ubuntu"
+  imageName: string;
   size?: number;
 }
 
+// cleaned image name -> { simple-icons slug, brand color }
+const BASE_MAP: Record<string, { slug: string; color: string }> = {
+  ubuntu: { slug: 'ubuntu', color: '#E95420' },
+  debian: { slug: 'debian', color: '#A81D33' },
+  alpine: { slug: 'alpinelinux', color: '#0D597F' },
+  python: { slug: 'python', color: '#3776AB' },
+  node: { slug: 'nodedotjs', color: '#339933' },
+  rust: { slug: 'rust', color: '#DEA584' },
+  golang: { slug: 'go', color: '#00ADD8' },
+  ruby: { slug: 'ruby', color: '#CC342D' },
+  java: { slug: 'openjdk', color: '#007396' },
+  rhel: { slug: 'redhat', color: '#EE0000' },
+  fedora: { slug: 'fedora', color: '#294172' },
+};
+
 export const BaseImageIcon = ({ imageName = '', size = 24 }: BaseImageIconProps) => {
-  const [hasError, setHasError] = useState(false);
+  // Strip tag (:latest) and namespace (library/) -> final image name
+  const cleanName = imageName.split(':')[0].split('/').pop()?.toLowerCase() || '';
+  const matched = BASE_MAP[cleanName];
 
-  // 1. Clean the image name: strip tags (:latest) and paths (library/)
-  const cleanName = imageName
-    .split(':')[0]         // remove tag
-    .split('/')            // handle namespaces
-    .pop()                 // get the final part
-    ?.toLowerCase() || '';
+  const dockerFallback = <Icon icon="logos:docker-icon" width={size} height={size} className="w-full h-full" />;
 
-  // 2. Map common base images to official Brand Icons & Colors
-  const baseMap: Record<string, { icon: any, color: string, slug: string }> = {
-    ubuntu: { icon: SiUbuntu, color: "#E95420", slug: "ubuntu" },
-    debian: { icon: SiDebian, color: "#A81D33", slug: "debian" },
-    alpine: { icon: SiAlpinelinux, color: "#0D597F", slug: "alpinelinux" },
-    python: { icon: SiPython, color: "#3776AB", slug: "python" },
-    node: { icon: SiNodedotjs, color: "#339933", slug: "nodedotjs" },
-    rust: { icon: SiRust, color: "#000000", slug: "rust" },
-    golang: { icon: SiGo, color: "#00ADD8", slug: "go" },
-    ruby: { icon: SiRuby, color: "#CC342D", slug: "ruby" },
-    java: { icon: SiOpenjdk, color: "#007396", slug: "openjdk" },
-    rhel: { icon: SiRedhat, color: "#EE0000", slug: "redhat" },
-    fedora: { icon: SiFedora, color: "#294172", slug: "fedora" }
-  };
-
-  const matched = baseMap[cleanName];
-
-  // 3. Logic: CDN (Highest Detail) -> Brand Map (Themed) -> Docker Default
-  if (cleanName && !hasError) {
-    const slug = matched?.slug || cleanName;
-    return (
-      <div style={{ width: size, height: size }} className="flex items-center justify-center p-0.5">
-        <img
-          src={`https://cdn.simpleicons.org/${slug}`}
-          alt={cleanName}
-          className="w-full h-full object-contain"
-          onError={() => setHasError(true)}
-        />
-      </div>
-    );
+  if (!cleanName) {
+    return <div style={{ width: size, height: size }} className="flex items-center justify-center">{dockerFallback}</div>;
   }
 
-  const IconComponent = matched ? matched.icon : SiDocker;
-  const iconColor = matched ? matched.color : "#2496ED"; // Docker Blue
-
   return (
-    <div style={{ width: size, height: size }} className="flex items-center justify-center">
-      <IconComponent 
-        className="w-full h-full" 
-        style={{ color: iconColor }} 
-        title={`Base: ${imageName}`} 
+    <div style={{ width: size, height: size }} title={`Base: ${imageName}`} className="flex items-center justify-center p-0.5">
+      <Icon
+        icon={`simple-icons:${matched?.slug ?? cleanName}`}
+        width={size}
+        height={size}
+        style={{ color: matched?.color }}
+        className="w-full h-full object-contain"
+        fallback={dockerFallback}
       />
     </div>
   );

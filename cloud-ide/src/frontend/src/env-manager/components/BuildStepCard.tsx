@@ -1,10 +1,9 @@
 // src/components/env-manager/components/BuildStepCard.tsx
 import React from 'react';
 import { Control, UseFormRegister, UseFormSetValue } from 'react-hook-form';
-import { EnvironmentConfig } from '@cloud-ide/shared/types/env';
-import { SUPPORTED_INSTALL_STEPS } from '@cloud-ide/shared/types/env';
+import { EnvironmentConfig, INSTALL_STEPS } from '@cloud-ide/shared/types/env';
 
-import { StepIcon } from './icons/StepIcon';
+import { EnvIcon } from '../registry/EnvIcon';
 import { DependencyManager } from './DependencyManager';
 import { useBuildStepForm } from '../hooks/useBuildStepForm';
 
@@ -28,7 +27,7 @@ export const BuildStepCard = ({ index, control, register, setValue, onRemove }: 
       <div className="flex justify-between items-center">
         <div className="flex items-center gap-3">
           <div className="w-6 h-6 flex items-center justify-center">
-            <StepIcon type={stepType} size={24} />
+            <EnvIcon type={stepType} size={24} />
           </div>
 
           <select 
@@ -36,7 +35,7 @@ export const BuildStepCard = ({ index, control, register, setValue, onRemove }: 
             className="p-1.5 border border-vscode-border rounded bg-vscode-tab text-vscode-textDim font-medium cursor-pointer focus:border-vscode-accent outline-none"
           >
             {/* Using the centralized constant instead of a hardcoded array */}
-            {SUPPORTED_INSTALL_STEPS.map(t => (
+            {INSTALL_STEPS.map(t => (
               <option key={t} value={t} className="bg-vscode-tab text-white">
                 {t}
               </option>

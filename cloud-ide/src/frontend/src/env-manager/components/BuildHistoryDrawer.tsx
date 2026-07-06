@@ -1,6 +1,12 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { VscClose, VscHistory, VscRefresh, VscLoading } from 'react-icons/vsc';
-import { BuildState, SavedEnvironment, listBuilds } from '../services/api/environmentApi';
+import { VscClose, VscHistory, VscRefresh, VscLoading, VscCloudUpload, VscCheck } from 'react-icons/vsc';
+import { toast } from '@frontend/notifications';
+import {
+  BuildState,
+  SavedEnvironment,
+  listBuilds,
+  rollbackEnvironment,
+} from '../services/api/environmentApi';
 import { timeAgo } from '../utils/timeAgo';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -21,8 +27,19 @@ const formatDuration = (b: BuildState): string => {
   return `${Math.floor(secs / 60)}m ${secs % 60}s`;
 };
 
-const BuildRow = ({ b }: { b: BuildState }) => {
+const BuildRow = ({
+  b,
+  isCurrent,
+  deploying,
+  onDeploy,
+}: {
+  b: BuildState;
+  isCurrent: boolean;
+  deploying: boolean;
+  onDeploy: () => void;
+}) => {
   const color = STATUS_COLOR[b.status] ?? '#9ca3af';
+  const canDeploy = b.status === 'succeeded' && !!b.imageTag;
   return (
     <div className="p-3 rounded-lg border border-white/[0.06] bg-[#1f1f1f] animate-fade-up">
       <div className="flex items-center justify-between">
@@ -55,14 +72,45 @@ const BuildRow = ({ b }: { b: BuildState }) => {
           {b.error}
         </p>
       )}
+
+      {canDeploy && (
+        <div className="mt-2.5 flex justify-end">
+          {isCurrent ? (
+            <span className="flex items-center gap-1.5 text-[11px] font-medium text-emerald-400">
+              <VscCheck size={13} /> Currently serving
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={onDeploy}
+              disabled={deploying}
+              className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-md border border-[#3574d4]/30 text-[#5a9cf8] bg-[#3574d4]/10 hover:bg-[#3574d4]/20 transition-colors active:scale-95 disabled:opacity-50"
+            >
+              <VscCloudUpload size={13} />
+              {deploying ? 'Deploying…' : 'Deploy this build'}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };
 
-export const BuildHistoryDrawer = ({ env, onClose }: { env: SavedEnvironment; onClose: () => void }) => {
+export const BuildHistoryDrawer = ({
+  env,
+  onClose,
+  onDeployed,
+}: {
+  env: SavedEnvironment;
+  onClose: () => void;
+  onDeployed?: () => void;
+}) => {
   const [builds, setBuilds] = useState<BuildState[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Which image :latest currently points at (seeded from the record, updated on deploy).
+  const [currentImage, setCurrentImage] = useState<string>(env.imageName);
+  const [deploying, setDeploying] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,6 +123,20 @@ export const BuildHistoryDrawer = ({ env, onClose }: { env: SavedEnvironment; on
       setLoading(false);
     }
   }, [env.id]);
+
+  const handleDeploy = async (imageTag: string) => {
+    setDeploying(imageTag);
+    try {
+      await rollbackEnvironment(env.id, imageTag);
+      setCurrentImage(imageTag);
+      toast.success(`Now serving ${imageTag}`, { title: 'Deployed' });
+      onDeployed?.(); // let the parent refresh the env list
+    } catch (e) {
+      toast.error((e as Error).message, { title: 'Deploy failed' });
+    } finally {
+      setDeploying(null);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -138,7 +200,15 @@ export const BuildHistoryDrawer = ({ env, onClose }: { env: SavedEnvironment; on
               <p className="text-gray-600 text-xs">Build this environment to start a history</p>
             </div>
           ) : (
-            builds.map((b, i) => <BuildRow key={b.buildId ?? i} b={b} />)
+            builds.map((b, i) => (
+              <BuildRow
+                key={b.buildId ?? i}
+                b={b}
+                isCurrent={!!b.imageTag && b.imageTag === currentImage}
+                deploying={deploying === b.imageTag}
+                onDeploy={() => b.imageTag && handleDeploy(b.imageTag)}
+              />
+            ))
           )}
         </div>
       </div>

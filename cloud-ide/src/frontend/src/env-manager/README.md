@@ -131,7 +131,7 @@ Deliberate seams left open (YAGNI until measured); each has a clean boundary to 
 - [x] **Versioned image tags.** `cloud-ide-<id>:<contentHash>` + `:latest` (`contentTag` / `toVersionedImageName`).
 - [x] **Explicit build cancel button.** `POST /:id/build/cancel` + Cancel action in the build modal (BuildService tracks the live process).
 - [x] **Skip rebuild on cache hit.** `IBuilder.exists`/`tag` + `BuildService.start` retag-and-skip when `cloud-ide-<id>:<hash>` already exists.
-- [ ] **Rollback UI.** History rows carry immutable content tags; add a "deploy this build" action to point `:latest` at an older tag.
+- [x] **Rollback UI.** `BuildHistoryDrawer` — each succeeded build shows "Deploy this build" (→ `POST /:id/rollback`); the live one is marked "Currently serving".
 - [ ] **Build queue / throttling.** Different envs still build concurrently; slot a queue behind `BuildService.start` if the host saturates.
 - [ ] **Move the build store off JSON.** Swap `JsonBuildStore` for Redis/Postgres behind `IBuildStore` for multi-node.
 - [ ] **Atomic JSON writes.** `JsonBuildStore.persist` truncates+writes; use write-to-temp + rename to be crash-safe.

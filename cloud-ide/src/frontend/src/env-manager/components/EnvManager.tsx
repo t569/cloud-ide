@@ -99,7 +99,11 @@ export const EnvManager = () => {
 
         {/* Per-env persistent build history (GET /environment/:id/builds) */}
         {historyTarget && (
-          <BuildHistoryDrawer env={historyTarget} onClose={() => setHistoryTarget(null)} />
+          <BuildHistoryDrawer
+            env={historyTarget}
+            onClose={() => setHistoryTarget(null)}
+            onDeployed={refresh}
+          />
         )}
       </div>
     </div>

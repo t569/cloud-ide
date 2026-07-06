@@ -50,5 +50,9 @@ export const listBuilds = (id: string) =>
 export const cancelBuild = (id: string) =>
   apiClient.post<{ message: string }>(`/environment/${encodeURIComponent(id)}/build/cancel`, {});
 
+// Roll back: point :latest at a prior content-addressed image tag.
+export const rollbackEnvironment = (id: string, imageTag: string) =>
+  apiClient.post<SaveResponse>(`/environment/${encodeURIComponent(id)}/rollback`, { imageTag });
+
 export const deleteEnvironment = (id: string) =>
   apiClient.delete<{ message: string }>(`/environment/${encodeURIComponent(id)}`);

@@ -35,11 +35,38 @@ export function createEnvironmentRouter(
   });
 
   // ==========================================================================
-  // GET /statuses    Current build status of every env (live-poll, one request)
+  // GET /statuses    Current build status of every env (REST snapshot)
   // Registered before '/:envId' so the literal path wins.
   // ==========================================================================
   router.get('/statuses', (_req: Request, res: Response) => {
     res.json(buildService.allStatuses());
+  });
+
+  // ==========================================================================
+  // GET /events      Live build-status stream (Server-Sent Events)
+  // Pushes a 'snapshot' on connect, then a 'change' per status transition.
+  // ==========================================================================
+  router.get('/events', (req: Request, res: Response) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // don't let a proxy buffer the stream
+    res.flushHeaders?.();
+
+    const send = (event: string, data: unknown) =>
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+    send('snapshot', buildService.allStatuses());
+    const onChange = (state: unknown) => send('change', state);
+    buildService.onChange(onChange);
+
+    // Comment heartbeat keeps idle proxies from dropping the connection.
+    const heartbeat = setInterval(() => res.write(': ping\n\n'), 25000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      buildService.offChange(onChange);
+    });
   });
 
   // ==========================================================================
@@ -180,7 +207,8 @@ export function createEnvironmentRouter(
     proc.on('data', (chunk: string) => res.write(chunk));
 
     proc.on('succeeded', async (message: string) => {
-      environment.imageName = toImageName(environment.id);
+      // BuildService recorded the content-addressed tag; persist it as the current image.
+      environment.imageName = buildService.status(environment.id)?.imageTag ?? toImageName(environment.id);
       await envRepo.save(environment);
       res.end(`\r\n\x1b[1;32m[System]\x1b[0m ${message}\r\n`);
     });

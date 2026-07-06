@@ -1,20 +1,37 @@
 // Orchestrates a build: naming -> Dockerfile -> builder -> status tracking.
 // The route talks only to this; it never knows about Docker, tags, or spawning.
-import { toImageName } from '@cloud-ide/shared';
+import { EventEmitter } from 'events';
+import { toImageName, toVersionedImageName } from '@cloud-ide/shared';
 import { EnvironmentRecord } from '../../database/models';
 import { DockerGeneratorService } from './GeneratorService';
 import { BuilderRegistry } from './BuilderRegistry';
-import { IBuildStore } from './BuildTracker';
+import { IBuildStore, BuildState } from './BuildTracker';
 import { BuildProcess } from './IBuilder';
 
 export class BuildService {
   // Live handles to running builds, so an out-of-band request can cancel them.
   private readonly active = new Map<string, BuildProcess>();
+  // Status-change bus for SSE subscribers (one listener per connected client).
+  private readonly events = new EventEmitter();
 
   constructor(
     private readonly builders: BuilderRegistry,
     private readonly store: IBuildStore,
-  ) {}
+  ) {
+    this.events.setMaxListeners(0); // unbounded SSE clients
+  }
+
+  /** Subscribe to status changes (SSE). */
+  onChange(cb: (state: BuildState) => void): void {
+    this.events.on('change', cb);
+  }
+  offChange(cb: (state: BuildState) => void): void {
+    this.events.off('change', cb);
+  }
+  private emitChange(envId: string): void {
+    const state = this.store.get(envId);
+    if (state) this.events.emit('change', state);
+  }
 
   status(envId: string) {
     return this.store.get(envId);
@@ -42,24 +59,33 @@ export class BuildService {
   start(env: EnvironmentRecord, builderName?: string): BuildProcess {
     // Reserve first so a second concurrent call is rejected before we do work.
     this.store.begin(env.id);
+    this.emitChange(env.id);
     try {
-      const imageTag = toImageName(env.id); // rename-stable, id-based
+      // Content-addressed tag (immutable, enables rollback/cache) + moving :latest.
+      const config = env.builderConfig;
+      const versionedTag = config ? toVersionedImageName(env.id, config) : toImageName(env.id);
+      const latestTag = toImageName(env.id);
+      const imageTags = config ? [versionedTag, latestTag] : [latestTag];
+
       const dockerfile = DockerGeneratorService.generateDockerfile(JSON.stringify(env.builderConfig));
 
-      const proc = this.builders.get(builderName).build(dockerfile, imageTag);
+      const proc = this.builders.get(builderName).build(dockerfile, imageTags);
       this.active.set(env.id, proc);
       proc.on('succeeded', () => {
         this.active.delete(env.id);
-        this.store.finish(env.id, true, { imageTag });
+        this.store.finish(env.id, true, { imageTag: versionedTag }); // record the immutable ref
+        this.emitChange(env.id);
       });
       proc.on('failed', (message: string) => {
         this.active.delete(env.id);
         this.store.finish(env.id, false, { error: message });
+        this.emitChange(env.id);
       });
       return proc;
     } catch (err) {
       // Synchronous failure (e.g. invalid config / unsafe id): release the slot.
       this.store.finish(env.id, false, { error: (err as Error).message });
+      this.emitChange(env.id);
       throw err;
     }
   }

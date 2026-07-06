@@ -9,10 +9,10 @@ class DockerBuildProcess extends EventEmitter implements BuildProcess {
   private child?: ChildProcess;
   private done = false;
 
-  constructor(dockerfile: string, imageTag: string) {
+  constructor(dockerfile: string, imageTags: string[]) {
     super();
     // Defer so the caller can attach listeners before the first emit.
-    setImmediate(() => this.run(dockerfile, imageTag));
+    setImmediate(() => this.run(dockerfile, imageTags));
   }
 
   private settle(event: 'succeeded' | 'failed', message: string): void {
@@ -21,12 +21,14 @@ class DockerBuildProcess extends EventEmitter implements BuildProcess {
     this.emit(event, message);
   }
 
-  private run(dockerfile: string, imageTag: string): void {
+  private run(dockerfile: string, imageTags: string[]): void {
     try {
-      this.emit('data', `Initializing Cloud IDE build pipeline for ${imageTag}...\n`);
+      this.emit('data', `Initializing Cloud IDE build pipeline for ${imageTags.join(', ')}...\n`);
 
       // '-' => read the Dockerfile from stdin. --progress=plain keeps logs clean.
-      const child = spawn('docker', ['build', '--progress=plain', '-t', imageTag, '-']);
+      // One build, tagged with every ref (content hash + :latest).
+      const tagArgs = imageTags.flatMap((t) => ['-t', t]);
+      const child = spawn('docker', ['build', '--progress=plain', ...tagArgs, '-']);
       this.child = child;
 
       // Guard: a missing/broken docker binary emits 'error' on the child; without
@@ -44,7 +46,7 @@ class DockerBuildProcess extends EventEmitter implements BuildProcess {
       child.stderr.on('data', (d) => this.emit('data', d.toString()));
 
       child.on('close', (code) => {
-        if (code === 0) this.settle('succeeded', `Build completed. Tagged as ${imageTag}`);
+        if (code === 0) this.settle('succeeded', `Build completed. Tagged as ${imageTags.join(', ')}`);
         else this.settle('failed', `Build failed with exit code ${code}`);
       });
     } catch (err: any) {
@@ -60,7 +62,7 @@ class DockerBuildProcess extends EventEmitter implements BuildProcess {
 
 export class DockerBuilder implements IBuilder {
   readonly name = 'docker';
-  build(dockerfile: string, imageTag: string): BuildProcess {
-    return new DockerBuildProcess(dockerfile, imageTag);
+  build(dockerfile: string, imageTags: string[]): BuildProcess {
+    return new DockerBuildProcess(dockerfile, imageTags);
   }
 }

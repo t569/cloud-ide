@@ -4,10 +4,13 @@ import {
   validateName,
   slugify,
   toImageName,
+  contentTag,
+  toVersionedImageName,
   generateId,
   generateFriendlyName,
   resolveNewNaming,
 } from '@cloud-ide/shared';
+import type { EnvironmentConfig } from '@cloud-ide/shared';
 
 // Full docker image-reference shape (optional :tag). A leading/trailing/repeated
 // separator here is exactly the "invalid reference format" a real build rejects.
@@ -72,5 +75,41 @@ describe('naming — generation & policy', () => {
   it('mints a unique id per environment (identity != label)', () => {
     const ids = new Set(Array.from({ length: 200 }, () => generateId()));
     expect(ids.size).toBe(200);
+  });
+});
+
+describe('naming — content-addressed versioning', () => {
+  const base: EnvironmentConfig = {
+    id: 'env-abc',
+    name: 'x',
+    baseImage: 'ubuntu:22.04',
+    buildSteps: [
+      { name: 's1', type: 'pip', packages: ['numpy', 'pandas'] },
+      { name: 's2', type: 'apt', packages: ['git'] },
+    ],
+  };
+
+  it('is deterministic and independent of package order', () => {
+    const reordered: EnvironmentConfig = {
+      ...base,
+      buildSteps: [
+        { name: 's1', type: 'pip', packages: ['pandas', 'numpy'] }, // swapped
+        { name: 's2', type: 'apt', packages: ['git'] },
+      ],
+    };
+    expect(contentTag(base)).toBe(contentTag(reordered));
+    expect(contentTag(base)).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it('changes when build content changes, and step order matters', () => {
+    const changed: EnvironmentConfig = { ...base, baseImage: 'ubuntu:24.04' };
+    expect(contentTag(base)).not.toBe(contentTag(changed));
+
+    const stepsSwapped: EnvironmentConfig = { ...base, buildSteps: [...base.buildSteps].reverse() };
+    expect(contentTag(base)).not.toBe(contentTag(stepsSwapped));
+  });
+
+  it('produces a valid versioned image reference', () => {
+    expect(toVersionedImageName('env-abc', base)).toMatch(/^cloud-ide-env-abc:[0-9a-f]{16}$/);
   });
 });

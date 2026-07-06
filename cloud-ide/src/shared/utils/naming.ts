@@ -14,6 +14,8 @@
 //                     Kubernetes name standard): [a-z0-9]([-a-z0-9]*[a-z0-9])?, <=63.
 //   OCI/Docker ref  — image name component: [a-z0-9]+([._-][a-z0-9]+)*.
 
+import { EnvironmentConfig } from '../types/env';
+
 // ---- Grammar -------------------------------------------------------------
 
 const RFC1123_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -60,6 +62,47 @@ export function toImageName(id: string, tag = 'latest'): string {
   if (!isValidId(id)) throw new Error(`Refusing to build image for unsafe id: "${id}"`);
   return `cloud-ide-${id}:${tag}`;
 }
+
+// ---- Content-addressed versioning ---------------------------------------
+
+/**
+ * Deterministic content tag for a build config — a 64-bit FNV-1a over a
+ * canonical projection. Same inputs -> same tag (enables rollback + cache
+ * hits); order of build steps matters (Dockerfile order), package/env order
+ * does not. ponytail: non-cryptographic — collision-negligible for realistic
+ * build counts; swap for SHA-256 if you ever need collision *resistance*.
+ */
+export function contentTag(config: EnvironmentConfig): string {
+  const canonical = JSON.stringify({
+    baseImage: config.baseImage ?? '',
+    bootUpAsRoot: config.bootUpAsRoot ?? false,
+    platform: config.platform ?? '',
+    env: config.env
+      ? Object.keys(config.env).sort().map((k) => [k, config.env![k]])
+      : [],
+    steps: (config.buildSteps ?? []).map((s) => ({
+      type: s.type,
+      packages: [...(s.packages ?? [])].sort(),
+      command: s.command ?? '',
+      targetPath: s.targetPath ?? '',
+      isGlobal: !!s.isGlobal,
+      version: s.version ?? '',
+    })),
+  });
+
+  let hash = 0xcbf29ce484222325n;
+  const prime = 0x100000001b3n;
+  const mask = 0xffffffffffffffffn;
+  for (let i = 0; i < canonical.length; i++) {
+    hash ^= BigInt(canonical.charCodeAt(i));
+    hash = (hash * prime) & mask;
+  }
+  return hash.toString(16).padStart(16, '0');
+}
+
+/** Content-addressed image tag: cloud-ide-<id>:<contentHash>. */
+export const toVersionedImageName = (id: string, config: EnvironmentConfig): string =>
+  toImageName(id, contentTag(config));
 
 // ---- Generation ("name it ourselves") ------------------------------------
 

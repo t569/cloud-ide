@@ -18,6 +18,9 @@ export interface BuildProcess extends EventEmitter {
 export interface IBuilder {
   /** Registry key, e.g. 'docker'. */
   readonly name: string;
-  /** Start a build; returns immediately with a streaming handle. */
-  build(dockerfile: string, imageTag: string): BuildProcess;
+  /**
+   * Start a build; returns immediately with a streaming handle. The image is
+   * tagged with every ref in `imageTags` (e.g. a content-hash tag + :latest).
+   */
+  build(dockerfile: string, imageTags: string[]): BuildProcess;
 }

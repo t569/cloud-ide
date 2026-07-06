@@ -43,7 +43,7 @@ import {
   BuildService,
   BuilderRegistry,
   DockerBuilder,
-  JsonBuildStore,
+  createBuildStore,
 } from './services/builder';
 
 const app = express();
@@ -102,12 +102,12 @@ app.delete('/api/v1/admin/sandboxes/:sandboxId', adminController.forceDestroySan
 app.post('/api/v1/sessions', sessionController.startSession);
 app.delete('/api/v1/sessions/:sessionId', sessionController.disconnectSession);
 
-// Build pipeline: Docker today, swappable via the registry. Status/history/
-// concurrency persisted to ./data/builds.json (JsonBuildStore reconciles builds
-// interrupted by a restart). Swap the store impl to move off JSON.
+// Build pipeline: Docker today, swappable via the registry. The build store is
+// config-driven ($BUILD_STORE: json (default) | memory | redis). To use Redis,
+// pass a client here: createBuildStore({ backend: 'redis', redis: myClient }).
 const buildService = new BuildService(
   new BuilderRegistry([new DockerBuilder()]),
-  new JsonBuildStore(),
+  createBuildStore(),
   Number(process.env.MAX_CONCURRENT_BUILDS) || 2, // global build concurrency cap
 );
 

@@ -1,8 +1,11 @@
 // Build status, history, and concurrency guard. IBuildStore is the swap
-// boundary. Two implementations here:
-//   InMemoryBuildStore — fast, volatile (tests, ephemeral).
-//   JsonBuildStore     — same logic + durable JSON persistence + restart
-//                        reconciliation, so status/history survive restarts.
+// boundary. Implementations:
+//   InMemoryBuildStore — fast, volatile (tests, ephemeral). Also the base for
+//                        durable stores: it owns the in-memory mirror that backs
+//                        the SYNCHRONOUS reads + concurrency guard, and exposes
+//                        hydrate()/serialize() so a subclass only adds I/O.
+//   JsonBuildStore     — mirror + durable JSON file (here).
+//   RedisBuildStore    — mirror + durable Redis blob (RedisBuildStore.ts).
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { writeJsonAtomic } from '../../database/atomicWrite';
@@ -43,6 +46,7 @@ export class BuildConflictError extends Error {
 }
 
 const MAX_HISTORY = 200;
+const INTERRUPTED = 'Interrupted by a server restart';
 let seq = 0;
 const newBuildId = (): string => `b-${Date.now().toString(36)}-${(seq++).toString(36)}`;
 
@@ -104,9 +108,35 @@ export class InMemoryBuildStore implements IBuildStore {
     if (detail.error !== undefined) state.error = detail.error;
     this.changed();
   }
-}
 
-const INTERRUPTED = 'Interrupted by a server restart';
+  // ---- shared persistence helpers (used by durable subclasses) -------------
+
+  /**
+   * Load persisted records into the in-memory mirror, reconciling any build left
+   * queued/building by a crash (→ failed). Returns true if anything changed, so
+   * the caller can re-persist. Shared by JsonBuildStore + RedisBuildStore.
+   */
+  protected hydrate(records: BuildState[]): boolean {
+    let reconciled = false;
+    for (const r of records) {
+      if (r.status === 'building' || r.status === 'queued') {
+        r.status = 'failed';
+        r.error = r.error ?? INTERRUPTED;
+        r.finishedAt = r.finishedAt ?? Date.now();
+        reconciled = true;
+      }
+    }
+    this.records = records.slice(0, MAX_HISTORY);
+    this.states.clear();
+    for (const r of this.records) if (!this.states.has(r.envId)) this.states.set(r.envId, r); // newest-first wins
+    return reconciled;
+  }
+
+  /** Serialise the durable payload (history is the source; state is derived). */
+  protected serialize(): string {
+    return JSON.stringify({ records: this.records });
+  }
+}
 
 export class JsonBuildStore extends InMemoryBuildStore {
   private readonly filePath: string;
@@ -127,28 +157,14 @@ export class JsonBuildStore extends InMemoryBuildStore {
     } catch {
       return; // no file yet — first run
     }
-    const records = raw.records ?? [];
-    let reconciled = false;
-    for (const r of records) {
-      // Any build still queued/building means the process died before it finished.
-      if (r.status === 'building' || r.status === 'queued') {
-        r.status = 'failed';
-        r.error = r.error ?? INTERRUPTED;
-        r.finishedAt = r.finishedAt ?? Date.now();
-        reconciled = true;
-      }
-    }
-    this.records = records.slice(0, MAX_HISTORY);
-    this.states.clear();
-    for (const r of this.records) if (!this.states.has(r.envId)) this.states.set(r.envId, r); // newest-first wins
-    if (reconciled) this.changed();
+    if (this.hydrate(raw.records ?? [])) this.changed();
   }
 
   protected changed(): void {
     // Serialise writes so rapid begin/finish can't interleave a partial file.
     this.writeChain = this.writeChain
       .then(() => this.persist())
-      .catch((e) => console.error('[BuildStore] persist failed:', e));
+      .catch((e) => console.error('[JsonBuildStore] persist failed:', e));
   }
 
   private async persist(): Promise<void> {

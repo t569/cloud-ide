@@ -84,7 +84,13 @@ export const EnvManager = () => {
         {/* Live build-log viewer (streams from POST /environment/:id/build) */}
         {buildTarget && (
           <Suspense fallback={null}>
-            <BuildLogModal env={buildTarget} onClose={() => setBuildTarget(null)} />
+            <BuildLogModal
+              env={buildTarget}
+              onClose={() => {
+                setBuildTarget(null);
+                refresh(); // pick up the new imageName / Built status
+              }}
+            />
           </Suspense>
         )}
       </div>

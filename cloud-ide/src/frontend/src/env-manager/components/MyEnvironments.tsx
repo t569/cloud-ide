@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { VscSearch, VscTrash, VscAdd, VscRefresh, VscServerEnvironment, VscPlay } from 'react-icons/vsc';
+import { VscSearch, VscTrash, VscAdd, VscRefresh, VscServerEnvironment, VscPlay, VscLoading } from 'react-icons/vsc';
 import { BaseImageIcon } from './icons/BaseImageIcon';
-import { SavedEnvironment } from '../services/api/environmentApi';
+import { SavedEnvironment, BuildState } from '../services/api/environmentApi';
+import { useBuildStatuses } from '../hooks/useBuildStatuses';
 import { timeAgo } from '../utils/timeAgo';
 
 interface MyEnvironmentsProps {
@@ -16,24 +17,46 @@ interface MyEnvironmentsProps {
   onRefresh: () => void;
 }
 
-const StatusBadge = ({ built }: { built: boolean }) => {
-  const color = built ? '#34d399' : '#fbbf24';
+// Live build status wins; otherwise fall back to whether an image was ever built.
+const StatusBadge = ({ env, live }: { env: SavedEnvironment; live?: BuildState }) => {
+  let color = '#fbbf24';
+  let label = 'Draft';
+  let building = false;
+
+  if (live?.status === 'building') {
+    color = '#fbbf24';
+    label = 'Building';
+    building = true;
+  } else if (live?.status === 'failed') {
+    color = '#f87171';
+    label = 'Build failed';
+  } else if (live?.status === 'succeeded' || env.imageName) {
+    color = '#34d399';
+    label = 'Built';
+  }
+
   return (
-    <span className="flex items-center gap-1.5 text-[11px] font-medium" style={{ color }}>
-      <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }} />
-      {built ? 'Built' : 'Draft'}
+    <span className="flex items-center gap-1.5 text-[11px] font-medium whitespace-nowrap" style={{ color }}>
+      {building ? (
+        <VscLoading size={11} className="animate-spin" />
+      ) : (
+        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }} />
+      )}
+      {label}
     </span>
   );
 };
 
 const EnvCard = ({
   env,
+  live,
   selected,
   onOpen,
   onBuild,
   onDelete,
 }: {
   env: SavedEnvironment;
+  live?: BuildState;
   selected: boolean;
   onOpen: () => void;
   onBuild: () => void;
@@ -58,7 +81,7 @@ const EnvCard = ({
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-gray-100 truncate">{cfg?.name || env.id}</h3>
-            <StatusBadge built={!!env.imageName} />
+            <StatusBadge env={env} live={live} />
           </div>
           <p className="text-[11px] text-gray-500 font-jetbrains truncate">{env.id}</p>
         </div>
@@ -119,6 +142,7 @@ export const MyEnvironments = ({
   onRefresh,
 }: MyEnvironmentsProps) => {
   const [query, setQuery] = useState('');
+  const statuses = useBuildStatuses(); // live { envId -> BuildState }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -181,6 +205,7 @@ export const MyEnvironments = ({
             <EnvCard
               key={env.id}
               env={env}
+              live={statuses[env.id]}
               selected={env.id === selectedId}
               onOpen={() => onOpen(env)}
               onBuild={() => onBuild(env)}

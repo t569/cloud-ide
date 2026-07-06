@@ -2,7 +2,14 @@
 
 // builder services
 
-export { ExecutorService } from './ExecutorService';
+// Build backend (swappable via IBuilder / BuilderRegistry)
+export type { IBuilder, BuildProcess } from './IBuilder';
+export { DockerBuilder } from './DockerBuilder';
+export { BuilderRegistry } from './BuilderRegistry';
+export { BuildService } from './BuildService';
+export { InMemoryBuildStore, BuildConflictError } from './BuildTracker';
+export type { IBuildStore, BuildState, BuildStatus } from './BuildTracker';
+
 export { DockerGeneratorService } from './GeneratorService';
 export { GarbageCollector } from './GarbageCollector';
 export { RegistryService } from './RegistryService';

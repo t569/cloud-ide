@@ -8,7 +8,19 @@ export { Validator } from './utils/Validator';
 export { optimizeLayers, injectCacheBuster } from './utils/optimise';
 export { StepHasher } from './utils/hasher';
 export { PackageManagerRules } from './utils/packagemanager_rules';
-export { toDockerSafeId, toImageName } from './utils/naming';
+export {
+  isValidId,
+  isValidImageRef,
+  validateName,
+  slugify,
+  toImageName,
+  generateId,
+  generateFriendlyName,
+  resolveNewNaming,
+  NAME_MAX,
+  LABEL_MAX,
+} from './utils/naming';
+export type { NameCheck, ResolvedNaming } from './utils/naming';
 
 // TYPES
 export type {

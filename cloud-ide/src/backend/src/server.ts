@@ -37,8 +37,14 @@ import { PersistenceLayer } from './database/PersistenceLayer';
 import { SandboxManager } from './services/sandbox/SandboxManager';
 import { IdleSweeper } from './services/sandbox/IdleSweeper';
 
-// Docker clean up services
-import { GarbageCollector } from './services/builder';
+// Build pipeline (swappable builder + status tracking) and Docker clean up
+import {
+  GarbageCollector,
+  BuildService,
+  BuilderRegistry,
+  DockerBuilder,
+  InMemoryBuildStore,
+} from './services/builder';
 
 const app = express();
 
@@ -94,7 +100,14 @@ app.delete('/api/v1/admin/sandboxes/:sandboxId', adminController.forceDestroySan
 app.post('/api/v1/sessions', sessionController.startSession);
 app.delete('/api/v1/sessions/:sessionId', sessionController.disconnectSession);
 
-app.use('/api/environment', createEnvironmentRouter(envRepo, sessionRepo));
+// Build pipeline: Docker today, swappable via the registry. Status/concurrency
+// tracked in-memory (IBuildStore boundary lets us swap for persistence later).
+const buildService = new BuildService(
+  new BuilderRegistry([new DockerBuilder()]),
+  new InMemoryBuildStore(),
+);
+
+app.use('/api/environment', createEnvironmentRouter(envRepo, sessionRepo, buildService));
 
 // GARBAGE COLLECTION: RUNS IN THE BACKGROUND
 GarbageCollector.init();

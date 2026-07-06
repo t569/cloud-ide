@@ -1,39 +1,45 @@
-// backend/src/api/EnvironmentRoutes.ts
+// backend/src/api/routes/environment.routes.ts
 import { Router, Request, Response } from 'express';
 import { IEnvironmentRepository } from '../../database/interfaces/IEnvironmentRepository';
 import { ISessionRepository } from '../../database/interfaces/ISessionRepository';
 
-// Import our Core Tools
-import { Validator, toDockerSafeId, toImageName } from '@cloud-ide/shared';
-import { DockerGeneratorService } from '../../services/builder';
-import { ExecutorService } from '../../services/builder';
+// Core tools — naming validity lives entirely in @cloud-ide/shared.
+import { Validator, resolveNewNaming, validateName, toImageName } from '@cloud-ide/shared';
+import { BuildService, BuildConflictError } from '../../services/builder';
 
-// Import Models
+// Models
 import { EnvironmentRecord } from '../../database/models';
 
-export function createEnvironmentRouter(envRepo: IEnvironmentRepository, sessionRepo: ISessionRepository) {
+export function createEnvironmentRouter(
+  envRepo: IEnvironmentRepository,
+  sessionRepo: ISessionRepository,
+  buildService: BuildService,
+) {
   const router = Router();
 
-  // ============================================================================
-  // GET: List all environments
-  // ============================================================================
-  router.get('/', async (req: Request, res: Response) => {
-    const environments = await envRepo.list();
-    res.json(environments);
+  // :envId is typed string | string[] by Express; narrow it once, 400 otherwise.
+  const readId = (req: Request, res: Response): string | null => {
+    const value = req.params.envId;
+    if (typeof value !== 'string' || value.length === 0) {
+      res.status(400).json({ error: 'Invalid environment ID parameter' });
+      return null;
+    }
+    return value;
+  };
+
+  // ==========================================================================
+  // GET /            List all environments
+  // ==========================================================================
+  router.get('/', async (_req: Request, res: Response) => {
+    res.json(await envRepo.list());
   });
 
-
-  // ============================================================================
-  // GET: Fetch specific environment
-  // ============================================================================
+  // ==========================================================================
+  // GET /:envId      Fetch one environment
+  // ==========================================================================
   router.get('/:envId', async (req: Request, res: Response) => {
-    const { envId } = req.params;
-
-    if (!envId || typeof envId !== 'string') {
-      res.status(400).json({ error: 'Invalid environment ID parameter' });
-      return;
-    }
-
+    const envId = readId(req, res);
+    if (!envId) return;
     try {
       const environment = await envRepo.get(envId);
       if (!environment) {
@@ -41,140 +47,146 @@ export function createEnvironmentRouter(envRepo: IEnvironmentRepository, session
         return;
       }
       res.status(200).json(environment);
-    } catch (error: any) {
+    } catch {
       res.status(500).json({ error: 'Failed to retrieve environment' });
     }
   });
 
+  // ==========================================================================
+  // GET /:envId/status   Current build status (for the UI)
+  // ==========================================================================
+  router.get('/:envId/status', (req: Request, res: Response) => {
+    const envId = readId(req, res);
+    if (!envId) return;
+    res.json(buildService.status(envId) ?? { envId, status: 'idle' });
+  });
 
- // ============================================================================
-  // POST: Create or Update an Environment (SAVE ONLY - NO BUILD)
-  // ============================================================================
+  // ==========================================================================
+  // POST /           Create a NEW environment (id minted by us)
+  // ==========================================================================
   router.post('/', async (req: Request, res: Response) => {
     try {
-      const rawPayload = req.body;
-      const builderConfig = rawPayload.builderConfig || rawPayload; 
-      
-      // 1. Force the ID to be docker-safe. Centralised slug (shared/utils/naming)
-      //    so save + build agree; collapses repeated separators the old regex left,
-      //    which otherwise produced tags Docker rejects ("invalid reference format").
-      builderConfig.id = toDockerSafeId(builderConfig.id);
+      const incoming = req.body?.builderConfig ?? req.body ?? {};
 
-      if (!builderConfig.name || builderConfig.name.trim() === '') {
-        builderConfig.name = builderConfig.id;
-      }
+      // System owns identity; use the given name if valid, else name it ourselves.
+      const { id, name } = resolveNewNaming(incoming.name);
 
-      // 2. Validate the Configuration
-      const rawConfigString = JSON.stringify(builderConfig);
-      const validatedConfig = Validator.parseAndValidate(rawConfigString);
+      const validated = Validator.parseAndValidate(JSON.stringify({ ...incoming, id, name }));
+      // Guarantee the stored config agrees with the record identity.
+      validated.id = id;
+      validated.name = name;
 
-      // 3. Format the Environment Record
-      const newEnv: EnvironmentRecord = {
-        id: builderConfig.id,
-        imageName: '', 
-        builderConfig: validatedConfig,
+      const record: EnvironmentRecord = {
+        id,
+        imageName: '',
+        builderConfig: validated,
         createdAt: Date.now(),
-        isRepoSpecific: builderConfig.isRepoSpecific || false,
-        targetRepo: builderConfig.targetRepo,
-        trackedTools: builderConfig.trackedTools || []
+        isRepoSpecific: incoming.isRepoSpecific ?? false,
+        targetRepo: incoming.targetRepo,
+        trackedTools: incoming.trackedTools ?? [],
       };
 
-      // 4. Save to Database
-      await envRepo.save(newEnv);
-      res.status(200).json({ message: 'Environment saved successfully.', environment: newEnv });
-
+      await envRepo.save(record);
+      res.status(201).json({ message: 'Environment created.', environment: record });
     } catch (err: any) {
-      console.error("[Schema Validation Error]:", err.message);
-      res.status(400).json({ error: 'Invalid Environment Configuration', details: err.message });
+      res.status(400).json({ error: 'Invalid environment configuration', details: err.message });
     }
   });
 
-  // ============================================================================
-  // POST: Execute the Build Pipeline (STREAMING LOGS)
-  // ============================================================================
-  router.post('/:envId/build', async (req: Request, res: Response) => {
-    const { envId } = req.params;
-
-    if (!envId || typeof envId !== 'string') {
-      res.status(400).json({ error: 'Invalid environment ID parameter' });
-      return;
-    }
-
+  // ==========================================================================
+  // PUT /:envId      Update an EXISTING environment (identity is immutable)
+  // ==========================================================================
+  router.put('/:envId', async (req: Request, res: Response) => {
+    const envId = readId(req, res);
+    if (!envId) return;
     try {
-      // 1. Fetch the saved JSON schema from the DB
-      const environment = await envRepo.get(envId);
-      if (!environment) {
+      const existing = await envRepo.get(envId);
+      if (!existing) {
         res.status(404).json({ error: `Environment '${envId}' not found.` });
         return;
       }
 
-      // 2. Validate and get stringified config for the Executor
-      const rawConfigString = JSON.stringify(environment.builderConfig);
-      const validatedConfigStr = Validator.parseAndValidate(rawConfigString, { return_a_string: true });
+      const incoming = req.body?.builderConfig ?? req.body ?? {};
 
-      // 3. Setup HTTP Chunked Streaming
-      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-      res.setHeader('Transfer-Encoding', 'chunked');
-
-      try {
-        // Define the target image tag (same slug the save path used)
-        const finalImageName = toImageName(environment.id);
-
-        // 4. Execute the build pipeline and wrap the Event Emitter in a Promise
-        await new Promise<void>((resolve, reject) => {
-          const logStream = ExecutorService.streamBuild(validatedConfigStr, finalImageName);
-
-          logStream.on('data', (chunk: string) => {
-            res.write(chunk);
-          });
-
-          logStream.on('success', (msg: string) => {
-            res.write(`\r\n\x1b[1;32m[Docker]\x1b[0m ${msg}\r\n`);
-            resolve(); 
-          });
-
-          logStream.on('error', (errMsg: string) => {
-            reject(new Error(errMsg)); 
-          });
-        });
-
-        // 5. Finalize the Database Record
-        environment.imageName = finalImageName;
-        // Using an optional 'updatedAt' or 'lastBuilt' if your model supports it
-        await envRepo.save(environment);
-        
-        res.end(`\r\n\x1b[1;32m[System]\x1b[0m Environment '${environment.imageName}' successfully built and registered.\r\n`);
-
-      } catch (err: any) {
-        res.end(`\r\n\x1b[1;31m[System Error]\x1b[0m Build aborted: ${err.message}\r\n`);
+      // Keep the current name unless a valid new one is supplied (no auto-rename).
+      let name = existing.builderConfig?.name ?? existing.id;
+      if (incoming.name != null && String(incoming.name).trim() !== '') {
+        const check = validateName(incoming.name);
+        if (!check.ok) {
+          res.status(400).json({ error: check.error });
+          return;
+        }
+        name = check.value;
       }
 
+      const validated = Validator.parseAndValidate(
+        JSON.stringify({ ...incoming, id: existing.id, name }),
+      );
+      validated.id = existing.id;
+      validated.name = name;
+
+      const updated: EnvironmentRecord = { ...existing, builderConfig: validated };
+      await envRepo.save(updated);
+      res.status(200).json({ message: 'Environment updated.', environment: updated });
     } catch (err: any) {
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Failed to initiate build pipeline.' });
-      }
+      res.status(400).json({ error: 'Invalid environment configuration', details: err.message });
     }
   });
 
-
-
-  // ============================================================================
-  // DELETE: Remove an environment
-  // ============================================================================
-  router.delete('/:envId', async (req: Request, res: Response) => {
-    const { envId } = req.params;
-
-    if (!envId || typeof envId !== 'string') {
-      res.status(400).json({ error: 'Invalid environment ID parameter' });
+  // ==========================================================================
+  // POST /:envId/build   Build the image (streaming logs)
+  // ==========================================================================
+  router.post('/:envId/build', async (req: Request, res: Response) => {
+    const envId = readId(req, res);
+    if (!envId) return;
+    const environment = await envRepo.get(envId);
+    if (!environment) {
+      res.status(404).json({ error: `Environment '${envId}' not found.` });
       return;
     }
 
-    // Protection logic maintained
+    let proc;
+    try {
+      proc = buildService.start(environment);
+    } catch (err) {
+      if (err instanceof BuildConflictError) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
+      res.status(500).json({ error: 'Failed to start build', details: (err as Error).message });
+      return;
+    }
+
+    // Stream logs as plain text; Express handles chunked transfer.
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+
+    proc.on('data', (chunk: string) => res.write(chunk));
+
+    proc.on('succeeded', async (message: string) => {
+      environment.imageName = toImageName(environment.id);
+      await envRepo.save(environment);
+      res.end(`\r\n\x1b[1;32m[System]\x1b[0m ${message}\r\n`);
+    });
+
+    proc.on('failed', (message: string) => {
+      res.end(`\r\n\x1b[1;31m[System Error]\x1b[0m ${message}\r\n`);
+    });
+
+    // If the client disconnects mid-build, stop the build.
+    req.on('close', () => proc?.cancel());
+  });
+
+  // ==========================================================================
+  // DELETE /:envId   Remove an environment (blocked while sessions use it)
+  // ==========================================================================
+  router.delete('/:envId', async (req: Request, res: Response) => {
+    const envId = readId(req, res);
+    if (!envId) return;
+
     const activeSessions = await sessionRepo.getSessionsByEnvId(envId);
-    
     if (activeSessions.length > 0) {
-      res.status(409).json({ 
-        error: `Cannot delete environment. ${activeSessions.length} sessions are currently using it.` 
+      res.status(409).json({
+        error: `Cannot delete environment. ${activeSessions.length} sessions are currently using it.`,
       });
       return;
     }

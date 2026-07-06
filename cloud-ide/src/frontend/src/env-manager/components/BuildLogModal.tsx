@@ -4,7 +4,7 @@ import { VscClose, VscTerminal, VscLoading, VscPass, VscError } from 'react-icon
 import { TerminalComponent, TerminalHandle } from '@frontend/terminal/components/Terminal';
 import { BuildStreamTransport } from '../services/BuildStreamTransport';
 import { BaseImageIcon } from './icons/BaseImageIcon';
-import { SavedEnvironment } from '../services/api/environmentApi';
+import { SavedEnvironment, getBuildStatus } from '../services/api/environmentApi';
 
 type Status = 'building' | 'done' | 'error';
 
@@ -21,9 +21,15 @@ export const BuildLogModal = ({ env, onClose }: { env: SavedEnvironment; onClose
 
   useEffect(() => {
     transport.onError(() => setStatus('error'));
-    transport
-      .startBuild(env.id)
-      .finally(() => setStatus((s) => (s === 'error' ? s : 'done')));
+    transport.startBuild(env.id).finally(async () => {
+      // The stream is plain text; ask the backend for the authoritative outcome.
+      try {
+        const state = await getBuildStatus(env.id);
+        setStatus((s) => (s === 'error' ? s : state.status === 'failed' ? 'error' : 'done'));
+      } catch {
+        setStatus((s) => (s === 'error' ? s : 'done'));
+      }
+    });
     return () => transport.disconnect();
   }, [transport, env.id]);
 

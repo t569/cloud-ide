@@ -17,7 +17,6 @@ const BuildLogModal = lazy(() =>
 
 export const EnvManager = () => {
   const { environments, isLoading, error, refresh, remove } = useEnvironments();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [buildTarget, setBuildTarget] = useState<SavedEnvironment | null>(null);
 
   const {
@@ -28,24 +27,14 @@ export const EnvManager = () => {
     currentConfig,
     baseImage,
     isExporting,
+    currentEnvId,
     loadEnvironment,
     resetToNew,
   } = useEnvManager(refresh); // refresh the saved list after a successful save
 
-  const handleOpen = (env: SavedEnvironment) => {
-    if (!env.builderConfig) return;
-    loadEnvironment(env.builderConfig);
-    setSelectedId(env.id);
-  };
-
-  const handleCreateNew = () => {
-    resetToNew();
-    setSelectedId(null);
-  };
-
   const handleDelete = (id: string) => {
     remove(id);
-    if (selectedId === id) handleCreateNew();
+    if (currentEnvId === id) resetToNew();
   };
 
   return (
@@ -57,11 +46,11 @@ export const EnvManager = () => {
           environments={environments}
           isLoading={isLoading}
           error={error}
-          selectedId={selectedId}
-          onOpen={handleOpen}
+          selectedId={currentEnvId}
+          onOpen={loadEnvironment}
           onBuild={setBuildTarget}
           onDelete={handleDelete}
-          onCreateNew={handleCreateNew}
+          onCreateNew={resetToNew}
           onRefresh={refresh}
         />
 
@@ -73,7 +62,7 @@ export const EnvManager = () => {
               <p className="text-gray-500 text-sm mt-0.5">Configure packages and dependencies</p>
             </div>
 
-            <GeneralSettings register={register} baseImage={baseImage} />
+            <GeneralSettings register={register} baseImage={baseImage} environmentId={currentEnvId} />
 
             <BuildPipeline control={control} register={register} setValue={setValue} />
           </div>

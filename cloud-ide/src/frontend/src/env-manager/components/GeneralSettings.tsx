@@ -7,12 +7,13 @@ import { BaseImageIcon } from './icons/BaseImageIcon';
 interface GeneralSettingsProps {
   register: UseFormRegister<EnvironmentConfig>;
   baseImage: string;
+  environmentId: string | null; // system-assigned; null until first save
 }
 
 const inputCls =
   'w-full rounded-lg bg-[#1a1a1a] border border-white/[0.07] px-3 py-2.5 text-sm text-gray-100 outline-none transition-all placeholder:text-gray-600 hover:border-white/[0.12] focus:border-[#3574d4] focus:ring-2 focus:ring-[#3574d4]/25';
 
-export const GeneralSettings = ({ register, baseImage }: GeneralSettingsProps) => {
+export const GeneralSettings = ({ register, baseImage, environmentId }: GeneralSettingsProps) => {
   return (
     <div className="p-6 rounded-xl bg-gradient-to-b from-[#2c2c2c] to-[#272727] border border-white/[0.06] shadow-lg shadow-black/20">
       <div className="flex items-center gap-4 mb-6 border-b border-white/[0.06] pb-5">
@@ -30,14 +31,19 @@ export const GeneralSettings = ({ register, baseImage }: GeneralSettingsProps) =
           <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider font-sans">
             Display Name
           </label>
-          <input {...register('name')} placeholder="e.g. ZKP-Noir Dev" className={inputCls} />
+          <input {...register('name')} placeholder="e.g. ZKP-Noir Dev (blank = we name it)" className={inputCls} />
         </div>
+
         <div className="space-y-1.5">
           <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider font-sans">
             Environment ID
           </label>
-          <input {...register('id')} placeholder="e.g. zkp-noir-env" className={inputCls} />
+          {/* Identity is system-owned and immutable — shown, not edited. */}
+          <div className="w-full rounded-lg bg-[#141414] border border-dashed border-white/[0.08] px-3 py-2.5 text-sm text-gray-400 truncate select-all">
+            {environmentId ?? <span className="text-gray-600 italic">assigned on save</span>}
+          </div>
         </div>
+
         <div className="space-y-1.5">
           <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider font-sans">
             Base Docker Image

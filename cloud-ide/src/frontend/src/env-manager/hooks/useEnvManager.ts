@@ -3,7 +3,11 @@ import { useState } from 'react';
 import { useForm, SubmitHandler } from 'react-hook-form';
 import { EnvironmentConfig } from '@cloud-ide/shared/types/env';
 import { toast } from '@frontend/notifications';
-import { exportEnvironmentConfig } from '../services/api/exportApi';
+import {
+  SavedEnvironment,
+  createEnvironment,
+  updateEnvironment,
+} from '../services/api/environmentApi';
 
 const BLANK_CONFIG: EnvironmentConfig = {
   id: '',
@@ -15,27 +19,38 @@ const BLANK_CONFIG: EnvironmentConfig = {
 export const useEnvManager = (onSaved?: () => void) => {
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  // The id of the environment currently open in the Architect (null = new/unsaved).
+  const [currentEnvId, setCurrentEnvId] = useState<string | null>(null);
 
   const form = useForm<EnvironmentConfig>({ defaultValues: BLANK_CONFIG });
   const { handleSubmit, watch, reset } = form;
 
-  // Watch the entire config for the JsonPreviewWidget
   const currentConfig = watch();
-  // Watch specifically for the icon display
   const baseImage = watch('baseImage');
 
   const onSubmit: SubmitHandler<EnvironmentConfig> = async (data) => {
     setIsExporting(true);
     setExportError(null);
 
+    const isUpdate = currentEnvId !== null;
     try {
-      await exportEnvironmentConfig(data);
-      toast.success(`Environment "${data.name || data.id || 'untitled'}" saved`, { title: 'Saved' });
-      onSaved?.(); // let the list refresh so the new/updated env shows up
+      const { environment } = isUpdate
+        ? await updateEnvironment(currentEnvId, data)
+        : await createEnvironment(data);
+
+      // Adopt the server's canonical id/name (created id, auto-generated name…).
+      setCurrentEnvId(environment.id);
+      if (environment.builderConfig) reset(environment.builderConfig);
+
+      const label = environment.builderConfig?.name || environment.id;
+      toast.success(`Environment "${label}" ${isUpdate ? 'updated' : 'created'}`, {
+        title: isUpdate ? 'Updated' : 'Created',
+      });
+      onSaved?.();
     } catch (error) {
       const message = (error as Error).message;
       setExportError(message);
-      toast.error(message, { title: 'Save failed' });
+      toast.error(message, { title: isUpdate ? 'Update failed' : 'Create failed' });
     } finally {
       setIsExporting(false);
     }
@@ -47,10 +62,18 @@ export const useEnvManager = (onSaved?: () => void) => {
     baseImage,
     isExporting,
     exportError,
+    currentEnvId,
     handleExport: handleSubmit(onSubmit),
-    // Load a saved environment's config into the architect form
-    loadEnvironment: (config: EnvironmentConfig) => reset(config),
-    // Clear the form back to a fresh blank environment
-    resetToNew: () => reset(BLANK_CONFIG),
+    // Load a saved environment into the architect (adopts its identity for updates).
+    loadEnvironment: (env: SavedEnvironment) => {
+      if (!env.builderConfig) return;
+      reset(env.builderConfig);
+      setCurrentEnvId(env.id);
+    },
+    // Clear back to a fresh, unsaved environment.
+    resetToNew: () => {
+      reset(BLANK_CONFIG);
+      setCurrentEnvId(null);
+    },
   };
 };

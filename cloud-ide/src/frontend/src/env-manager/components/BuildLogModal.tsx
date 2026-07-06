@@ -1,27 +1,37 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { IconType } from 'react-icons';
-import { VscClose, VscTerminal, VscLoading, VscPass, VscError } from 'react-icons/vsc';
+import { VscClose, VscTerminal, VscLoading, VscPass, VscError, VscStopCircle } from 'react-icons/vsc';
 import { TerminalComponent, TerminalHandle } from '@frontend/terminal/components/Terminal';
+import { toast } from '@frontend/notifications';
 import { BuildStreamTransport } from '../services/BuildStreamTransport';
 import { BaseImageIcon } from './icons/BaseImageIcon';
-import { SavedEnvironment, getBuildStatus } from '../services/api/environmentApi';
+import { SavedEnvironment, getBuildStatus, cancelBuild } from '../services/api/environmentApi';
 
-type Status = 'building' | 'done' | 'error';
+type Status = 'building' | 'done' | 'error' | 'cancelled';
 
 const STATUS_META: Record<Status, { color: string; label: string; Icon: IconType }> = {
   building: { color: '#fbbf24', label: 'Building…', Icon: VscLoading },
   done: { color: '#34d399', label: 'Stream finished', Icon: VscPass },
   error: { color: '#f87171', label: 'Build request failed', Icon: VscError },
+  cancelled: { color: '#fbbf24', label: 'Cancelled', Icon: VscStopCircle },
 };
 
 export const BuildLogModal = ({ env, onClose }: { env: SavedEnvironment; onClose: () => void }) => {
   const terminalRef = useRef<TerminalHandle>(null);
   const transport = useRef(new BuildStreamTransport()).current;
+  const cancelledRef = useRef(false);
   const [status, setStatus] = useState<Status>('building');
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
-    transport.onError(() => setStatus('error'));
+    transport.onError(() => {
+      if (!cancelledRef.current) setStatus('error');
+    });
     transport.startBuild(env.id).finally(async () => {
+      if (cancelledRef.current) {
+        setStatus('cancelled');
+        return;
+      }
       // The stream is plain text; ask the backend for the authoritative outcome.
       try {
         const state = await getBuildStatus(env.id);
@@ -39,6 +49,13 @@ export const BuildLogModal = ({ env, onClose }: { env: SavedEnvironment; onClose
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  const handleCancel = () => {
+    cancelledRef.current = true;
+    setCancelling(true);
+    // Tells the backend to kill docker; the open stream then ends on its own.
+    cancelBuild(env.id).catch((e) => toast.error((e as Error).message, { title: 'Cancel failed' }));
+  };
 
   const meta = STATUS_META[status];
   const name = env.builderConfig?.name || env.id;
@@ -66,6 +83,19 @@ export const BuildLogModal = ({ env, onClose }: { env: SavedEnvironment; onClose
               <meta.Icon size={13} className={status === 'building' ? 'animate-spin' : ''} />
               {meta.label}
             </span>
+
+            {status === 'building' && (
+              <button
+                type="button"
+                onClick={handleCancel}
+                disabled={cancelling}
+                className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md border border-red-500/40 text-red-400 bg-red-500/10 hover:bg-red-500/20 transition-colors active:scale-95 disabled:opacity-50"
+              >
+                <VscStopCircle size={13} />
+                {cancelling ? 'Cancelling…' : 'Cancel'}
+              </button>
+            )}
+
             <button
               type="button"
               onClick={onClose}

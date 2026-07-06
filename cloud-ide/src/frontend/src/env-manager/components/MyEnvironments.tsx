@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { VscSearch, VscTrash, VscAdd, VscRefresh, VscServerEnvironment, VscPlay, VscLoading } from 'react-icons/vsc';
+import { VscSearch, VscTrash, VscAdd, VscRefresh, VscServerEnvironment, VscPlay, VscLoading, VscHistory } from 'react-icons/vsc';
 import { BaseImageIcon } from './icons/BaseImageIcon';
 import { SavedEnvironment, BuildState } from '../services/api/environmentApi';
 import { useBuildStatuses } from '../hooks/useBuildStatuses';
@@ -12,6 +12,7 @@ interface MyEnvironmentsProps {
   selectedId: string | null;
   onOpen: (env: SavedEnvironment) => void;
   onBuild: (env: SavedEnvironment) => void;
+  onHistory: (env: SavedEnvironment) => void;
   onDelete: (id: string) => void;
   onCreateNew: () => void;
   onRefresh: () => void;
@@ -53,6 +54,7 @@ const EnvCard = ({
   selected,
   onOpen,
   onBuild,
+  onHistory,
   onDelete,
 }: {
   env: SavedEnvironment;
@@ -60,6 +62,7 @@ const EnvCard = ({
   selected: boolean;
   onOpen: () => void;
   onBuild: () => void;
+  onHistory: () => void;
   onDelete: () => void;
 }) => {
   const cfg = env.builderConfig;
@@ -116,6 +119,18 @@ const EnvCard = ({
         <span
           role="button"
           tabIndex={0}
+          aria-label={`Build history for ${env.id}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onHistory();
+          }}
+          className="p-1.5 rounded-md text-gray-500 hover:text-gray-200 hover:bg-white/10 transition-colors"
+        >
+          <VscHistory size={15} />
+        </span>
+        <span
+          role="button"
+          tabIndex={0}
           aria-label={`Delete ${env.id}`}
           onClick={(e) => {
             e.stopPropagation();
@@ -137,6 +152,7 @@ export const MyEnvironments = ({
   selectedId,
   onOpen,
   onBuild,
+  onHistory,
   onDelete,
   onCreateNew,
   onRefresh,
@@ -209,6 +225,7 @@ export const MyEnvironments = ({
               selected={env.id === selectedId}
               onOpen={() => onOpen(env)}
               onBuild={() => onBuild(env)}
+              onHistory={() => onHistory(env)}
               onDelete={() => onDelete(env.id)}
             />
           ))

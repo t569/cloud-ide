@@ -19,6 +19,7 @@
   /* Micro-interaction keyframes exposed as animate-* utilities */
   --animate-fade-up: envFadeUp 0.18s ease-out both;
   --animate-fade-in: envFadeIn 0.15s ease-out both;
+  --animate-drawer: drawerIn 0.22s ease-out both;
 
   /* Colors */
   --color-ide-bg: var(--ide-bg-primary);
@@ -59,6 +60,10 @@ body {
 @keyframes toastShrink {
   from { width: 100%; }
   to   { width: 0%; }
+}
+@keyframes drawerIn {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
 }
 
 /* Production-grade thin scrollbars for the env-manager scroll areas.

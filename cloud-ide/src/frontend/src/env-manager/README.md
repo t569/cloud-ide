@@ -108,9 +108,9 @@ Deliberate seams left open (YAGNI until measured); each has a clean boundary to 
 - [ ] **Build queue / throttling.** Builds start immediately; the guard is per-env, so N *different* envs still build concurrently and can saturate the host. Slot a queue behind `BuildService.start` — routes/UI don't change.
 - [ ] **Move the build store off JSON.** `JsonBuildStore` (JSON file, single-node) sits behind `IBuildStore`. Swap for Redis/Postgres for multi-node or heavy history without touching `BuildService`.
 - [ ] **Push instead of poll.** The live badge polls `/statuses` every ~3.5s. Move to SSE/WebSocket for instant updates and less chatter as env counts grow.
-- [ ] **Build history UI.** History is persisted and exposed at `GET /:id/builds`, but there's no frontend panel yet — add a per-env history/log drawer.
+- [x] **Build history UI.** `BuildHistoryDrawer.tsx` — per-env drawer over `GET /:id/builds` (status, duration, image tag, error, build id).
 - [ ] **Versioned image tags.** Tags are `:latest`; consider content-hash or incrementing tags for rollback/caching.
-- [ ] **Explicit build cancel button.** Backend already cancels on client disconnect; surface a Cancel action in the build modal.
+- [x] **Explicit build cancel button.** `POST /:id/build/cancel` + Cancel action in the build modal (BuildService tracks the live process).
 - [ ] **Atomic JSON writes.** `JsonBuildStore.persist` truncates+writes; use write-to-temp + rename to be crash-safe.
 
 # Should eventually look like this:

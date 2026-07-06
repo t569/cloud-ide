@@ -8,6 +8,7 @@ import { SavedEnvironment } from '../services/api/environmentApi';
 import { MyEnvironments } from './MyEnvironments';
 import { GeneralSettings } from './GeneralSettings';
 import { BuildPipeline } from './BuildPipeline';
+import { BuildHistoryDrawer } from './BuildHistoryDrawer';
 import { JsonPreviewWidget } from './widgets/JsonPreviewWidget';
 
 // Lazy: the build modal pulls in xterm (~550kB). Only load it when a build opens.
@@ -18,6 +19,7 @@ const BuildLogModal = lazy(() =>
 export const EnvManager = () => {
   const { environments, isLoading, error, refresh, remove } = useEnvironments();
   const [buildTarget, setBuildTarget] = useState<SavedEnvironment | null>(null);
+  const [historyTarget, setHistoryTarget] = useState<SavedEnvironment | null>(null);
 
   const {
     register,
@@ -49,6 +51,7 @@ export const EnvManager = () => {
           selectedId={currentEnvId}
           onOpen={loadEnvironment}
           onBuild={setBuildTarget}
+          onHistory={setHistoryTarget}
           onDelete={handleDelete}
           onCreateNew={resetToNew}
           onRefresh={refresh}
@@ -92,6 +95,11 @@ export const EnvManager = () => {
               }}
             />
           </Suspense>
+        )}
+
+        {/* Per-env persistent build history (GET /environment/:id/builds) */}
+        {historyTarget && (
+          <BuildHistoryDrawer env={historyTarget} onClose={() => setHistoryTarget(null)} />
         )}
       </div>
     </div>

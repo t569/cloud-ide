@@ -19,6 +19,7 @@ export type BuildStatus = 'idle' | 'building' | 'succeeded' | 'failed';
 export interface BuildState {
   envId: string;
   status: BuildStatus;
+  buildId?: string; // absent for the 'idle' placeholder from GET /:id/status
   imageTag?: string;
   error?: string;
   startedAt?: number;
@@ -47,6 +48,10 @@ export const listBuildStatuses = () => apiClient.get<BuildState[]>('/environment
 // Persistent build history for one environment (newest-first).
 export const listBuilds = (id: string) =>
   apiClient.get<BuildState[]>(`/environment/${encodeURIComponent(id)}/builds`);
+
+// Explicitly stop a running build.
+export const cancelBuild = (id: string) =>
+  apiClient.post<{ message: string }>(`/environment/${encodeURIComponent(id)}/build/cancel`, {});
 
 export const deleteEnvironment = (id: string) =>
   apiClient.delete<{ message: string }>(`/environment/${encodeURIComponent(id)}`);

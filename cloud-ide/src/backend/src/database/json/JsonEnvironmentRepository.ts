@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { IEnvironmentRepository } from '../interfaces/IEnvironmentRepository';
 import { EnvironmentRecord } from '../models';
+import { writeJsonAtomic } from '../atomicWrite';
 
 export class JsonEnvironmentRepository implements IEnvironmentRepository {
   private filePath: string;
@@ -26,7 +27,7 @@ export class JsonEnvironmentRepository implements IEnvironmentRepository {
   }
 
   private async write(data: Record<string, EnvironmentRecord>): Promise<void> {
-    await fs.writeFile(this.filePath, JSON.stringify(data, null, 2));
+    await writeJsonAtomic(this.filePath, data);
   }
 
   public async save(env: EnvironmentRecord): Promise<void> {

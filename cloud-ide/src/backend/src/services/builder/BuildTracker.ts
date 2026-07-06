@@ -5,6 +5,7 @@
 //                        reconciliation, so status/history survive restarts.
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { writeJsonAtomic } from '../../database/atomicWrite';
 
 export type BuildStatus = 'building' | 'succeeded' | 'failed';
 
@@ -135,7 +136,6 @@ export class JsonBuildStore extends InMemoryBuildStore {
   }
 
   private async persist(): Promise<void> {
-    await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-    await fs.writeFile(this.filePath, JSON.stringify({ records: this.records }, null, 2));
+    await writeJsonAtomic(this.filePath, { records: this.records });
   }
 }

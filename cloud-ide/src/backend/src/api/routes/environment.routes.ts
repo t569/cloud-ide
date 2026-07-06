@@ -4,7 +4,7 @@ import { IEnvironmentRepository } from '../../database/interfaces/IEnvironmentRe
 import { ISessionRepository } from '../../database/interfaces/ISessionRepository';
 
 // Core tools — naming validity lives entirely in @cloud-ide/shared.
-import { Validator, resolveNewNaming, validateName, toImageName } from '@cloud-ide/shared';
+import { Validator, resolveNewNaming, validateName, toImageName, isValidImageRef } from '@cloud-ide/shared';
 import { BuildService, BuildConflictError } from '../../services/builder';
 
 // Models
@@ -232,6 +232,36 @@ export function createEnvironmentRouter(
       return;
     }
     res.json({ message: 'Build cancellation requested.' });
+  });
+
+  // ==========================================================================
+  // POST /:envId/rollback   Point :latest at a prior content-addressed image
+  // ==========================================================================
+  router.post('/:envId/rollback', async (req: Request, res: Response) => {
+    const envId = readId(req, res);
+    if (!envId) return;
+
+    const environment = await envRepo.get(envId);
+    if (!environment) {
+      res.status(404).json({ error: `Environment '${envId}' not found.` });
+      return;
+    }
+
+    const imageTag = req.body?.imageTag;
+    // Trust boundary: only accept a well-formed tag that belongs to THIS env.
+    if (typeof imageTag !== 'string' || !isValidImageRef(imageTag) || !imageTag.startsWith(`cloud-ide-${envId}:`)) {
+      res.status(400).json({ error: 'imageTag must be a valid image reference for this environment' });
+      return;
+    }
+
+    try {
+      await buildService.deploy(envId, imageTag); // retags :latest onto the chosen build
+      environment.imageName = imageTag;
+      await envRepo.save(environment);
+      res.json({ message: `Now serving ${imageTag}`, environment });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   // ==========================================================================

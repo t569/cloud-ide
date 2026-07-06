@@ -116,6 +116,7 @@ Decision log for the naming + build pipeline. Each names the **why** and the **s
 8. **Live status via SSE push.** `BuildService` is an event bus; `GET /events` streams a `snapshot` on connect then a `change` per transition. `EventSource` auto-reconnects and the snapshot self-heals state. *Why:* instant updates, no poll chatter. *(Was a 3.5s poll of `/statuses`, which remains as a REST snapshot.)*
 9. **Cooperative cancellation.** `BuildService` holds the live `BuildProcess`; cancel sends `SIGTERM` to `docker build` and the stream ends via the normal `failed` path.
 10. **Cache-hit skip.** Two optional `IBuilder` capabilities — `exists(tag)` and `tag(src,dst)` — let `BuildService.start` short-circuit: if `cloud-ide-<id>:<hash>` already exists it retags `:latest` onto it and returns an instant "reused cached image" result instead of rebuilding. *Why:* identical config ⇒ no work. `start` is async so the existence probe runs after the (sync) concurrency reservation. Same `exists`/`tag` pair powers rollback.
+11. **Rollback = retag, not rebuild.** `POST /:id/rollback { imageTag }` → `BuildService.deploy` verifies the image still exists and points `:latest` at it (`docker tag`), then persists `imageName`. *Why:* history rows already carry immutable content tags, so "deploy an old build" is a cheap retag. *Trust boundary:* the route only accepts a valid image ref that starts with `cloud-ide-<id>:` (no cross-env / injected refs).
 
 ---
 

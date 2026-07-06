@@ -12,8 +12,9 @@ import React from 'react';
 import { InstallStepType } from '@cloud-ide/shared/types/env';
 import { PackageSearchWidget } from './widgets/PackageSearchWidget';
 import { PackageIcon } from './icons/PackageIcon'; // Assuming your custom icon component
-import { VscFileCode, VscClose } from 'react-icons/vsc';
+import { VscFileCode, VscClose, VscTrash } from 'react-icons/vsc';
 import { useDependencyActions } from '../hooks/useDependencyActions';
+import { toast } from '@frontend/notifications';
 
 interface DependencyManagerProps {
   stepType: InstallStepType;
@@ -33,6 +34,14 @@ export const DependencyManager = ({ stepType, packages, onChange }: DependencyMa
     parseError,
     acceptedExtensions
   } = useDependencyActions(stepType, packages, onChange);
+
+  const handleClearAll = () => {
+    const count = packages.length;
+    onChange([]);
+    toast.warning(`Removed ${count} ${count === 1 ? 'package' : 'packages'} from this step`, {
+      title: 'Cleared',
+    });
+  };
 
   return (
     <div className="flex flex-col gap-3 font-sans">
@@ -71,8 +80,22 @@ export const DependencyManager = ({ stepType, packages, onChange }: DependencyMa
       )}
 
       {packages.length > 0 && (
-        <div className="flex flex-wrap gap-2 p-2.5 bg-black/25 border border-white/[0.05] rounded-lg min-h-[40px]">
-          {packages.map((pkg, i) => (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between px-0.5">
+            <span className="text-[11px] font-medium text-gray-500">
+              {packages.length} {packages.length === 1 ? 'package' : 'packages'}
+            </span>
+            <button
+              type="button"
+              onClick={handleClearAll}
+              className="flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-red-400 rounded px-1.5 py-0.5 hover:bg-red-400/10 transition-colors"
+            >
+              <VscTrash size={12} />
+              Clear all
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2 p-2.5 bg-black/25 border border-white/[0.05] rounded-lg min-h-[40px]">
+            {packages.map((pkg, i) => (
             <div
               key={`${pkg}-${i}`}
               className="flex items-center gap-1.5 bg-white/[0.05] border border-white/[0.08] hover:border-[#3574d4]/60 rounded-md pl-2 pr-1.5 py-1 text-xs text-gray-200 shadow-sm transition-colors animate-fade-in"
@@ -88,7 +111,8 @@ export const DependencyManager = ({ stepType, packages, onChange }: DependencyMa
                 <VscClose size={13} />
               </button>
             </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
     </div>

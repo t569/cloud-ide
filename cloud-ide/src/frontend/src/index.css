@@ -52,6 +52,14 @@ body {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(24px) scale(0.96); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes toastShrink {
+  from { width: 100%; }
+  to   { width: 0%; }
+}
 
 /* Production-grade thin scrollbars for the env-manager scroll areas.
    ponytail: plain CSS — the scrollbar-thin plugin isn't installed. */

@@ -4,6 +4,7 @@ import ReactDOM from 'react-dom/client';
 // import App from './App';
 import './index.css'; 
 import { EnvManager } from './env-manager';
+import { Toaster } from './notifications';
 import { LocalTerminalTest } from './terminal/dev/TerminalApp';
 import { BuildLogViewer } from './terminal/dev/BuildLogViewer';
 import { IdeWorkspace } from './terminal/dev/IdeWorkspace';
@@ -17,5 +18,6 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   // TODO: EDITOR BUS IS CURRENTLY BROKEN, PLEASE FIX IT
   <React.StrictMode>
     <EnvManager/>
+    <Toaster/>
   </React.StrictMode>
 );

@@ -43,7 +43,7 @@ import {
   BuildService,
   BuilderRegistry,
   DockerBuilder,
-  InMemoryBuildStore,
+  JsonBuildStore,
 } from './services/builder';
 
 const app = express();
@@ -93,6 +93,8 @@ app.post('/api/v1/sandboxes/:sandboxId/resume', sandboxController.resumeSandbox)
 app.delete('/api/v1/sandboxes/:sandboxId', sandboxController.destroySandbox);
 app.post('/api/v1/sandboxes/:sandboxId/volumes', sandboxController.attachVolume);
 app.delete('/api/v1/sandboxes/:sandboxId/volumes/:volumeName', sandboxController.detachVolume);
+
+// TODO: make the admin page more fleshed out. build the admin system
 app.delete('/api/v1/admin/sandboxes/:sandboxId', adminController.forceDestroySandbox);
 
 // Session control plane — issues the httpOnly `sid` cookie that /api/fs uses to
@@ -100,11 +102,12 @@ app.delete('/api/v1/admin/sandboxes/:sandboxId', adminController.forceDestroySan
 app.post('/api/v1/sessions', sessionController.startSession);
 app.delete('/api/v1/sessions/:sessionId', sessionController.disconnectSession);
 
-// Build pipeline: Docker today, swappable via the registry. Status/concurrency
-// tracked in-memory (IBuildStore boundary lets us swap for persistence later).
+// Build pipeline: Docker today, swappable via the registry. Status/history/
+// concurrency persisted to ./data/builds.json (JsonBuildStore reconciles builds
+// interrupted by a restart). Swap the store impl to move off JSON.
 const buildService = new BuildService(
   new BuilderRegistry([new DockerBuilder()]),
-  new InMemoryBuildStore(),
+  new JsonBuildStore(),
 );
 
 app.use('/api/environment', createEnvironmentRouter(envRepo, sessionRepo, buildService));

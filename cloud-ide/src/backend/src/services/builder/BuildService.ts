@@ -17,6 +17,16 @@ export class BuildService {
     return this.store.get(envId);
   }
 
+  /** Current status of every environment that has built (for the live poll). */
+  allStatuses() {
+    return this.store.all();
+  }
+
+  /** Build history, newest-first; all environments or one. */
+  history(envId?: string) {
+    return this.store.history(envId);
+  }
+
   isBuilding(envId: string): boolean {
     return this.store.isBuilding(envId);
   }

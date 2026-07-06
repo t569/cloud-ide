@@ -35,6 +35,14 @@ export function createEnvironmentRouter(
   });
 
   // ==========================================================================
+  // GET /statuses    Current build status of every env (live-poll, one request)
+  // Registered before '/:envId' so the literal path wins.
+  // ==========================================================================
+  router.get('/statuses', (_req: Request, res: Response) => {
+    res.json(buildService.allStatuses());
+  });
+
+  // ==========================================================================
   // GET /:envId      Fetch one environment
   // ==========================================================================
   router.get('/:envId', async (req: Request, res: Response) => {
@@ -59,6 +67,15 @@ export function createEnvironmentRouter(
     const envId = readId(req, res);
     if (!envId) return;
     res.json(buildService.status(envId) ?? { envId, status: 'idle' });
+  });
+
+  // ==========================================================================
+  // GET /:envId/builds   Persistent build history for one environment
+  // ==========================================================================
+  router.get('/:envId/builds', (req: Request, res: Response) => {
+    const envId = readId(req, res);
+    if (!envId) return;
+    res.json(buildService.history(envId));
   });
 
   // ==========================================================================

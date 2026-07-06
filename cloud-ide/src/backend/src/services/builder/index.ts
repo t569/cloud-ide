@@ -7,7 +7,7 @@ export type { IBuilder, BuildProcess } from './IBuilder';
 export { DockerBuilder } from './DockerBuilder';
 export { BuilderRegistry } from './BuilderRegistry';
 export { BuildService } from './BuildService';
-export { InMemoryBuildStore, BuildConflictError } from './BuildTracker';
+export { InMemoryBuildStore, JsonBuildStore, BuildConflictError } from './BuildTracker';
 export type { IBuildStore, BuildState, BuildStatus } from './BuildTracker';
 
 export { DockerGeneratorService } from './GeneratorService';

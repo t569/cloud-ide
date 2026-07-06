@@ -8,6 +8,9 @@ import { IBuildStore } from './BuildTracker';
 import { BuildProcess } from './IBuilder';
 
 export class BuildService {
+  // Live handles to running builds, so an out-of-band request can cancel them.
+  private readonly active = new Map<string, BuildProcess>();
+
   constructor(
     private readonly builders: BuilderRegistry,
     private readonly store: IBuildStore,
@@ -44,13 +47,28 @@ export class BuildService {
       const dockerfile = DockerGeneratorService.generateDockerfile(JSON.stringify(env.builderConfig));
 
       const proc = this.builders.get(builderName).build(dockerfile, imageTag);
-      proc.on('succeeded', () => this.store.finish(env.id, true, { imageTag }));
-      proc.on('failed', (message: string) => this.store.finish(env.id, false, { error: message }));
+      this.active.set(env.id, proc);
+      proc.on('succeeded', () => {
+        this.active.delete(env.id);
+        this.store.finish(env.id, true, { imageTag });
+      });
+      proc.on('failed', (message: string) => {
+        this.active.delete(env.id);
+        this.store.finish(env.id, false, { error: message });
+      });
       return proc;
     } catch (err) {
       // Synchronous failure (e.g. invalid config / unsafe id): release the slot.
       this.store.finish(env.id, false, { error: (err as Error).message });
       throw err;
     }
+  }
+
+  /** Cancel a running build. Returns false if the env isn't currently building. */
+  cancel(envId: string): boolean {
+    const proc = this.active.get(envId);
+    if (!proc) return false;
+    proc.cancel(); // emits 'failed' -> listeners above clean up + record status
+    return true;
   }
 }

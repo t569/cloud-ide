@@ -194,6 +194,19 @@ export function createEnvironmentRouter(
   });
 
   // ==========================================================================
+  // POST /:envId/build/cancel   Explicitly stop a running build
+  // ==========================================================================
+  router.post('/:envId/build/cancel', (req: Request, res: Response) => {
+    const envId = readId(req, res);
+    if (!envId) return;
+    if (!buildService.cancel(envId)) {
+      res.status(404).json({ error: 'No active build for this environment' });
+      return;
+    }
+    res.json({ message: 'Build cancellation requested.' });
+  });
+
+  // ==========================================================================
   // DELETE /:envId   Remove an environment (blocked while sessions use it)
   // ==========================================================================
   router.delete('/:envId', async (req: Request, res: Response) => {

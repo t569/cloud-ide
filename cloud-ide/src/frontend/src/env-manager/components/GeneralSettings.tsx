@@ -26,6 +26,12 @@ export const GeneralSettings = ({ register, baseImage }: GeneralSettingsProps) =
       </div>
 
       <div className="grid grid-cols-2 gap-x-6 gap-y-5 font-jetbrains">
+        <div className="space-y-1.5 col-span-2">
+          <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider font-sans">
+            Display Name
+          </label>
+          <input {...register('name')} placeholder="e.g. ZKP-Noir Dev" className={inputCls} />
+        </div>
         <div className="space-y-1.5">
           <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider font-sans">
             Environment ID

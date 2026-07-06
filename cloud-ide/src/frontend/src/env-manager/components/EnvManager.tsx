@@ -1,14 +1,19 @@
 // src/components/env-manager/EnvManager.tsx
-import React from 'react';
-import { VscWarning } from 'react-icons/vsc';
+import React, { useState } from 'react';
 import { useEnvManager } from '../hooks/useEnvManager';
+import { useEnvironments } from '../hooks/useEnvironments';
+import { SavedEnvironment } from '../services/api/environmentApi';
 
 // Decoupled sub-components
+import { MyEnvironments } from './MyEnvironments';
 import { GeneralSettings } from './GeneralSettings';
 import { BuildPipeline } from './BuildPipeline';
 import { JsonPreviewWidget } from './widgets/JsonPreviewWidget';
 
 export const EnvManager = () => {
+  const { environments, isLoading, error, refresh, remove } = useEnvironments();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
   const {
     register,
     control,
@@ -17,39 +22,58 @@ export const EnvManager = () => {
     currentConfig,
     baseImage,
     isExporting,
-    exportError,
-  } = useEnvManager();
+    loadEnvironment,
+    resetToNew,
+  } = useEnvManager(refresh); // refresh the saved list after a successful save
+
+  const handleOpen = (env: SavedEnvironment) => {
+    if (!env.builderConfig) return;
+    loadEnvironment(env.builderConfig);
+    setSelectedId(env.id);
+  };
+
+  const handleCreateNew = () => {
+    resetToNew();
+    setSelectedId(null);
+  };
+
+  const handleDelete = (id: string) => {
+    remove(id);
+    if (selectedId === id) handleCreateNew();
+  };
 
   return (
     <div className="min-h-screen bg-[#1e1e1e] text-gray-200 p-6 font-sans bg-[radial-gradient(ellipse_at_top,_rgba(53,116,212,0.06),_transparent_55%)]">
-      <form onSubmit={handleExport} className="max-w-[1400px] mx-auto flex gap-6 items-start">
+      <div className="max-w-[1600px] mx-auto flex gap-6 items-start">
 
-        {/* Left Column: Construction Area */}
-        <div className="flex-1 flex flex-col gap-6 animate-fade-up">
-          <div className="mb-1">
-            <h1 className="text-2xl font-bold tracking-tight text-gray-50">Environment Architect</h1>
-            <p className="text-gray-500 text-sm mt-0.5">Configure packages and dependencies</p>
+        {/* Left: saved environments from the backend DB */}
+        <MyEnvironments
+          environments={environments}
+          isLoading={isLoading}
+          error={error}
+          selectedId={selectedId}
+          onOpen={handleOpen}
+          onDelete={handleDelete}
+          onCreateNew={handleCreateNew}
+          onRefresh={refresh}
+        />
+
+        <form onSubmit={handleExport} className="flex-1 flex gap-6 items-start">
+          {/* Middle: Construction Area */}
+          <div className="flex-1 flex flex-col gap-6 animate-fade-up">
+            <div className="mb-1">
+              <h1 className="text-2xl font-bold tracking-tight text-gray-50">Environment Architect</h1>
+              <p className="text-gray-500 text-sm mt-0.5">Configure packages and dependencies</p>
+            </div>
+
+            <GeneralSettings register={register} baseImage={baseImage} />
+
+            <BuildPipeline control={control} register={register} setValue={setValue} />
           </div>
 
-          {/* If there's a global export error, show it here */}
-          {exportError && (
-            <div className="flex items-start gap-2.5 p-3 bg-red-500/10 border border-red-500/40 rounded-lg text-red-300 text-sm animate-fade-up">
-              <VscWarning className="mt-0.5 flex-shrink-0 text-red-400" size={16} />
-              <span><strong className="text-red-200">Export Failed:</strong> {exportError}</span>
-            </div>
-          )}
-
-          <GeneralSettings register={register} baseImage={baseImage} />
-
-          <BuildPipeline
-            control={control}
-            register={register}
-            setValue={setValue}
-          />
-        </div>
-
-        {/* Right Column: Interactive Preview */}
-        <JsonPreviewWidget config={currentConfig} />
+          {/* Right: Interactive Preview */}
+          <JsonPreviewWidget config={currentConfig} />
+        </form>
 
         {/* Global Loading Overlay */}
         {isExporting && (
@@ -60,7 +84,7 @@ export const EnvManager = () => {
             </div>
           </div>
         )}
-      </form>
+      </div>
     </div>
   );
 };

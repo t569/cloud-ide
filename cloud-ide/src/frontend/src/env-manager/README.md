@@ -93,8 +93,8 @@ The environment manager is styled to feel like a native, premium desktop applica
 
 ## Current TODOs Here:
  - [x] Basic Environment Manager UI
- - [ ] Setup the backend database proxy (check backend/server.ts)
- - [ ] Setup the section to proxy saved environment from backend database
+ - [x] Setup the backend database proxy (check backend/server.ts) — `services/api/environmentApi.ts` proxies `/api/environment` (list/get/delete); save via `exportApi.ts`. Backend routes/repo already mounted in `server.ts`.
+ - [x] Setup the section to proxy saved environment from backend database — `MyEnvironments.tsx` + `useEnvironments.ts` list saved envs, open one into the Architect, and delete (with toasts).
 
 # Should eventually look like this:
 ![Environment Architect Finished](./imgs/env_manager_goal.png)

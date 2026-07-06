@@ -97,7 +97,24 @@ The environment manager is styled to feel like a native, premium desktop applica
  - [x] Section to proxy saved environments — `MyEnvironments.tsx` + `useEnvironments.ts` list saved envs, open one into the Architect, build, and delete (with toasts).
  - [x] Single source of naming validity — `@cloud-ide/shared/utils/naming.ts` (opaque id + display name + slug; RFC 1123 / OCI standards). Auto-names when blank.
  - [x] Pluggable build pipeline — `services/builder` (`IBuilder`/`BuilderRegistry`/`BuildService`), status + concurrency guard, persisted to `data/builds.json` with restart reconciliation.
- - [x] Live build-status badge — cards poll `GET /api/environment/statuses` (`useBuildStatuses.ts`).
+ - [x] Live build-status badge — SSE push via `GET /api/environment/events` (`useBuildStatuses.ts`).
+ - [x] Content-addressed image tags — `cloud-ide-<id>:<contentHash>` + `:latest`.
+
+---
+
+## Architecture & Decisions
+
+Decision log for the naming + build pipeline. Each names the **why** and the **seam** it leaves for change.
+
+1. **Identity ≠ label.** An environment has an opaque, immutable `id` (system-minted, RFC 1123), a free-form `name`, and a derived `slug`. *Why:* renaming can't change identity or re-tag images, and two envs can never collide (the id is the key, not the name). *Seam:* `shared/utils/naming.ts`.
+2. **One source of naming validity.** All id/name/slug/tag rules live in `shared/utils/naming.ts`, imported by frontend **and** backend. Standards: RFC 1123 label (k8s/DNS) for ids/slugs, OCI/Docker reference grammar for tags. *Why:* the old mangling bug came from two code paths disagreeing.
+3. **Auto-naming.** Blank name → generated `adjective-noun` (`resolveNewNaming`). *Why:* uniqueness rides on the id, so friendly names needn't be unique — we can safely name envs for the user.
+4. **REST create/update split.** `POST` mints a new env; `PUT /:id` updates the open one. *Why:* upsert-by-name silently clobbered records.
+5. **Pluggable builder.** `IBuilder` + `BuilderRegistry`; `DockerBuilder` is one impl. *Why:* swap Docker for BuildKit/Kaniko/remote without touching routes or the service. *Seam:* `services/builder`.
+6. **Status/history behind `IBuildStore`.** `JsonBuildStore` persists to `data/builds.json`, reconciles builds interrupted by a restart (→ failed), and enforces a per-env **concurrency guard** (409). *Why:* durability + no double-builds; *seam:* swap the store for Redis/Postgres, `BuildService` unchanged.
+7. **Content-addressed image tags.** Build tags `cloud-ide-<id>:<contentHash>` **and** `:latest`. The hash (`contentTag`, FNV-1a 64-bit over a canonical config projection — step order significant, package/env order not) is deterministic. *Why:* immutable per-build refs enable rollback (every history row keeps its tag) and cache identity. *Trade-off:* non-cryptographic hash — collision-negligible at realistic scale, upgrade to SHA-256 if needed.
+8. **Live status via SSE push.** `BuildService` is an event bus; `GET /events` streams a `snapshot` on connect then a `change` per transition. `EventSource` auto-reconnects and the snapshot self-heals state. *Why:* instant updates, no poll chatter. *(Was a 3.5s poll of `/statuses`, which remains as a REST snapshot.)*
+9. **Cooperative cancellation.** `BuildService` holds the live `BuildProcess`; cancel sends `SIGTERM` to `docker build` and the stream ends via the normal `failed` path.
 
 ---
 
@@ -107,10 +124,14 @@ Deliberate seams left open (YAGNI until measured); each has a clean boundary to 
 
 - [ ] **Build queue / throttling.** Builds start immediately; the guard is per-env, so N *different* envs still build concurrently and can saturate the host. Slot a queue behind `BuildService.start` — routes/UI don't change.
 - [ ] **Move the build store off JSON.** `JsonBuildStore` (JSON file, single-node) sits behind `IBuildStore`. Swap for Redis/Postgres for multi-node or heavy history without touching `BuildService`.
-- [ ] **Push instead of poll.** The live badge polls `/statuses` every ~3.5s. Move to SSE/WebSocket for instant updates and less chatter as env counts grow.
+- [x] **Push instead of poll.** SSE via `GET /events` (`BuildService` event bus); `EventSource` auto-reconnects with snapshot replay.
 - [x] **Build history UI.** `BuildHistoryDrawer.tsx` — per-env drawer over `GET /:id/builds` (status, duration, image tag, error, build id).
-- [ ] **Versioned image tags.** Tags are `:latest`; consider content-hash or incrementing tags for rollback/caching.
+- [x] **Versioned image tags.** `cloud-ide-<id>:<contentHash>` + `:latest` (`contentTag` / `toVersionedImageName`).
 - [x] **Explicit build cancel button.** `POST /:id/build/cancel` + Cancel action in the build modal (BuildService tracks the live process).
+- [ ] **Skip rebuild on cache hit.** With content tags we can check whether `cloud-ide-<id>:<hash>` already exists and short-circuit the build.
+- [ ] **Rollback UI.** History rows carry immutable content tags; add a "deploy this build" action to point `:latest` at an older tag.
+- [ ] **Build queue / throttling.** Different envs still build concurrently; slot a queue behind `BuildService.start` if the host saturates.
+- [ ] **Move the build store off JSON.** Swap `JsonBuildStore` for Redis/Postgres behind `IBuildStore` for multi-node.
 - [ ] **Atomic JSON writes.** `JsonBuildStore.persist` truncates+writes; use write-to-temp + rename to be crash-safe.
 
 # Should eventually look like this:

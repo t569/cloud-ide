@@ -42,9 +42,6 @@ export const updateEnvironment = (id: string, config: EnvironmentConfig) =>
 export const getBuildStatus = (id: string) =>
   apiClient.get<BuildState>(`/environment/${encodeURIComponent(id)}/status`);
 
-// Current build status of every environment — one request for the live-poll.
-export const listBuildStatuses = () => apiClient.get<BuildState[]>('/environment/statuses');
-
 // Persistent build history for one environment (newest-first).
 export const listBuilds = (id: string) =>
   apiClient.get<BuildState[]>(`/environment/${encodeURIComponent(id)}/builds`);

@@ -10,11 +10,13 @@ import {
 import { timeAgo } from '../utils/timeAgo';
 
 const STATUS_COLOR: Record<string, string> = {
+  queued: '#fbbf24',
   building: '#fbbf24',
   succeeded: '#34d399',
   failed: '#f87171',
 };
 const STATUS_LABEL: Record<string, string> = {
+  queued: 'Queued',
   building: 'Building',
   succeeded: 'Succeeded',
   failed: 'Failed',

@@ -24,7 +24,10 @@ const StatusBadge = ({ env, live }: { env: SavedEnvironment; live?: BuildState }
   let label = 'Draft';
   let building = false;
 
-  if (live?.status === 'building') {
+  if (live?.status === 'queued') {
+    color = '#fbbf24';
+    label = 'Queued';
+  } else if (live?.status === 'building') {
     color = '#fbbf24';
     label = 'Building';
     building = true;

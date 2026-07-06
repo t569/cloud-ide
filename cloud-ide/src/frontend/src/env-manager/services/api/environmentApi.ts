@@ -15,7 +15,7 @@ export interface SaveResponse {
   environment: SavedEnvironment;
 }
 
-export type BuildStatus = 'idle' | 'building' | 'succeeded' | 'failed';
+export type BuildStatus = 'idle' | 'queued' | 'building' | 'succeeded' | 'failed';
 export interface BuildState {
   envId: string;
   status: BuildStatus;

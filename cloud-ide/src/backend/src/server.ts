@@ -108,6 +108,7 @@ app.delete('/api/v1/sessions/:sessionId', sessionController.disconnectSession);
 const buildService = new BuildService(
   new BuilderRegistry([new DockerBuilder()]),
   new JsonBuildStore(),
+  Number(process.env.MAX_CONCURRENT_BUILDS) || 2, // global build concurrency cap
 );
 
 app.use('/api/environment', createEnvironmentRouter(envRepo, sessionRepo, buildService));

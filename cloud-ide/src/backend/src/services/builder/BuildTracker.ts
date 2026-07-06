@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { writeJsonAtomic } from '../../database/atomicWrite';
 
-export type BuildStatus = 'building' | 'succeeded' | 'failed';
+export type BuildStatus = 'queued' | 'building' | 'succeeded' | 'failed';
 
 export interface BuildState {
   buildId: string;
@@ -23,8 +23,10 @@ export interface IBuildStore {
   /** Latest state for an env (undefined if it never built). */
   get(envId: string): BuildState | undefined;
   isBuilding(envId: string): boolean;
-  /** Reserve the build slot. Throws BuildConflictError if already building. */
+  /** Reserve a build (status 'queued'). Throws BuildConflictError if one is active. */
   begin(envId: string): void;
+  /** Transition a reserved build from 'queued' to 'building' (slot acquired). */
+  markRunning(envId: string): void;
   finish(envId: string, ok: boolean, detail: { imageTag?: string; error?: string }): void;
   /** Current state of every env that has built (for the live status poll). */
   all(): BuildState[];
@@ -32,10 +34,10 @@ export interface IBuildStore {
   history(envId?: string): BuildState[];
 }
 
-/** Thrown by begin() when an environment is already building (maps to HTTP 409). */
+/** Thrown by begin() when an environment already has a build in progress (HTTP 409). */
 export class BuildConflictError extends Error {
   constructor(envId: string) {
-    super(`Environment "${envId}" is already building`);
+    super(`Environment "${envId}" already has a build in progress`);
     this.name = 'BuildConflictError';
   }
 }
@@ -62,6 +64,12 @@ export class InMemoryBuildStore implements IBuildStore {
     return this.states.get(envId)?.status === 'building';
   }
 
+  // Active = reserved but not finished (queued or building) — the guard scope.
+  private isActive(envId: string): boolean {
+    const s = this.states.get(envId)?.status;
+    return s === 'queued' || s === 'building';
+  }
+
   all(): BuildState[] {
     return [...this.states.values()];
   }
@@ -71,12 +79,20 @@ export class InMemoryBuildStore implements IBuildStore {
   }
 
   begin(envId: string): void {
-    if (this.isBuilding(envId)) throw new BuildConflictError(envId);
-    const state: BuildState = { buildId: newBuildId(), envId, status: 'building', startedAt: Date.now() };
+    if (this.isActive(envId)) throw new BuildConflictError(envId);
+    const state: BuildState = { buildId: newBuildId(), envId, status: 'queued', startedAt: Date.now() };
     this.states.set(envId, state);
     this.records.unshift(state);
     if (this.records.length > MAX_HISTORY) this.records.length = MAX_HISTORY;
     this.changed();
+  }
+
+  markRunning(envId: string): void {
+    const state = this.states.get(envId);
+    if (state && state.status === 'queued') {
+      state.status = 'building';
+      this.changed();
+    }
   }
 
   finish(envId: string, ok: boolean, detail: { imageTag?: string; error?: string }): void {
@@ -114,8 +130,8 @@ export class JsonBuildStore extends InMemoryBuildStore {
     const records = raw.records ?? [];
     let reconciled = false;
     for (const r of records) {
-      // Any build still "building" means the process died mid-build.
-      if (r.status === 'building') {
+      // Any build still queued/building means the process died before it finished.
+      if (r.status === 'building' || r.status === 'queued') {
         r.status = 'failed';
         r.error = r.error ?? INTERRUPTED;
         r.finishedAt = r.finishedAt ?? Date.now();

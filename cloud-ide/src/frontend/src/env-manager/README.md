@@ -118,6 +118,7 @@ Decision log for the naming + build pipeline. Each names the **why** and the **s
 10. **Cache-hit skip.** Two optional `IBuilder` capabilities — `exists(tag)` and `tag(src,dst)` — let `BuildService.start` short-circuit: if `cloud-ide-<id>:<hash>` already exists it retags `:latest` onto it and returns an instant "reused cached image" result instead of rebuilding. *Why:* identical config ⇒ no work. `start` is async so the existence probe runs after the (sync) concurrency reservation. Same `exists`/`tag` pair powers rollback.
 11. **Rollback = retag, not rebuild.** `POST /:id/rollback { imageTag }` → `BuildService.deploy` verifies the image still exists and points `:latest` at it (`docker tag`), then persists `imageName`. *Why:* history rows already carry immutable content tags, so "deploy an old build" is a cheap retag. *Trust boundary:* the route only accepts a valid image ref that starts with `cloud-ide-<id>:` (no cross-env / injected refs).
 12. **Atomic JSON persistence.** `database/atomicWrite.ts` (`writeJsonAtomic`) writes to a temp file then `rename()`s over the target — atomic on a single FS — so a crash mid-write can't leave a torn `builds.json`/`environments.json`. Used by `JsonBuildStore` and `JsonEnvironmentRepository`; available for the session/sandbox repos too.
+13. **Global build queue.** A counting `Semaphore` in `BuildService` caps concurrent builds (`MAX_CONCURRENT_BUILDS`, default 2); the per-env guard still blocks duplicates. Over-limit builds get status `queued` and a `RelayBuildProcess` that streams "waiting for a slot" then forwards the real build once one frees. Cache hits skip the queue. *Why:* stop N envs saturating the host without lying about status (`queued → building → done` over SSE). Cancel works while queued (relay fails immediately, slot released on acquire).
 
 ---
 
@@ -133,7 +134,7 @@ Deliberate seams left open (YAGNI until measured); each has a clean boundary to 
 - [x] **Explicit build cancel button.** `POST /:id/build/cancel` + Cancel action in the build modal (BuildService tracks the live process).
 - [x] **Skip rebuild on cache hit.** `IBuilder.exists`/`tag` + `BuildService.start` retag-and-skip when `cloud-ide-<id>:<hash>` already exists.
 - [x] **Rollback UI.** `BuildHistoryDrawer` — each succeeded build shows "Deploy this build" (→ `POST /:id/rollback`); the live one is marked "Currently serving".
-- [ ] **Build queue / throttling.** Different envs still build concurrently; slot a queue behind `BuildService.start` if the host saturates.
+- [x] **Build queue / throttling.** `Semaphore` in `BuildService` caps concurrency (`MAX_CONCURRENT_BUILDS`, default 2); over-limit builds are `queued` and streamed via a relay.
 - [ ] **Move the build store off JSON.** Swap `JsonBuildStore` for Redis/Postgres behind `IBuildStore` for multi-node.
 - [x] **Atomic JSON writes.** `writeJsonAtomic` (temp file + rename) in `JsonBuildStore` and `JsonEnvironmentRepository`.
 

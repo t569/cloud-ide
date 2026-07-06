@@ -8,6 +8,16 @@ This directory contains the brains of the Cloud IDE. It is a hybrid architecture
 
 *   **API Gateway (`src/server.ts`):** Handles HTTP routing, REST endpoints, streaming SSE connections to the frontend, and system-wide orchestration.
 *   **Rust Engine (`src-rust/`):** Compiled into a native `index.node` dynamic library. This handles all direct communication, polling, and FFI binding with the underlying Docker containers via the OpenSandbox Daemon.
+*   **Build Pipeline (`src/services/builder/`):** Turns environment JSON into built/tagged Docker images with status, queueing, history and rollback. 👉 **[services/builder/README.md](./src/services/builder/README.md)**
+
+### Environment variables
+
+| Var | Default | Meaning |
+|---|---|---|
+| `PORT` | `3000` | gateway port |
+| `FRONTEND_ORIGIN` | — | CORS origin (must be explicit for credentialed SSE) |
+| `BUILD_STORE` | `json` | build store backend: `json` \| `memory` \| `redis` |
+| `MAX_CONCURRENT_BUILDS` | `2` | global build concurrency cap |
 
 > [!CAUTION]
 > ### ⚠️ Critical Setup: The Rust Toolchain

@@ -119,6 +119,7 @@ Decision log for the naming + build pipeline. Each names the **why** and the **s
 11. **Rollback = retag, not rebuild.** `POST /:id/rollback { imageTag }` → `BuildService.deploy` verifies the image still exists and points `:latest` at it (`docker tag`), then persists `imageName`. *Why:* history rows already carry immutable content tags, so "deploy an old build" is a cheap retag. *Trust boundary:* the route only accepts a valid image ref that starts with `cloud-ide-<id>:` (no cross-env / injected refs).
 12. **Atomic JSON persistence.** `database/atomicWrite.ts` (`writeJsonAtomic`) writes to a temp file then `rename()`s over the target — atomic on a single FS — so a crash mid-write can't leave a torn `builds.json`/`environments.json`. Used by `JsonBuildStore` and `JsonEnvironmentRepository`; available for the session/sandbox repos too.
 13. **Global build queue.** A counting `Semaphore` in `BuildService` caps concurrent builds (`MAX_CONCURRENT_BUILDS`, default 2); the per-env guard still blocks duplicates. Over-limit builds get status `queued` and a `RelayBuildProcess` that streams "waiting for a slot" then forwards the real build once one frees. Cache hits skip the queue. *Why:* stop N envs saturating the host without lying about status (`queued → building → done` over SSE). Cancel works while queued (relay fails immediately, slot released on acquire).
+14. **Config-driven build store.** `createBuildStore()` picks the `IBuildStore` from `$BUILD_STORE` (`json` default \| `memory` \| `redis`). `InMemoryBuildStore` owns the mirror (sync reads + guard) and exposes `hydrate()`/`serialize()`, so durable stores (`JsonBuildStore`, `RedisBuildStore`) only add I/O. `RedisBuildStore` is a **stub** — complete against a minimal `RedisLike` interface, not wired (no Redis running). *Caveat:* the sync guard is per-node; cluster-wide exclusion needs an async store + Redis lock (see `services/builder/README.md`). Full build-pipeline docs live there.
 
 ---
 
@@ -135,7 +136,8 @@ Deliberate seams left open (YAGNI until measured); each has a clean boundary to 
 - [x] **Skip rebuild on cache hit.** `IBuilder.exists`/`tag` + `BuildService.start` retag-and-skip when `cloud-ide-<id>:<hash>` already exists.
 - [x] **Rollback UI.** `BuildHistoryDrawer` — each succeeded build shows "Deploy this build" (→ `POST /:id/rollback`); the live one is marked "Currently serving".
 - [x] **Build queue / throttling.** `Semaphore` in `BuildService` caps concurrency (`MAX_CONCURRENT_BUILDS`, default 2); over-limit builds are `queued` and streamed via a relay.
-- [ ] **Move the build store off JSON.** Swap `JsonBuildStore` for Redis/Postgres behind `IBuildStore` for multi-node.
+- [x] **Move the build store off JSON.** `createBuildStore()` + `$BUILD_STORE`; `RedisBuildStore` stub behind `IBuildStore` (not yet wired — no Redis running).
+- [ ] **Cluster-wide build guard.** The sync store makes the per-env lock per-node; needs an async `IBuildStore` + Redis atomic lock for true multi-node exclusion.
 - [x] **Atomic JSON writes.** `writeJsonAtomic` (temp file + rename) in `JsonBuildStore` and `JsonEnvironmentRepository`.
 
 # Should eventually look like this:

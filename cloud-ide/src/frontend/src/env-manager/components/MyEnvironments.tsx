@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { VscSearch, VscTrash, VscAdd, VscRefresh, VscServerEnvironment } from 'react-icons/vsc';
+import { VscSearch, VscTrash, VscAdd, VscRefresh, VscServerEnvironment, VscPlay } from 'react-icons/vsc';
 import { BaseImageIcon } from './icons/BaseImageIcon';
 import { SavedEnvironment } from '../services/api/environmentApi';
 import { timeAgo } from '../utils/timeAgo';
@@ -10,6 +10,7 @@ interface MyEnvironmentsProps {
   error: string | null;
   selectedId: string | null;
   onOpen: (env: SavedEnvironment) => void;
+  onBuild: (env: SavedEnvironment) => void;
   onDelete: (id: string) => void;
   onCreateNew: () => void;
   onRefresh: () => void;
@@ -29,11 +30,13 @@ const EnvCard = ({
   env,
   selected,
   onOpen,
+  onBuild,
   onDelete,
 }: {
   env: SavedEnvironment;
   selected: boolean;
   onOpen: () => void;
+  onBuild: () => void;
   onDelete: () => void;
 }) => {
   const cfg = env.builderConfig;
@@ -77,6 +80,19 @@ const EnvCard = ({
         <span
           role="button"
           tabIndex={0}
+          aria-label={`Build ${env.id}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onBuild();
+          }}
+          className="flex items-center gap-1 text-[11px] font-sans font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-md px-2.5 py-1.5 hover:bg-emerald-500/20 transition-colors"
+        >
+          <VscPlay size={12} />
+          Build
+        </span>
+        <span
+          role="button"
+          tabIndex={0}
           aria-label={`Delete ${env.id}`}
           onClick={(e) => {
             e.stopPropagation();
@@ -97,6 +113,7 @@ export const MyEnvironments = ({
   error,
   selectedId,
   onOpen,
+  onBuild,
   onDelete,
   onCreateNew,
   onRefresh,
@@ -166,6 +183,7 @@ export const MyEnvironments = ({
               env={env}
               selected={env.id === selectedId}
               onOpen={() => onOpen(env)}
+              onBuild={() => onBuild(env)}
               onDelete={() => onDelete(env.id)}
             />
           ))

@@ -1,5 +1,5 @@
 // src/components/env-manager/EnvManager.tsx
-import React, { useState } from 'react';
+import React, { Suspense, lazy, useState } from 'react';
 import { useEnvManager } from '../hooks/useEnvManager';
 import { useEnvironments } from '../hooks/useEnvironments';
 import { SavedEnvironment } from '../services/api/environmentApi';
@@ -10,9 +10,15 @@ import { GeneralSettings } from './GeneralSettings';
 import { BuildPipeline } from './BuildPipeline';
 import { JsonPreviewWidget } from './widgets/JsonPreviewWidget';
 
+// Lazy: the build modal pulls in xterm (~550kB). Only load it when a build opens.
+const BuildLogModal = lazy(() =>
+  import('./BuildLogModal').then((m) => ({ default: m.BuildLogModal })),
+);
+
 export const EnvManager = () => {
   const { environments, isLoading, error, refresh, remove } = useEnvironments();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [buildTarget, setBuildTarget] = useState<SavedEnvironment | null>(null);
 
   const {
     register,
@@ -53,6 +59,7 @@ export const EnvManager = () => {
           error={error}
           selectedId={selectedId}
           onOpen={handleOpen}
+          onBuild={setBuildTarget}
           onDelete={handleDelete}
           onCreateNew={handleCreateNew}
           onRefresh={refresh}
@@ -83,6 +90,13 @@ export const EnvManager = () => {
               <p className="text-gray-400 font-jetbrains text-sm">Compiling Environment...</p>
             </div>
           </div>
+        )}
+
+        {/* Live build-log viewer (streams from POST /environment/:id/build) */}
+        {buildTarget && (
+          <Suspense fallback={null}>
+            <BuildLogModal env={buildTarget} onClose={() => setBuildTarget(null)} />
+          </Suspense>
         )}
       </div>
     </div>

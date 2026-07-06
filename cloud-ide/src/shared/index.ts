@@ -8,6 +8,7 @@ export { Validator } from './utils/Validator';
 export { optimizeLayers, injectCacheBuster } from './utils/optimise';
 export { StepHasher } from './utils/hasher';
 export { PackageManagerRules } from './utils/packagemanager_rules';
+export { toDockerSafeId, toImageName } from './utils/naming';
 
 // TYPES
 export type {

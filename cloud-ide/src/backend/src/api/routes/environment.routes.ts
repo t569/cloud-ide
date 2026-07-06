@@ -4,7 +4,7 @@ import { IEnvironmentRepository } from '../../database/interfaces/IEnvironmentRe
 import { ISessionRepository } from '../../database/interfaces/ISessionRepository';
 
 // Import our Core Tools
-import { Validator } from '@cloud-ide/shared';
+import { Validator, toDockerSafeId, toImageName } from '@cloud-ide/shared';
 import { DockerGeneratorService } from '../../services/builder';
 import { ExecutorService } from '../../services/builder';
 
@@ -55,9 +55,11 @@ export function createEnvironmentRouter(envRepo: IEnvironmentRepository, session
       const rawPayload = req.body;
       const builderConfig = rawPayload.builderConfig || rawPayload; 
       
-      // 1. Force the ID to be docker-safe (Fixes the space issue)
-      builderConfig.id = (builderConfig.id || `env-${Date.now()}`).toLowerCase().replace(/[^a-z0-9-]/g, '-');
-      
+      // 1. Force the ID to be docker-safe. Centralised slug (shared/utils/naming)
+      //    so save + build agree; collapses repeated separators the old regex left,
+      //    which otherwise produced tags Docker rejects ("invalid reference format").
+      builderConfig.id = toDockerSafeId(builderConfig.id);
+
       if (!builderConfig.name || builderConfig.name.trim() === '') {
         builderConfig.name = builderConfig.id;
       }
@@ -115,8 +117,8 @@ export function createEnvironmentRouter(envRepo: IEnvironmentRepository, session
       res.setHeader('Transfer-Encoding', 'chunked');
 
       try {
-        // Define the target image tag
-        const finalImageName = `cloud-ide-${environment.id}:latest`;
+        // Define the target image tag (same slug the save path used)
+        const finalImageName = toImageName(environment.id);
 
         // 4. Execute the build pipeline and wrap the Event Emitter in a Promise
         await new Promise<void>((resolve, reject) => {

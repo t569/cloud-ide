@@ -8,6 +8,21 @@ import { BuilderRegistry } from './BuilderRegistry';
 import { IBuildStore, BuildState } from './BuildTracker';
 import { BuildProcess } from './IBuilder';
 
+// A BuildProcess that emits canned output then settles — for a cache hit, where
+// there's nothing to spawn but the route still streams a result.
+class InstantBuildProcess extends EventEmitter implements BuildProcess {
+  constructor(lines: string[], outcome: 'succeeded' | 'failed', message: string) {
+    super();
+    setImmediate(() => {
+      for (const line of lines) this.emit('data', line);
+      this.emit(outcome, message);
+    });
+  }
+  cancel(): void {
+    /* nothing running */
+  }
+}
+
 export class BuildService {
   // Live handles to running builds, so an out-of-band request can cancel them.
   private readonly active = new Map<string, BuildProcess>();
@@ -37,7 +52,7 @@ export class BuildService {
     return this.store.get(envId);
   }
 
-  /** Current status of every environment that has built (for the live poll). */
+  /** Current status of every environment that has built (snapshot for SSE/REST). */
   allStatuses() {
     return this.store.all();
   }
@@ -53,41 +68,58 @@ export class BuildService {
 
   /**
    * Start building an environment. Reserves the concurrency slot (throws
-   * BuildConflictError if already building), generates the Dockerfile, and
-   * returns a streaming handle. Status transitions are recorded automatically.
+   * BuildConflictError if already building). If the content-addressed image
+   * already exists, retags :latest and skips the rebuild. Otherwise generates
+   * the Dockerfile and streams a real build. Status is recorded automatically.
    */
-  start(env: EnvironmentRecord, builderName?: string): BuildProcess {
-    // Reserve first so a second concurrent call is rejected before we do work.
+  async start(env: EnvironmentRecord, builderName?: string): Promise<BuildProcess> {
+    // Reserve first (sync, before any await) so a concurrent call is rejected.
     this.store.begin(env.id);
     this.emitChange(env.id);
     try {
-      // Content-addressed tag (immutable, enables rollback/cache) + moving :latest.
       const config = env.builderConfig;
-      const versionedTag = config ? toVersionedImageName(env.id, config) : toImageName(env.id);
       const latestTag = toImageName(env.id);
-      const imageTags = config ? [versionedTag, latestTag] : [latestTag];
+      const versionedTag = config ? toVersionedImageName(env.id, config) : latestTag;
+      const builder = this.builders.get(builderName);
 
-      const dockerfile = DockerGeneratorService.generateDockerfile(JSON.stringify(env.builderConfig));
+      // Cache hit: this exact content is already built. Point :latest at it and
+      // skip the (potentially long) rebuild entirely.
+      if (config && builder.exists && builder.tag && (await builder.exists(versionedTag))) {
+        await builder.tag(versionedTag, latestTag);
+        const proc = new InstantBuildProcess(
+          [`\x1b[1;36m[Cache]\x1b[0m ${versionedTag} already built — skipping rebuild.\n`],
+          'succeeded',
+          `Reused cached image ${versionedTag}`,
+        );
+        this.wire(env.id, proc, versionedTag);
+        return proc;
+      }
 
-      const proc = this.builders.get(builderName).build(dockerfile, imageTags);
-      this.active.set(env.id, proc);
-      proc.on('succeeded', () => {
-        this.active.delete(env.id);
-        this.store.finish(env.id, true, { imageTag: versionedTag }); // record the immutable ref
-        this.emitChange(env.id);
-      });
-      proc.on('failed', (message: string) => {
-        this.active.delete(env.id);
-        this.store.finish(env.id, false, { error: message });
-        this.emitChange(env.id);
-      });
+      const dockerfile = DockerGeneratorService.generateDockerfile(JSON.stringify(config));
+      const proc = builder.build(dockerfile, config ? [versionedTag, latestTag] : [latestTag]);
+      this.wire(env.id, proc, versionedTag);
       return proc;
     } catch (err) {
-      // Synchronous failure (e.g. invalid config / unsafe id): release the slot.
+      // Synchronous/async failure before streaming: release the slot.
       this.store.finish(env.id, false, { error: (err as Error).message });
       this.emitChange(env.id);
       throw err;
     }
+  }
+
+  // Record status transitions + track the live handle for cancellation.
+  private wire(envId: string, proc: BuildProcess, versionedTag: string): void {
+    this.active.set(envId, proc);
+    proc.on('succeeded', () => {
+      this.active.delete(envId);
+      this.store.finish(envId, true, { imageTag: versionedTag }); // immutable ref
+      this.emitChange(envId);
+    });
+    proc.on('failed', (message: string) => {
+      this.active.delete(envId);
+      this.store.finish(envId, false, { error: message });
+      this.emitChange(envId);
+    });
   }
 
   /** Cancel a running build. Returns false if the env isn't currently building. */
@@ -96,5 +128,18 @@ export class BuildService {
     if (!proc) return false;
     proc.cancel(); // emits 'failed' -> listeners above clean up + record status
     return true;
+  }
+
+  /**
+   * Roll back / deploy: point :latest at an existing content-addressed image.
+   * Throws if the image is gone or the builder can't retag.
+   */
+  async deploy(envId: string, imageTag: string, builderName?: string): Promise<void> {
+    const builder = this.builders.get(builderName);
+    if (!builder.tag) throw new Error(`Builder "${builder.name}" cannot retag images`);
+    if (builder.exists && !(await builder.exists(imageTag))) {
+      throw new Error(`Image ${imageTag} not found — it may have been pruned`);
+    }
+    await builder.tag(imageTag, toImageName(envId));
   }
 }

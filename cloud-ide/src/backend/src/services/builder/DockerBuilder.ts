@@ -62,7 +62,26 @@ class DockerBuildProcess extends EventEmitter implements BuildProcess {
 
 export class DockerBuilder implements IBuilder {
   readonly name = 'docker';
+
   build(dockerfile: string, imageTags: string[]): BuildProcess {
     return new DockerBuildProcess(dockerfile, imageTags);
+  }
+
+  /** `docker image inspect` — exit 0 means the image is already built locally. */
+  exists(imageTag: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const child = spawn('docker', ['image', 'inspect', imageTag], { stdio: 'ignore' });
+      child.on('error', () => resolve(false)); // docker missing -> treat as "not cached"
+      child.on('close', (code) => resolve(code === 0));
+    });
+  }
+
+  /** `docker tag` — point target at source (e.g. move :latest onto a content tag). */
+  tag(source: string, target: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const child = spawn('docker', ['tag', source, target], { stdio: 'ignore' });
+      child.on('error', reject);
+      child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`docker tag exited ${code}`))));
+    });
   }
 }

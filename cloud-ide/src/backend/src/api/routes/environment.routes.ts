@@ -191,7 +191,7 @@ export function createEnvironmentRouter(
 
     let proc;
     try {
-      proc = buildService.start(environment);
+      proc = await buildService.start(environment);
     } catch (err) {
       if (err instanceof BuildConflictError) {
         res.status(409).json({ error: err.message });

@@ -23,4 +23,8 @@ export interface IBuilder {
    * tagged with every ref in `imageTags` (e.g. a content-hash tag + :latest).
    */
   build(dockerfile: string, imageTags: string[]): BuildProcess;
+  /** True if an image with this ref already exists locally (cache-hit skip). */
+  exists?(imageTag: string): Promise<boolean>;
+  /** Point one ref at another (retag) — for :latest updates and rollback. */
+  tag?(sourceRef: string, targetRef: string): Promise<void>;
 }

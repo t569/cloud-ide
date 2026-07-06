@@ -115,6 +115,7 @@ Decision log for the naming + build pipeline. Each names the **why** and the **s
 7. **Content-addressed image tags.** Build tags `cloud-ide-<id>:<contentHash>` **and** `:latest`. The hash (`contentTag`, FNV-1a 64-bit over a canonical config projection — step order significant, package/env order not) is deterministic. *Why:* immutable per-build refs enable rollback (every history row keeps its tag) and cache identity. *Trade-off:* non-cryptographic hash — collision-negligible at realistic scale, upgrade to SHA-256 if needed.
 8. **Live status via SSE push.** `BuildService` is an event bus; `GET /events` streams a `snapshot` on connect then a `change` per transition. `EventSource` auto-reconnects and the snapshot self-heals state. *Why:* instant updates, no poll chatter. *(Was a 3.5s poll of `/statuses`, which remains as a REST snapshot.)*
 9. **Cooperative cancellation.** `BuildService` holds the live `BuildProcess`; cancel sends `SIGTERM` to `docker build` and the stream ends via the normal `failed` path.
+10. **Cache-hit skip.** Two optional `IBuilder` capabilities — `exists(tag)` and `tag(src,dst)` — let `BuildService.start` short-circuit: if `cloud-ide-<id>:<hash>` already exists it retags `:latest` onto it and returns an instant "reused cached image" result instead of rebuilding. *Why:* identical config ⇒ no work. `start` is async so the existence probe runs after the (sync) concurrency reservation. Same `exists`/`tag` pair powers rollback.
 
 ---
 
@@ -128,7 +129,7 @@ Deliberate seams left open (YAGNI until measured); each has a clean boundary to 
 - [x] **Build history UI.** `BuildHistoryDrawer.tsx` — per-env drawer over `GET /:id/builds` (status, duration, image tag, error, build id).
 - [x] **Versioned image tags.** `cloud-ide-<id>:<contentHash>` + `:latest` (`contentTag` / `toVersionedImageName`).
 - [x] **Explicit build cancel button.** `POST /:id/build/cancel` + Cancel action in the build modal (BuildService tracks the live process).
-- [ ] **Skip rebuild on cache hit.** With content tags we can check whether `cloud-ide-<id>:<hash>` already exists and short-circuit the build.
+- [x] **Skip rebuild on cache hit.** `IBuilder.exists`/`tag` + `BuildService.start` retag-and-skip when `cloud-ide-<id>:<hash>` already exists.
 - [ ] **Rollback UI.** History rows carry immutable content tags; add a "deploy this build" action to point `:latest` at an older tag.
 - [ ] **Build queue / throttling.** Different envs still build concurrently; slot a queue behind `BuildService.start` if the host saturates.
 - [ ] **Move the build store off JSON.** Swap `JsonBuildStore` for Redis/Postgres behind `IBuildStore` for multi-node.

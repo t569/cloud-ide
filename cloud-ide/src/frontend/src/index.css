@@ -16,6 +16,10 @@
 
   --font-jetbrains: 'JetBrains Mono', monospace;
 
+  /* Micro-interaction keyframes exposed as animate-* utilities */
+  --animate-fade-up: envFadeUp 0.18s ease-out both;
+  --animate-fade-in: envFadeIn 0.15s ease-out both;
+
   /* Colors */
   --color-ide-bg: var(--ide-bg-primary);
   --color-ide-panel: var(--ide-bg-secondary);
@@ -39,3 +43,28 @@ body {
   background-color: var(--color-vscode-bg);
   color: white;
 }
+
+@keyframes envFadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes envFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Production-grade thin scrollbars for the env-manager scroll areas.
+   ponytail: plain CSS — the scrollbar-thin plugin isn't installed. */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #4b4d4f transparent;
+}
+.scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #3a3a3a;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+.scrollbar-thin:hover::-webkit-scrollbar-thumb { background: #555; background-clip: content-box; }

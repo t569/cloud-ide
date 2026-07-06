@@ -31,7 +31,7 @@ export const DependencyManager = ({ stepType, packages, onChange }: DependencyMa
     fileInputRef,
     isParsing,
     parseError,
-    acceptedExtensions 
+    acceptedExtensions
   } = useDependencyActions(stepType, packages, onChange);
 
   return (
@@ -45,14 +45,14 @@ export const DependencyManager = ({ stepType, packages, onChange }: DependencyMa
           />
         </div>
 
-        <button 
-          type="button" 
+        <button
+          type="button"
           onClick={triggerFileUpload}
           disabled={isParsing}
-          className="px-3 bg-vscode-tab hover:bg-[#3c3f41] border border-vscode-border rounded text-vscode-textDim flex items-center gap-2 transition disabled:opacity-50"
+          className="px-3.5 bg-white/[0.04] hover:bg-white/[0.09] border border-white/[0.08] rounded-lg text-gray-300 flex items-center gap-2 transition-all active:scale-[0.98] disabled:opacity-50"
         >
-          <VscFileCode size={16} />
-          <span className="text-sm hidden sm:inline">
+          <VscFileCode size={16} className={isParsing ? 'animate-pulse' : ''} />
+          <span className="text-sm hidden sm:inline font-medium">
             {isParsing ? 'Parsing...' : 'Import'}
           </span>
         </button>
@@ -67,24 +67,25 @@ export const DependencyManager = ({ stepType, packages, onChange }: DependencyMa
       </div>
 
       {parseError && (
-        <span className="text-red-400 text-xs px-1">{parseError}</span>
+        <span className="text-red-400 text-xs px-1 animate-fade-in">{parseError}</span>
       )}
 
       {packages.length > 0 && (
-        <div className="flex flex-wrap gap-2 p-2 bg-[#1e1e1e]/50 border border-vscode-border rounded-md min-h-[40px]">
+        <div className="flex flex-wrap gap-2 p-2.5 bg-black/25 border border-white/[0.05] rounded-lg min-h-[40px]">
           {packages.map((pkg, i) => (
-            <div 
-              key={`${pkg}-${i}`} 
-              className="flex items-center gap-1.5 bg-[#2d2d2d] border border-vscode-border hover:border-vscode-accent/50 rounded px-2 py-1 text-xs text-gray-300 shadow-sm transition-colors group"
+            <div
+              key={`${pkg}-${i}`}
+              className="flex items-center gap-1.5 bg-white/[0.05] border border-white/[0.08] hover:border-[#3574d4]/60 rounded-md pl-2 pr-1.5 py-1 text-xs text-gray-200 shadow-sm transition-colors animate-fade-in"
             >
               <PackageIcon name={pkg} type={stepType} size={12} />
               <span className="font-jetbrains text-[11px] mt-0.5">{pkg}</span>
-              <button 
-                type="button" 
+              <button
+                type="button"
                 onClick={() => handleRemove(pkg)}
-                className="ml-1 text-gray-500 hover:text-red-400 focus:outline-none transition-colors"
+                aria-label={`Remove ${pkg}`}
+                className="ml-0.5 text-gray-500 hover:text-red-400 hover:bg-red-400/10 rounded p-0.5 focus:outline-none transition-colors"
               >
-                <VscClose size={14} />
+                <VscClose size={13} />
               </button>
             </div>
           ))}

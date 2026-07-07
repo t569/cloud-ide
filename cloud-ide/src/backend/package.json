@@ -13,6 +13,7 @@
     "start:engine": "node ../opensandbox/boot-engine.js"
   },
   "dependencies": {
+    "@cloud-ide/pipeline": "*",
     "@cloud-ide/shared": "*",
     "axios": "^1.15.0",
     "chokidar": "^5.0.0",

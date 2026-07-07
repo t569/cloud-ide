@@ -9,7 +9,9 @@
     "types": ["node", "jest"],
     "paths": {
       "@cloud-ide/shared": ["../shared/index.ts"],
-      "@cloud-ide/shared/*": ["../shared/*"]
+      "@cloud-ide/shared/*": ["../shared/*"],
+      "@cloud-ide/pipeline": ["../pipeline/index.ts"],
+      "@cloud-ide/pipeline/*": ["../pipeline/*"]
     }
   },
   "include": ["src/**/*"]

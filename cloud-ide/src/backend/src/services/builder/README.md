@@ -30,6 +30,10 @@ services/builder/
 Naming/validity (ids, slugs, content hash, image tags) lives in
 `@cloud-ide/shared/utils/naming.ts` — the single source shared with the frontend.
 
+Every docker CLI call (build stream, inspect, tag, prune) routes through
+`../docker/DockerCli` — one argv-based, injection-safe wrapper shared by
+`DockerBuilder` and `GarbageCollector`. See `services/docker/README.md`.
+
 ---
 
 ## Layer A — Dockerfile Generation

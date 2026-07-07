@@ -18,11 +18,16 @@ export interface StreamOptions {
   onSpawnError?: (err: Error) => string;
   /** Message emitted as 'failed' when cancel() is called. Default 'Cancelled'. */
   cancelMessage?: string;
+  /** SIGTERM the child after this many ms, then settle 'failed'. 0/undefined = no limit. */
+  timeoutMs?: number;
+  /** Message emitted as 'failed' on timeout. Default names the elapsed limit. */
+  timeoutMessage?: string;
 }
 
 export class DockerProcess extends EventEmitter {
   private child?: ChildProcess;
   private done = false;
+  private timer?: NodeJS.Timeout;
   private readonly cancelMessage: string;
 
   constructor(bin: string, args: string[], opts: StreamOptions = {}) {
@@ -35,6 +40,7 @@ export class DockerProcess extends EventEmitter {
   private settle(event: 'succeeded' | 'failed', message: string): void {
     if (this.done) return;
     this.done = true;
+    if (this.timer) clearTimeout(this.timer); // funnels all outcomes → one cleanup
     this.emit(event, message);
   }
 
@@ -44,6 +50,18 @@ export class DockerProcess extends EventEmitter {
 
       const child = spawn(bin, args);
       this.child = child;
+
+      // Guard against a hung build holding a queue slot forever: kill it and
+      // fail. settle() clears this timer on any normal exit/cancel.
+      if (opts.timeoutMs && opts.timeoutMs > 0) {
+        this.timer = setTimeout(() => {
+          child.kill('SIGTERM');
+          this.settle(
+            'failed',
+            opts.timeoutMessage ?? `Timed out after ${Math.round(opts.timeoutMs! / 1000)}s`,
+          );
+        }, opts.timeoutMs);
+      }
 
       // A missing/broken binary emits 'error' on the child; convert it to a clean
       // 'failed' so it can't become an unhandled exception that crashes the host.

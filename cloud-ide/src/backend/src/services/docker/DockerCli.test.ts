@@ -36,6 +36,27 @@ describe('DockerCli', () => {
     expect(chunks.join('')).toContain('line');
   });
 
+  it('stream() times out a hung process and settles failed', async () => {
+    const proc = cli.stream(['-e', 'setTimeout(() => {}, 10000)'], {
+      timeoutMs: 100,
+      timeoutMessage: 'Timed out',
+    });
+    const outcome = await new Promise<string>((resolve) => {
+      proc.on('succeeded', () => resolve('succeeded'));
+      proc.on('failed', (m) => resolve(m));
+    });
+    expect(outcome).toBe('Timed out');
+  });
+
+  it('stream() does not time out a process that finishes in time', async () => {
+    const proc = cli.stream(['-e', "process.stdout.write('quick')"], { timeoutMs: 5000 });
+    const outcome = await new Promise<string>((resolve) => {
+      proc.on('succeeded', () => resolve('succeeded'));
+      proc.on('failed', (m) => resolve('FAILED:' + m));
+    });
+    expect(outcome).toBe('succeeded');
+  });
+
   it('stream() cancel() settles as failed with the cancel message', async () => {
     const proc = cli.stream(['-e', 'setTimeout(() => {}, 10000)'], { cancelMessage: 'Build cancelled' });
     const outcome = await new Promise<string>((resolve) => {

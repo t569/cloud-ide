@@ -15,6 +15,11 @@ export interface BuildProcess extends EventEmitter {
   cancel(): void;
 }
 
+export interface BuildOptions {
+  /** Hard build-time limit in ms; the builder aborts and fails past it. */
+  timeoutMs?: number;
+}
+
 export interface IBuilder {
   /** Registry key, e.g. 'docker'. */
   readonly name: string;
@@ -22,7 +27,7 @@ export interface IBuilder {
    * Start a build; returns immediately with a streaming handle. The image is
    * tagged with every ref in `imageTags` (e.g. a content-hash tag + :latest).
    */
-  build(dockerfile: string, imageTags: string[]): BuildProcess;
+  build(dockerfile: string, imageTags: string[], opts?: BuildOptions): BuildProcess;
   /** True if an image with this ref already exists locally (cache-hit skip). */
   exists?(imageTag: string): Promise<boolean>;
   /** Point one ref at another (retag) — for :latest updates and rollback. */

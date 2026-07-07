@@ -1,7 +1,7 @@
 // Docker implementation of IBuilder. Every docker invocation goes through the
 // shared DockerCli (argv-based spawn, one error convention), so this file just
 // maps IBuilder operations onto docker subcommands.
-import { IBuilder, BuildProcess } from './IBuilder';
+import { IBuilder, BuildProcess, BuildOptions } from './IBuilder';
 import { DockerCli } from '../docker';
 
 export class DockerBuilder implements IBuilder {
@@ -11,13 +11,15 @@ export class DockerBuilder implements IBuilder {
   // different binary/host.
   constructor(private readonly docker = new DockerCli()) {}
 
-  build(dockerfile: string, imageTags: string[]): BuildProcess {
+  build(dockerfile: string, imageTags: string[], opts: BuildOptions = {}): BuildProcess {
     // '-' => read the Dockerfile from stdin. --progress=plain keeps logs clean.
     // One build, tagged with every ref (content hash + :latest).
     const tagArgs = imageTags.flatMap((t) => ['-t', t]);
     return this.docker.stream(['build', '--progress=plain', ...tagArgs, '-'], {
       stdin: dockerfile,
       banner: `Initializing Cloud IDE build pipeline for ${imageTags.join(', ')}...\n`,
+      timeoutMs: opts.timeoutMs,
+      timeoutMessage: `Build exceeded its ${opts.timeoutMs ? Math.round(opts.timeoutMs / 1000) : 0}s time limit and was aborted`,
       onExit: (code) =>
         code === 0
           ? { ok: true, message: `Build completed. Tagged as ${imageTags.join(', ')}` }

@@ -144,7 +144,9 @@ export class BuildService {
 
       const relay = new RelayBuildProcess();
       this.wire(env.id, relay, versionedTag);
-      this.enqueue(env.id, relay, builder, dockerfile, imageTags);
+      // config.timeout is seconds; a hung build must not hold a queue slot forever.
+      const timeoutMs = config?.timeout ? config.timeout * 1000 : undefined;
+      this.enqueue(env.id, relay, builder, dockerfile, imageTags, timeoutMs);
       return relay;
     } catch (err) {
       this.store.finish(env.id, false, { error: (err as Error).message });
@@ -160,6 +162,7 @@ export class BuildService {
     builder: IBuilder,
     dockerfile: string,
     imageTags: string[],
+    timeoutMs?: number,
   ): void {
     const ahead = this.queue.waiting;
     if (ahead > 0 && !relay.isCancelled) {
@@ -174,7 +177,7 @@ export class BuildService {
       this.store.markRunning(envId);
       this.emitChange(envId);
 
-      const real = builder.build(dockerfile, imageTags);
+      const real = builder.build(dockerfile, imageTags, { timeoutMs });
       const release = () => this.queue.release();
       real.on('succeeded', release);
       real.on('failed', release);

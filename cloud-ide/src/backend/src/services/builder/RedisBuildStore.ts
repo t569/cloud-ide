@@ -11,7 +11,7 @@
 // "already building" lock is PER-NODE. True multi-node exclusion needs an async
 // IBuildStore + a Redis atomic lock (SET key val NX PX ...). Tracked in the
 // builder README roadmap; single-node behaviour is correct today.
-import { InMemoryBuildStore, BuildState } from './BuildTracker';
+import { InMemoryBuildStore, BuildState } from './BuildStore';
 
 /** The subset of a Redis client we use. Satisfied by `ioredis` and `redis` v4. */
 export interface RedisLike {

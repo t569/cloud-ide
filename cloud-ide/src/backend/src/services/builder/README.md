@@ -22,11 +22,10 @@ services/builder/
   DockerBuilder.ts        #          Docker implementation of IBuilder
   BuilderRegistry.ts      #          name -> IBuilder (swap the build backend)
   BuildService.ts         #          the conductor: naming, queue, cache, status
-  BuildTracker.ts         #          IBuildStore + InMemory/Json stores, status types
+  BuildStore.ts           #          IBuildStore + InMemory/Json stores, status types
   RedisBuildStore.ts      #          Redis store (STUB — see "Persistence")
   createBuildStore.ts     #          config-driven store factory ($BUILD_STORE)
   GarbageCollector.ts     #          nightly `docker prune`
-  RegistryService.ts      #          (future) push to a remote registry
 ```
 Naming/validity (ids, slugs, content hash, image tags) lives in
 `@cloud-ide/shared/utils/naming.ts` — the single source shared with the frontend.
@@ -203,7 +202,9 @@ the default. To activate:
   add a case to `createBuildStore`.
 - **New package manager** → `InstallStepType` in `shared/types/env.ts`,
   translation in `PackageManagerRules`, ordering in `Validator` (see /pipeline).
-- **Push to a registry** → flesh out `RegistryService` and call it on `succeeded`.
+- **Push to a registry** → add a `RegistryService` (emitting the `BuildProcess`
+  `succeeded`/`failed` convention) and call it on build success. *(A prior static stub
+  was removed as unwired; see the roadmap item below.)*
 
 ## 🗺️ Roadmap
 

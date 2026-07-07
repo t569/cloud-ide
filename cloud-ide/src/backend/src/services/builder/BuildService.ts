@@ -5,7 +5,7 @@ import { toImageName, toVersionedImageName } from '@cloud-ide/shared';
 import { EnvironmentRecord } from '../../database/models';
 import { DockerGeneratorService } from './GeneratorService';
 import { BuilderRegistry } from './BuilderRegistry';
-import { IBuildStore, BuildState } from './BuildTracker';
+import { IBuildStore, BuildState } from './BuildStore';
 import { IBuilder, BuildProcess } from './IBuilder';
 
 // Counting semaphore: caps how many builds run at once. release() hands the slot

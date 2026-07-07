@@ -1,6 +1,6 @@
 // The single place that decides which IBuildStore backs the build pipeline.
 // Config-driven so swapping persistence never touches BuildService or the routes.
-import { IBuildStore, InMemoryBuildStore, JsonBuildStore } from './BuildTracker';
+import { IBuildStore, InMemoryBuildStore, JsonBuildStore } from './BuildStore';
 import { RedisBuildStore, RedisLike } from './RedisBuildStore';
 
 export interface BuildStoreOptions {

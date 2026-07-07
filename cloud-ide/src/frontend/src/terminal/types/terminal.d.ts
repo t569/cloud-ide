@@ -104,6 +104,12 @@ export interface TerminalEventPayloads {
    * A signal to the React Ui to mount/unmount the search widget
    */
   'UI_TOGGLE_SEARCH': { isVisible?: boolean };
+
+  /**
+   * Fired when a sniffed localhost link has been resolved to a proxied ingress
+   * URL. The PreviewPane listens for this to open the app beside the code.
+   */
+  'PREVIEW_URL': { url: string };
 }
 
 /**

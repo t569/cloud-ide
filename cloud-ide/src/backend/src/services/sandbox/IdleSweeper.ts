@@ -30,16 +30,43 @@ export class IdleSweeper {
     this.sweepInterval = setInterval(() => this.runSweep(), intervalMs);
   }
 
-  /**
+ /**
    * @private
    * @description Identifies and freezes orphaned compute containers by doing a 
    * relational lookup between running sandboxes and disconnected sessions.
+   * * Additionally performs a health-check (1b): if Rust reports a sandbox as 
+   * NOT_FOUND, it deletes the orphaned DB record and cleans up the worktree.
    */
   private async runSweep() : Promise<void> {
     console.log('[IdleSweeper] Scanning for orphaned sandboxes...');
     
     // 1. Get all currently running sandboxes
     const allSandboxes = await this.sandboxRepo.list(); 
+
+    // 1b. Self-Healing Loop: Check true status from Rust Core
+    for (const sandbox of allSandboxes) {
+       try {
+           // Poll the Rust engine. This will throw or return an error state if the container doesn't exist
+           const status = await this.sandboxManager.getStatus(sandbox.sandboxId);
+           
+           if (status.state === 'ERROR' || status.state === 'STOPPED') {
+              console.warn(`[IdleSweeper] Sandbox ${sandbox.sandboxId} is in ${status.state} state in Rust. Triggering cleanup.`);
+              // Never force: a dirty worktree makes destroy throw, preserving
+              // uncommitted work. Log and let a human (or force-destroy) decide.
+              await this.sandboxManager.destroy(sandbox.sandboxId)
+                .catch((err) => console.warn(`[IdleSweeper] Cleanup of ${sandbox.sandboxId} skipped: ${err.message}`));
+              continue;
+           }
+       } catch (error: any) {
+           // Rust returns a 404/NOT_FOUND equivalent
+           console.error(`[IdleSweeper] Sandbox ${sandbox.sandboxId} NOT_FOUND in Rust. Pruning ghost record.`);
+           // Call destroy to ensure DB and Worktree are cleaned up!
+           await this.sandboxManager.destroy(sandbox.sandboxId)
+             .catch((err) => console.warn(`[IdleSweeper] Prune of ${sandbox.sandboxId} skipped: ${err.message}`));
+           continue;
+       }
+    }
+
     const runningSandboxes = allSandboxes.filter(sbx => sbx.state === 'RUNNING');
 
     for (const sandbox of runningSandboxes) {

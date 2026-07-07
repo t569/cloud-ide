@@ -7,7 +7,7 @@ The VFS is the high-performance data layer of the Cloud IDE. It acts as the "Sin
 The system is strictly decoupled into two distinct parts to separate data logic from UI rendering:
 
 1. **`VirtualFileSystem.ts` (The Engine):** A pure data structure. It manages an $O(1)$ memory map, handles cryptographic Merkle hashing, and manages the background sync queue. It knows *nothing* about React or the Event Bus.
-2. **`VFSController.ts` (The Traffic Cop):** The bridge. It listens to the `EditorEventBus`, translates user actions into VFS commands, and dispatches state updates back to the React UI via Context/Reducers.
+2. **`VFSController.ts` (The Traffic Cop):** The bridge, located in [`../editor/core/VFSController.ts`](../editor/core/VFSController.ts) (not in this folder). It listens to the `EditorEventBus`, translates user actions into VFS commands, and dispatches state updates back to the React UI via Context/Reducers.
 
 ---
 
@@ -44,7 +44,7 @@ To prevent DDoS-ing the backend while a user is typing, the VFS uses a Debounced
 
 ## 🔌 Event Bus API Contract
 
-The `VFSController` strictly listens to and emits the following events on the `EditorEventBus`:
+The `VFSController` (in [`../editor/core/`](../editor/core/VFSController.ts)) strictly listens to and emits the following events on the `EditorEventBus`:
 
 ### Listens To:
 * `FILE_OPEN_REQUESTED` - Triggers file load from VFS.

@@ -7,8 +7,15 @@ import { OpenSandboxExecClient } from '../../sandbox/drivers/opensandbox/execdri
 export class LocalMountStrategy implements IProvisioningStrategy {
   constructor(
     private hostPath: string,
-    private mountPath: string = '/workspace/mounts/local-workspace-bind'
-  ) {}
+    private volumeName: string = 'local-workspace-bind',  // A unique name for the volume allow multiple mounts
+    // private mountPath: string = '/workspace/mounts/local-workspace-bind'
+    private mountPath?: string
+  ) {
+    // Default to a safe sub-directory under /workspace/mounts if not provided
+    if(!this.mountPath) {
+     this.mountPath = `/workspace/mounts/${this.volumeName}`; 
+    }
+  }
 
   public mutateSpec(spec: SandboxSpec): SandboxSpec {
     // We modify the infrastructure request BEFORE it hits OpenSandbox
@@ -17,9 +24,9 @@ export class LocalMountStrategy implements IProvisioningStrategy {
     
       modifiedSpec.volumes.push({
       name: 'local-workspace-bind',
-      kind: 'user',
+      kind: 'user', // Flags it for SandboxManager's normalizeUserVolumes logic
       hostPath: this.hostPath,
-      mountPath: this.mountPath,
+      mountPath: this.mountPath!,
       readOnly: false // Allow the IDE to write back to the local host folder
     });
 

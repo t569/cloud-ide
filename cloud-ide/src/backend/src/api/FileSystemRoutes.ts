@@ -1,13 +1,14 @@
 // backend/src/api/FileSystemRoutes.ts
 import { Router, Request, Response, NextFunction } from 'express';
 import { FileSystemManager } from '../services/FileSystemManager';
-import { SandboxManager } from '../services/sandbox/SandboxManager';
 import { ISessionRepository } from '../database/interfaces';
 import { requireSandboxOwnership } from './middleware/security';
 
-export function createFileSystemRouter(sandboxManager: SandboxManager, sessionRepo: ISessionRepository): Router {
+// The router is pure transport: it depends on the FileSystemManager it is
+// given and knows nothing about how or where files are actually stored.
+// sessionRepo is injected so the router can enforce sandbox ownership (IDOR).
+export function createFileSystemRouter(fsManager: FileSystemManager, sessionRepo: ISessionRepository): Router {
   const router = Router();
-  const fsManager = new FileSystemManager(sandboxManager);
   /**
    * PARAMETER VALIDATION MIDDLEWARE
    * Intercepts any route containing ':sandboxId' and validates it first.
@@ -23,8 +24,7 @@ export function createFileSystemRouter(sandboxManager: SandboxManager, sessionRe
       return res.status(400).json({ error: 'Invalid sandboxId: Cannot be empty.' });
     }
 
-    // 3. Optional: Regex to ensure it only contains safe characters (alphanumeric, dashes, underscores)
-    // This prevents malicious users from injecting shell operators like ';', '|', or '&' into the ID.
+    // 3. Regex to ensure it only contains safe characters (alphanumeric, dashes, underscores).
     const safeIdRegex = /^[a-zA-Z0-9_-]+$/;
     if (!safeIdRegex.test(id)) {
       return res.status(400).json({ error: 'Invalid sandboxId: Contains illegal characters.' });
@@ -45,10 +45,10 @@ export function createFileSystemRouter(sandboxManager: SandboxManager, sessionRe
     try {
       const { sandboxId } = req.params;
       const targetPath = (req.query.path as string) || '/workspace';
-    
-      if(!sandboxId || typeof sandboxId !== 'string'){
-            return res.status(400).json({error: 'Invalid Sandbox id'});
-        }
+
+      if (!sandboxId || typeof sandboxId !== 'string') {
+        return res.status(400).json({ error: 'Invalid Sandbox id' });
+      }
 
       const files = await fsManager.listDirectory(sandboxId, targetPath);
       res.status(200).json(files);
@@ -63,25 +63,21 @@ export function createFileSystemRouter(sandboxManager: SandboxManager, sessionRe
    */
   router.get('/:sandboxId/read', async (req: Request, res: Response) => {
     try {
+      const { sandboxId } = req.params;
+      const filePath = req.query.path as string;
 
-       
-        const { sandboxId }  = req.params;
-        const filePath = req.query.path as string;
+      if (!sandboxId || typeof sandboxId !== 'string') {
+        return res.status(400).json({ error: 'Invalid Sandbox id' });
+      }
+      if (!filePath || typeof filePath !== 'string') {
+        return res.status(400).json({ error: 'Valid file path is required' });
+      }
 
-        // STRICT TYPE GUARDS
-
-        if(!sandboxId || typeof sandboxId !== 'string'){
-            return res.status(400).json({error: 'Invalid Sandbox id'});
-        }
-        if (!filePath || typeof filePath !== 'string') {
-            return res.status(400).json({ error: 'Valid file path is required' });
-        }
-
-        const content = await fsManager.readFile(sandboxId, filePath);
-        res.status(200).json({ content });
-        } catch (error: any) {
-        console.error(`[VFS Error] Failed to read file: ${error.message}`);
-        res.status(500).json({ error: error.message });
+      const content = await fsManager.readFile(sandboxId, filePath);
+      res.status(200).json({ content });
+    } catch (error: any) {
+      console.error(`[VFS Error] Failed to read file: ${error.message}`);
+      res.status(500).json({ error: error.message });
     }
   });
 
@@ -92,11 +88,10 @@ export function createFileSystemRouter(sandboxManager: SandboxManager, sessionRe
     try {
       const { sandboxId } = req.params;
       const { path: filePath, content } = req.body;
-    
-      if(!sandboxId || typeof sandboxId !== 'string'){
-            return res.status(400).json({error: 'Invalid Sandbox id'});
-        }
 
+      if (!sandboxId || typeof sandboxId !== 'string') {
+        return res.status(400).json({ error: 'Invalid Sandbox id' });
+      }
       if (!filePath || typeof filePath !== 'string' || content === undefined) {
         return res.status(400).json({ error: 'Valid file path and content are required' });
       }
@@ -116,11 +111,10 @@ export function createFileSystemRouter(sandboxManager: SandboxManager, sessionRe
     try {
       const { sandboxId } = req.params;
       const pathToRemove = req.query.path as string;
-    
-      if(!sandboxId || typeof sandboxId !== 'string'){
-            return res.status(400).json({error: 'Invalid Sandbox id'});
-        }
 
+      if (!sandboxId || typeof sandboxId !== 'string') {
+        return res.status(400).json({ error: 'Invalid Sandbox id' });
+      }
       if (!pathToRemove || typeof pathToRemove !== 'string') {
         return res.status(400).json({ error: 'Valid path to delete is required' });
       }

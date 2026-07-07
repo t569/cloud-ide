@@ -38,3 +38,11 @@ with different arg grammar would justify an `IDockerCli` interface — not befor
 
 `DockerCli.test.ts` runs the whole contract against `node` as a stand-in binary,
 so it needs no Docker installed.
+
+## 🗺️ Roadmap
+
+- [ ] **`stream()` timeout.** A `timeoutMs` option that SIGTERMs the child after N
+  seconds — the natural home for enforcing `EnvironmentConfig.timeout`, which is
+  currently unwired (a build hang starves the build queue).
+- [ ] **Resource-limit passthrough.** `--memory` / `--cpus` / ulimits flow through
+  `run`/`stream` args unchanged once the builder starts passing them — no API change.

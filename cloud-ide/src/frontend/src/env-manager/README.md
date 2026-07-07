@@ -139,6 +139,8 @@ Deliberate seams left open (YAGNI until measured); each has a clean boundary to 
 - [x] **Move the build store off JSON.** `createBuildStore()` + `$BUILD_STORE`; `RedisBuildStore` stub behind `IBuildStore` (not yet wired — no Redis running).
 - [ ] **Cluster-wide build guard.** The sync store makes the per-env lock per-node; needs an async `IBuildStore` + Redis atomic lock for true multi-node exclusion.
 - [x] **Atomic JSON writes.** `writeJsonAtomic` (temp file + rename) in `JsonBuildStore` and `JsonEnvironmentRepository`.
+- [ ] **Wire `platform` & `timeout`.** Both are editable config fields, but the backend build ignores them today — `platform` never reaches `docker build`, and `timeout` isn't enforced (a hung build holds a queue slot). Tracked in `services/builder` (README → Roadmap → Robustness).
+- [ ] **Build resource limits.** Builds run with no `--memory`/`--cpus`, so a heavy Dockerfile can saturate the host. Backend concern; tracked in `services/builder`.
 
 # Should eventually look like this:
 ![Environment Architect Finished](./imgs/env_manager_goal.png)

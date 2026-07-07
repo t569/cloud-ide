@@ -212,6 +212,21 @@ the default. To activate:
 
 ## 🗺️ Roadmap
 
+### Robustness (advertised-but-unwired config + safety)
+- [ ] **Enforce build timeout.** `EnvironmentConfig.timeout` is accepted but never
+  applied — a hung `docker build` runs forever and holds a `Semaphore` slot, starving
+  the queue. Add a `timeoutMs`→SIGTERM to `DockerCli.stream` and pass `config.timeout`
+  from `BuildService.start`. *(Highest-impact: the one true robustness hole today.)*
+- [ ] **Honor `platform`.** `DockerBuilder.build` ignores `config.platform`
+  (`linux/amd64` | `linux/arm64`); add `--platform` so cross-arch / M-series builds
+  produce the right image instead of the host default.
+- [ ] **Build resource limits.** `docker build` runs unbounded; add `--memory`/`--cpus`
+  (and ulimits) so a heavy or hostile Dockerfile can't exhaust the host daemon.
+- [ ] **Concurrency tests.** The queue / relay / `Semaphore` path in `BuildService` is
+  the most intricate logic here and has no committed test. Cover queued→building→done,
+  cancel-while-queued, and slot release on failure.
+
+### Scale & features
 - [ ] Async `IBuildStore` + Redis lock for a **cluster-wide** concurrency guard.
 - [ ] `RegistryService`: push successful builds to a remote registry.
 - [ ] Skip-rebuild optimization end-to-end reporting (cache hit metrics).

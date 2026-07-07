@@ -6,7 +6,7 @@ import { EnvironmentRecord } from '../../database/models';
 import { DockerGeneratorService } from './GeneratorService';
 import { BuilderRegistry } from './BuilderRegistry';
 import { IBuildStore, BuildState } from './BuildStore';
-import { IBuilder, BuildProcess } from './IBuilder';
+import { IBuilder, BuildProcess, BuildOptions } from './IBuilder';
 
 // Counting semaphore: caps how many builds run at once. release() hands the slot
 // straight to the next waiter (FIFO), so `active` stays balanced.
@@ -146,7 +146,10 @@ export class BuildService {
       this.wire(env.id, relay, versionedTag);
       // config.timeout is seconds; a hung build must not hold a queue slot forever.
       const timeoutMs = config?.timeout ? config.timeout * 1000 : undefined;
-      this.enqueue(env.id, relay, builder, dockerfile, imageTags, timeoutMs);
+      this.enqueue(env.id, relay, builder, dockerfile, imageTags, {
+        timeoutMs,
+        platform: config?.platform,
+      });
       return relay;
     } catch (err) {
       this.store.finish(env.id, false, { error: (err as Error).message });
@@ -162,7 +165,7 @@ export class BuildService {
     builder: IBuilder,
     dockerfile: string,
     imageTags: string[],
-    timeoutMs?: number,
+    opts: BuildOptions,
   ): void {
     const ahead = this.queue.waiting;
     if (ahead > 0 && !relay.isCancelled) {
@@ -177,7 +180,7 @@ export class BuildService {
       this.store.markRunning(envId);
       this.emitChange(envId);
 
-      const real = builder.build(dockerfile, imageTags, { timeoutMs });
+      const real = builder.build(dockerfile, imageTags, opts);
       const release = () => this.queue.release();
       real.on('succeeded', release);
       real.on('failed', release);

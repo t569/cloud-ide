@@ -182,6 +182,7 @@ Environment variables:
 |---|---|---|
 | `BUILD_STORE` | `json` | `json` \| `memory` \| `redis` |
 | `MAX_CONCURRENT_BUILDS` | `2` | global build concurrency cap |
+| `DOCKER_BUILDER` | _(unset)_ | name of a buildx builder to route builds through — the seam for BuildKit-native resource limits (see roadmap) |
 
 ### Enabling Redis (currently a stub)
 
@@ -213,15 +214,19 @@ the default. To activate:
 ## 🗺️ Roadmap
 
 ### Robustness (advertised-but-unwired config + safety)
-- [ ] **Enforce build timeout.** `EnvironmentConfig.timeout` is accepted but never
-  applied — a hung `docker build` runs forever and holds a `Semaphore` slot, starving
-  the queue. Add a `timeoutMs`→SIGTERM to `DockerCli.stream` and pass `config.timeout`
-  from `BuildService.start`. *(Highest-impact: the one true robustness hole today.)*
-- [ ] **Honor `platform`.** `DockerBuilder.build` ignores `config.platform`
-  (`linux/amd64` | `linux/arm64`); add `--platform` so cross-arch / M-series builds
-  produce the right image instead of the host default.
-- [ ] **Build resource limits.** `docker build` runs unbounded; add `--memory`/`--cpus`
-  (and ulimits) so a heavy or hostile Dockerfile can't exhaust the host daemon.
+- [x] **Enforce build timeout.** `EnvironmentConfig.timeout` (seconds) is honored:
+  `DockerProcess` SIGTERMs the child after `timeoutMs` and settles `failed`;
+  `BuildService.start` passes `config.timeout`, so a hung build no longer holds a
+  `Semaphore` slot.
+- [x] **Honor `platform`.** `DockerBuilder.build` passes `config.platform`
+  (`linux/amd64` | `linux/arm64`) as `--platform` for cross-arch / M-series builds.
+- [x] **Build resource limits → via a buildx builder, not per-build flags.** Under the
+  default BuildKit builder, `docker build --memory`/`--cpu*` are ignored and `--cpus`
+  is invalid, so per-build flags are dead. Instead set `$DOCKER_BUILDER` to a
+  resource-constrained buildx builder — provisioned once by ops
+  (`docker buildx create --name capped --driver docker-container --driver-opt memory=..,cpus=..`) —
+  and every build routes through it (`--builder`) with caps enforced natively and
+  BuildKit caching intact. Scales across nodes; no `DOCKER_BUILDKIT=0` compromise.
 - [ ] **Concurrency tests.** The queue / relay / `Semaphore` path in `BuildService` is
   the most intricate logic here and has no committed test. Cover queued→building→done,
   cancel-while-queued, and slot release on failure.

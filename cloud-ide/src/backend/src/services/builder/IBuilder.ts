@@ -18,6 +18,8 @@ export interface BuildProcess extends EventEmitter {
 export interface BuildOptions {
   /** Hard build-time limit in ms; the builder aborts and fails past it. */
   timeoutMs?: number;
+  /** Target build platform, e.g. 'linux/amd64' | 'linux/arm64' (cross-arch / M-series). */
+  platform?: string;
 }
 
 export interface IBuilder {

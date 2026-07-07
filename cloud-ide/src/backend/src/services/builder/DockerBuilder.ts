@@ -8,26 +8,38 @@ export class DockerBuilder implements IBuilder {
   readonly name = 'docker';
 
   // Default instance for prod; inject a DockerCli (real or fake) for tests or a
-  // different binary/host.
-  constructor(private readonly docker = new DockerCli()) {}
+  // different binary/host. `buildxBuilder` targets a named buildx builder
+  // instance ($DOCKER_BUILDER) — the scalable seam for resource limits: ops
+  // provision `docker buildx create --name capped --driver-opt memory=..,cpus=..`
+  // once, and every build is capped natively with BuildKit caching intact. Unset
+  // => the default builder. No per-build --memory/--cpus (BuildKit ignores them).
+  constructor(
+    private readonly docker = new DockerCli(),
+    private readonly buildxBuilder = process.env.DOCKER_BUILDER || undefined,
+  ) {}
 
   build(dockerfile: string, imageTags: string[], opts: BuildOptions = {}): BuildProcess {
     // '-' => read the Dockerfile from stdin. --progress=plain keeps logs clean.
     // One build, tagged with every ref (content hash + :latest).
     const tagArgs = imageTags.flatMap((t) => ['-t', t]);
-    return this.docker.stream(['build', '--progress=plain', ...tagArgs, '-'], {
-      stdin: dockerfile,
-      banner: `Initializing Cloud IDE build pipeline for ${imageTags.join(', ')}...\n`,
-      timeoutMs: opts.timeoutMs,
-      timeoutMessage: `Build exceeded its ${opts.timeoutMs ? Math.round(opts.timeoutMs / 1000) : 0}s time limit and was aborted`,
-      onExit: (code) =>
-        code === 0
-          ? { ok: true, message: `Build completed. Tagged as ${imageTags.join(', ')}` }
-          : { ok: false, message: `Build failed with exit code ${code}` },
-      onSpawnError: (err) =>
-        `Failed to start Docker: ${err.message}. Is Docker installed and running on the host?`,
-      cancelMessage: 'Build cancelled',
-    });
+    const builderArgs = this.buildxBuilder ? ['--builder', this.buildxBuilder] : [];
+    const platformArgs = opts.platform ? ['--platform', opts.platform] : [];
+    return this.docker.stream(
+      ['build', ...builderArgs, ...platformArgs, '--progress=plain', ...tagArgs, '-'],
+      {
+        stdin: dockerfile,
+        banner: `Initializing Cloud IDE build pipeline for ${imageTags.join(', ')}...\n`,
+        timeoutMs: opts.timeoutMs,
+        timeoutMessage: `Build exceeded its ${opts.timeoutMs ? Math.round(opts.timeoutMs / 1000) : 0}s time limit and was aborted`,
+        onExit: (code) =>
+          code === 0
+            ? { ok: true, message: `Build completed. Tagged as ${imageTags.join(', ')}` }
+            : { ok: false, message: `Build failed with exit code ${code}` },
+        onSpawnError: (err) =>
+          `Failed to start Docker: ${err.message}. Is Docker installed and running on the host?`,
+        cancelMessage: 'Build cancelled',
+      },
+    );
   }
 
   /** `docker image inspect` — exit 0 means the image is already built locally. */

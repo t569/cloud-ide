@@ -207,9 +207,11 @@ the default. To activate:
   add a case to `createBuildStore`.
 - **New package manager** → `InstallStepType` in `shared/types/env.ts`,
   translation in `PackageManagerRules`, ordering in `Validator` (see /pipeline).
-- **Push to a registry** → add a `RegistryService` (emitting the `BuildProcess`
-  `succeeded`/`failed` convention) and call it on build success. *(A prior static stub
-  was removed as unwired; see the roadmap item below.)*
+- **Push to a registry** → add an optional `push?()` to `IBuilder` (streams via
+  `DockerCli.stream`, same `data`/`succeeded`/`failed` contract) and chain it after a
+  successful build. Full phased plan under Roadmap → Distribution. *(A prior static
+  `RegistryService` stub was removed as unwired; a separate service isn't needed —
+  push is builder-specific, so it lives on the builder next to `build`/`tag`/`exists`.)*
 
 ## 🗺️ Roadmap
 
@@ -230,6 +232,38 @@ the default. To activate:
 - [x] **Concurrency tests.** `BuildService.test.ts` covers the queue / relay /
   `Semaphore` path: queued→building→succeeded, cancel-while-queued (waiter fails and
   returns its slot unused), and slot release on failure letting the next build run.
+
+### Distribution (registry push — makes images portable across nodes)
+
+Today a successful build produces an image on the **local docker daemon only**
+(content-hash + `:latest`). That's correct single-node, but on multi-node another
+node can't run it, and a recycled host loses it. A registry is the shared store that
+makes built images reachable everywhere — the natural pair to the Redis multi-node
+lock (the lock coordinates *who builds*; the registry makes the *result reachable*).
+
+**Seam:** an optional `IBuilder.push?(imageTag): BuildProcess` (docker `push` via
+`DockerCli.stream`, so push logs stream to the same SSE channel as build logs). A
+`PushingBuild` wrapper chains build→push into one `BuildProcess`, so `BuildService.wire`
+stays untouched. Tags are registry-qualified through a single `qualify()` helper
+(`$DOCKER_REGISTRY`) applied wherever tags are built, so `build`/`push`/`deploy`/`exists`
+agree. **Auth is ops-provisioned** (`docker login` / credential helper, like
+`$DOCKER_BUILDER`) — the app never handles secrets.
+
+Semantics: push runs **inside the build's semaphore slot**, right after build success
+(*ponytail: holds the slot through push; move outside the semaphore if push latency
+starves the queue*). Build-ok/push-fail ⇒ overall **failed** (image is local-only, not
+cluster-deployable; the local copy remains as single-node fallback). Registry unset ⇒
+zero behavior change. v1 pushes the **versioned** (immutable) tag only.
+
+- [ ] **Phase 0 — config + naming.** `$DOCKER_REGISTRY` env var, `qualify()` applied
+  in the one place tags are built, env-table + this entry. No behavior change when unset.
+- [ ] **Phase 1 — builder push.** `IBuilder.push?`, `DockerBuilder.push`; unit-test the
+  push argv (mirrors `DockerBuilder.test.ts`). No orchestration yet.
+- [ ] **Phase 2 — orchestration.** `PushingBuild` + `BuildService` wiring. Tests:
+  build-success triggers push; push-fail fails the build; registry-unset skips push.
+- [ ] **Phase 3 — deferred, pairs with multi-node.** Registry-aware cache
+  (`docker manifest inspect` vs local `exists`), multi-tag push, push-on-cache-hit.
+  Don't build before there's a second node — a push to nowhere is YAGNI.
 
 ### Scale & features
 - [ ] Async `IBuildStore` + Redis lock for a **cluster-wide** concurrency guard.

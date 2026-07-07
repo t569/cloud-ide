@@ -26,7 +26,7 @@ The module strictly adheres to a **separation of concerns**, completely decoupli
 The root orchestrator of the module. It manages the top-level layout, provides context to child components, and acts as the ultimate bridge between the local environment state and the global IDE state.
 
 ### `BuildPipeline.tsx`
-The primary visual container for the environment construction. It renders the sequential array of build steps, handling the visual ordering, drag-and-drop mechanics, and the injection of new steps into the active pipeline.
+The primary visual container for the environment construction. It renders the sequential array of build steps (`useFieldArray`), and handles adding a new default step and removing an existing one. *(Steps run in list order; there is no drag-and-drop reordering yet — see Roadmap.)*
 
 ### `BuildStepCard.tsx`
 The atomic editor for individual steps. Depending on the step type (e.g., `system_package`, `runtime`), this card adapts its input fields, providing contextual validation and syntax highlighting for the specific commands being written.
@@ -44,9 +44,9 @@ A specialized module dedicated to handling bulk package imports and list managem
 
 Business logic is strictly isolated into custom hooks to ensure maximum testability and reusability without polluting the DOM elements:
 
-* **`useEnvManager`:** Manages the overarching schema state, handles the final compilation of the JSON payload, and enforces client-side operational guardrails (such as `MAX_STEPS` and timeout limits).
-* **`useBuildPipeline`:** Handles the internal array mutations—managing the insertion, deletion, and reordering of `BuildStep` objects within the visual pipeline.
-* **`useDependencyActions`:** Encapsulates the complex logic for parsing files, deduplicating package lists, and resolving potential dependency conflicts before they hit the UI.
+* **`useEnvManager`:** Owns the config form state (`react-hook-form`); the live `watch()` value *is* the payload (no separate compile step). On submit it calls `createEnvironment` (POST) or `updateEnvironment` (PUT) and adopts the server's canonical `id`/`name`. Config validity is enforced **server-side** by `Validator`, not here.
+* **`useBuildPipeline`:** Wraps `useFieldArray` to append a default `BuildStep` and remove one. *(No reordering — the list order is the build order.)*
+* **`useDependencyActions`:** Parses an uploaded dependency file (via the registry parser for the step type) and bulk-adds the results, deduplicating with a `Set` (`useDependencyList`). No conflict resolution.
 
 ---
 
@@ -87,8 +87,8 @@ The environment manager is styled to feel like a native, premium desktop applica
 ## 🔄 Integration Lifecycle
 1. **Interaction:** The developer visually constructs the environment using the `BuildStepCard` and `DependencyManager`.
 2. **Preview:** The `JsonPreviewWidget` reflects the underlying data structure in real-time.
-3. **Compilation:** The `useEnvManager` hook compiles the visual state into the strict, linear JSON array format.
-4. **Execution:** The validated JSON payload is handed off to the backend `StageOrchestrator` to begin the physical Docker container generation.
+3. **Save:** `useEnvManager` submits the config (the form state itself) to `POST`/`PUT /api/environment`, which validates (`Validator`) and persists it.
+4. **Execution:** `POST /:id/build` hands the saved config to `BuildService`, which calls `DockerGeneratorService` (→ `StageOrchestrator` → middleware → assembler) to generate the Dockerfile, then builds the image.
 
 
 ## Current TODOs Here:

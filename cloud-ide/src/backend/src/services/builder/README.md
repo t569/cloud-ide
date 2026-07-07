@@ -227,9 +227,9 @@ the default. To activate:
   (`docker buildx create --name capped --driver docker-container --driver-opt memory=..,cpus=..`) —
   and every build routes through it (`--builder`) with caps enforced natively and
   BuildKit caching intact. Scales across nodes; no `DOCKER_BUILDKIT=0` compromise.
-- [ ] **Concurrency tests.** The queue / relay / `Semaphore` path in `BuildService` is
-  the most intricate logic here and has no committed test. Cover queued→building→done,
-  cancel-while-queued, and slot release on failure.
+- [x] **Concurrency tests.** `BuildService.test.ts` covers the queue / relay /
+  `Semaphore` path: queued→building→succeeded, cancel-while-queued (waiter fails and
+  returns its slot unused), and slot release on failure letting the next build run.
 
 ### Scale & features
 - [ ] Async `IBuildStore` + Redis lock for a **cluster-wide** concurrency guard.

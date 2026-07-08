@@ -34,4 +34,10 @@ export interface IBuilder {
   exists?(imageTag: string): Promise<boolean>;
   /** Point one ref at another (retag) — for :latest updates and rollback. */
   tag?(sourceRef: string, targetRef: string): Promise<void>;
+  /**
+   * Push a built (registry-qualified) ref to its registry. Optional — a
+   * local-only builder omits it. Same data/succeeded/failed streaming contract
+   * as build, so its logs ride the same SSE channel.
+   */
+  push?(imageTag: string): BuildProcess;
 }

@@ -1,7 +1,7 @@
 // Orchestrates a build: naming -> Dockerfile -> queue -> builder -> status.
 // The route talks only to this; it never knows about Docker, tags, or spawning.
 import { EventEmitter } from 'events';
-import { toImageName, toVersionedImageName } from '@cloud-ide/shared';
+import { toImageName, toVersionedImageName, stripRegistry } from '@cloud-ide/shared';
 import { EnvironmentRecord } from '../../database/models';
 import { DockerGeneratorService } from './GeneratorService';
 import { BuilderRegistry } from './BuilderRegistry';
@@ -67,6 +67,39 @@ class RelayBuildProcess extends EventEmitter implements BuildProcess {
     this.cancelled = true;
     if (this.source) this.source.cancel();
     else this.emit('failed', 'Build cancelled'); // cancelled while still queued
+  }
+}
+
+// Chains build -> push into ONE BuildProcess, so BuildService.wire/relay stay
+// untouched and the queue slot is held across both phases. Build failure => the
+// whole thing fails, no push. Build success => push the immutable tag; the push
+// outcome becomes the outcome, so push-fail fails the build (the image is
+// local-only, not cluster-deployable). Only constructed when a registry is set.
+class PushingBuild extends EventEmitter implements BuildProcess {
+  private phase: BuildProcess; // the currently-live child, for cancel routing
+  private cancelled = false;
+  constructor(
+    build: BuildProcess,
+    private readonly builder: IBuilder,
+    private readonly pushTag: string,
+  ) {
+    super();
+    this.phase = build;
+    build.on('data', (d) => this.emit('data', d));
+    build.on('failed', (m) => this.emit('failed', m));
+    build.on('succeeded', () => this.startPush());
+  }
+  private startPush(): void {
+    if (this.cancelled) return;
+    const push = this.builder.push!(this.pushTag);
+    this.phase = push;
+    push.on('data', (d) => this.emit('data', d));
+    push.on('succeeded', (m) => this.emit('succeeded', m));
+    push.on('failed', (m) => this.emit('failed', m));
+  }
+  cancel(): void {
+    this.cancelled = true;
+    this.phase.cancel();
   }
 }
 
@@ -146,10 +179,19 @@ export class BuildService {
       this.wire(env.id, relay, versionedTag);
       // config.timeout is seconds; a hung build must not hold a queue slot forever.
       const timeoutMs = config?.timeout ? config.timeout * 1000 : undefined;
-      this.enqueue(env.id, relay, builder, dockerfile, imageTags, {
-        timeoutMs,
-        platform: config?.platform,
-      });
+      // v1: push the immutable versioned tag, and only when a registry qualified
+      // it (unset => bare tag, stripRegistry is a no-op => skip push, zero change).
+      const pushTag =
+        config && stripRegistry(versionedTag) !== versionedTag ? versionedTag : undefined;
+      this.enqueue(
+        env.id,
+        relay,
+        builder,
+        dockerfile,
+        imageTags,
+        { timeoutMs, platform: config?.platform },
+        pushTag,
+      );
       return relay;
     } catch (err) {
       this.store.finish(env.id, false, { error: (err as Error).message });
@@ -166,6 +208,7 @@ export class BuildService {
     dockerfile: string,
     imageTags: string[],
     opts: BuildOptions,
+    pushTag?: string,
   ): void {
     const ahead = this.queue.waiting;
     if (ahead > 0 && !relay.isCancelled) {
@@ -180,11 +223,14 @@ export class BuildService {
       this.store.markRunning(envId);
       this.emitChange(envId);
 
+      // Chain a push onto build when a registry is configured; the slot is held
+      // across both so a push can't be starved out from under a "succeeded".
       const real = builder.build(dockerfile, imageTags, opts);
+      const proc = pushTag && builder.push ? new PushingBuild(real, builder, pushTag) : real;
       const release = () => this.queue.release();
-      real.on('succeeded', release);
-      real.on('failed', release);
-      relay.attach(real);
+      proc.on('succeeded', release);
+      proc.on('failed', release);
+      relay.attach(proc);
     });
   }
 

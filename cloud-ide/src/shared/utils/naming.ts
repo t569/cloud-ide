@@ -57,10 +57,30 @@ export function slugify(input: string | undefined | null): string {
     .replace(/-+$/g, '');              // a slice can end mid-separator
 }
 
+// ---- Registry qualification ($DOCKER_REGISTRY) ---------------------------
+// Ops-provisioned registry host, like $DOCKER_BUILDER. Unset => local-only:
+// tags stay bare and nothing changes. Set => every built tag is prefixed
+// `host[:port]/…` so build/push/deploy/exists all speak the same ref.
+
+const registryHost = (): string =>
+  ((typeof process !== 'undefined' && process.env.DOCKER_REGISTRY) || '').replace(/\/+$/, '');
+
+/** Prefix a bare image ref with the configured registry host. No-op when unset. */
+export function qualify(ref: string): string {
+  const host = registryHost();
+  return host ? `${host}/${ref}` : ref;
+}
+
+/** Inverse of qualify: drop the configured registry host prefix if present. */
+export function stripRegistry(ref: string): string {
+  const host = registryHost();
+  return host && ref.startsWith(`${host}/`) ? ref.slice(host.length + 1) : ref;
+}
+
 /** The canonical, rename-stable image tag for an environment id. */
 export function toImageName(id: string, tag = 'latest'): string {
   if (!isValidId(id)) throw new Error(`Refusing to build image for unsafe id: "${id}"`);
-  return `cloud-ide-${id}:${tag}`;
+  return qualify(`cloud-ide-${id}:${tag}`);
 }
 
 // ---- Content-addressed versioning ---------------------------------------

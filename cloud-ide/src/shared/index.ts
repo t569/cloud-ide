@@ -14,6 +14,8 @@ export {
   validateName,
   slugify,
   toImageName,
+  qualify,
+  stripRegistry,
   contentTag,
   toVersionedImageName,
   generateId,

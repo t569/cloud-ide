@@ -4,6 +4,7 @@
 // queued, and slot release on failure. generateDockerfile is stubbed: this
 // tests the queue, not the pipeline.
 import { EventEmitter } from 'events';
+import { toVersionedImageName } from '@cloud-ide/shared';
 import { BuildService } from './BuildService';
 import { BuilderRegistry } from './BuilderRegistry';
 import { InMemoryBuildStore } from './BuildStore';
@@ -28,10 +29,16 @@ class FakeBuild extends EventEmitter implements BuildProcess {
 class FakeBuilder implements IBuilder {
   readonly name = 'docker';
   readonly builds: FakeBuild[] = [];
+  readonly pushes: Array<{ tag: string; proc: FakeBuild }> = [];
   build(): BuildProcess {
     const b = new FakeBuild();
     this.builds.push(b);
     return b;
+  }
+  push(tag: string): BuildProcess {
+    const p = new FakeBuild();
+    this.pushes.push({ tag, proc: p });
+    return p;
   }
 }
 
@@ -91,5 +98,61 @@ describe('BuildService concurrency', () => {
     expect(store.get('a')?.status).toBe('failed');
     expect(builder.builds).toHaveLength(2); // b now building
     expect(store.get('b')?.status).toBe('building');
+  });
+});
+
+describe('BuildService registry push', () => {
+  const cfg = { baseImage: 'node:20' } as EnvironmentRecord['builderConfig'];
+  const envC = (id: string) => ({ id, builderConfig: cfg }) as EnvironmentRecord;
+  let builder: FakeBuilder;
+  let store: InMemoryBuildStore;
+  let svc: BuildService;
+
+  beforeEach(() => {
+    process.env.DOCKER_REGISTRY = 'reg.example.com';
+    jest.spyOn(DockerGeneratorService, 'generateDockerfile').mockReturnValue('FROM scratch');
+    builder = new FakeBuilder();
+    store = new InMemoryBuildStore();
+    svc = new BuildService(new BuilderRegistry([builder]), store, 1); // maxConcurrent = 1
+  });
+  afterEach(() => {
+    delete process.env.DOCKER_REGISTRY;
+    jest.restoreAllMocks();
+  });
+
+  it('pushes the versioned tag after build success, holding the slot until push settles', async () => {
+    await svc.start(envC('c'));
+    await tick();
+    builder.builds[0].succeed(); // build ok -> push starts, but not yet done
+    expect(builder.pushes).toHaveLength(1);
+    expect(builder.pushes[0].tag).toBe(toVersionedImageName('c', cfg!));
+    expect(store.get('c')?.status).toBe('building'); // still holding the slot
+
+    await svc.start(envC('d')); // queued behind c
+    await tick();
+    expect(builder.builds).toHaveLength(1); // d cannot start while c pushes
+
+    builder.pushes[0].proc.succeed('pushed');
+    expect(store.get('c')?.status).toBe('succeeded');
+    await tick();
+    expect(builder.builds).toHaveLength(2); // slot freed -> d builds
+  });
+
+  it('fails the whole build when the push fails', async () => {
+    await svc.start(envC('c'));
+    await tick();
+    builder.builds[0].succeed();
+    builder.pushes[0].proc.failWith('denied');
+    expect(store.get('c')?.status).toBe('failed');
+    expect(store.get('c')?.error).toBe('denied');
+  });
+
+  it('skips push entirely when no registry is configured', async () => {
+    delete process.env.DOCKER_REGISTRY;
+    await svc.start(envC('c'));
+    await tick();
+    builder.builds[0].succeed('done');
+    expect(builder.pushes).toHaveLength(0);
+    expect(store.get('c')?.status).toBe('succeeded');
   });
 });

@@ -32,3 +32,11 @@ describe('DockerBuilder build args', () => {
     ]);
   });
 });
+
+describe('DockerBuilder push args', () => {
+  it('pushes exactly the given (registry-qualified) ref', () => {
+    const { cli, calls } = fakeCli();
+    new DockerBuilder(cli).push('reg.example.com/cloud-ide-env-x:abc123');
+    expect(calls[0]).toEqual(['push', 'reg.example.com/cloud-ide-env-x:abc123']);
+  });
+});

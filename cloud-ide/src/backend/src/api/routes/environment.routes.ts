@@ -4,7 +4,7 @@ import { IEnvironmentRepository } from '../../database/interfaces/IEnvironmentRe
 import { ISessionRepository } from '../../database/interfaces/ISessionRepository';
 
 // Core tools — naming validity lives entirely in @cloud-ide/shared.
-import { Validator, resolveNewNaming, validateName, toImageName, isValidImageRef } from '@cloud-ide/shared';
+import { Validator, resolveNewNaming, validateName, toImageName, isValidImageRef, stripRegistry } from '@cloud-ide/shared';
 import { BuildService, BuildConflictError } from '../../services/builder';
 
 // Models
@@ -249,7 +249,11 @@ export function createEnvironmentRouter(
 
     const imageTag = req.body?.imageTag;
     // Trust boundary: only accept a well-formed tag that belongs to THIS env.
-    if (typeof imageTag !== 'string' || !isValidImageRef(imageTag) || !imageTag.startsWith(`cloud-ide-${envId}:`)) {
+    // Strip any registry prefix first so the bare-ref grammar + ownership check
+    // hold whether or not $DOCKER_REGISTRY qualifies tags (foreign hosts survive
+    // the strip and fail isValidImageRef on the leftover '/').
+    const bare = typeof imageTag === 'string' ? stripRegistry(imageTag) : '';
+    if (!isValidImageRef(bare) || !bare.startsWith(`cloud-ide-${envId}:`)) {
       res.status(400).json({ error: 'imageTag must be a valid image reference for this environment' });
       return;
     }

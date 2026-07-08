@@ -51,4 +51,18 @@ export class DockerBuilder implements IBuilder {
   async tag(source: string, target: string): Promise<void> {
     await this.docker.run(['tag', source, target]);
   }
+
+  /** `docker push` — ship a built (registry-qualified) ref to its registry. */
+  push(imageTag: string): BuildProcess {
+    return this.docker.stream(['push', imageTag], {
+      banner: `Pushing ${imageTag} to registry...\n`,
+      onExit: (code) =>
+        code === 0
+          ? { ok: true, message: `Pushed ${imageTag}` }
+          : { ok: false, message: `Push failed with exit code ${code}` },
+      onSpawnError: (err) =>
+        `Failed to start Docker: ${err.message}. Is Docker installed and running on the host?`,
+      cancelMessage: 'Push cancelled',
+    });
+  }
 }

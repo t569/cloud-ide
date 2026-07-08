@@ -183,6 +183,7 @@ Environment variables:
 | `BUILD_STORE` | `json` | `json` \| `memory` \| `redis` |
 | `MAX_CONCURRENT_BUILDS` | `2` | global build concurrency cap |
 | `DOCKER_BUILDER` | _(unset)_ | name of a buildx builder to route builds through — the seam for BuildKit-native resource limits (see roadmap) |
+| `DOCKER_REGISTRY` | _(unset)_ | registry host to qualify tags with (`host[:port]`); unset ⇒ local-only, tags stay bare. Applied in `toImageName` (shared `qualify()`), so build/exists/deploy/history all agree. Auth is ops-provisioned (`docker login`). |
 
 ### Enabling Redis (currently a stub)
 
@@ -255,12 +256,17 @@ starves the queue*). Build-ok/push-fail ⇒ overall **failed** (image is local-o
 cluster-deployable; the local copy remains as single-node fallback). Registry unset ⇒
 zero behavior change. v1 pushes the **versioned** (immutable) tag only.
 
-- [ ] **Phase 0 — config + naming.** `$DOCKER_REGISTRY` env var, `qualify()` applied
-  in the one place tags are built, env-table + this entry. No behavior change when unset.
-- [ ] **Phase 1 — builder push.** `IBuilder.push?`, `DockerBuilder.push`; unit-test the
-  push argv (mirrors `DockerBuilder.test.ts`). No orchestration yet.
-- [ ] **Phase 2 — orchestration.** `PushingBuild` + `BuildService` wiring. Tests:
-  build-success triggers push; push-fail fails the build; registry-unset skips push.
+- [x] **Phase 0 — config + naming.** `$DOCKER_REGISTRY` env var; shared `qualify()` /
+  `stripRegistry()` applied in `toImageName` (the one place tags are built), so
+  build/exists/deploy/history agree. Rollback guard strips the host before the
+  bare-ref + ownership check. Unset ⇒ zero behavior change (`naming.registry.test.ts`).
+- [x] **Phase 1 — builder push.** `IBuilder.push?`, `DockerBuilder.push` (`docker push`
+  via `DockerCli.stream`); push argv pinned in `DockerBuilder.test.ts`. No orchestration yet.
+- [x] **Phase 2 — orchestration.** `PushingBuild` chains build→push into one
+  `BuildProcess` (slot held across both; build-ok/push-fail ⇒ failed); `BuildService`
+  pushes the versioned tag when a registry qualified it, config-driven builds only.
+  `BuildService.test.ts` covers push-on-success (+ slot held through push), push-fail
+  ⇒ failed, registry-unset ⇒ no push.
 - [ ] **Phase 3 — deferred, pairs with multi-node.** Registry-aware cache
   (`docker manifest inspect` vs local `exists`), multi-tag push, push-on-cache-hit.
   Don't build before there's a second node — a push to nowhere is YAGNI.

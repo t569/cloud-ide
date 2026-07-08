@@ -19,18 +19,32 @@ import { VfsNode } from '@cloud-ide/shared';
 
 const CONTAINER_WORKSPACE = '/workspace';
 
+/**
+ * Realpath the deepest EXISTING ancestor of `p` (p itself may not exist yet —
+ * e.g. a file about to be written). Resolves any symlinks in that existing
+ * chain, so the caller can verify the real on-disk location, not just the
+ * lexical one. Climbs on ENOENT until something exists (worst case: fs root).
+ */
+async function realpathOfNearestExisting(p: string): Promise<string> {
+  let current = p;
+  for (;;) {
+    try {
+      return await fs.realpath(current);
+    } catch (err: any) {
+      if (err.code !== 'ENOENT') throw err;
+      const parent = path.dirname(current);
+      if (parent === current) return current; // reached the filesystem root
+      current = parent;
+    }
+  }
+}
+
 export class FileSystemManager {
   constructor(private sandboxManager: SandboxManager) {}
 
-  /**
-   * Maps a container-visible path (e.g. `/workspace/src/index.js`) to its
-   * host equivalent inside the sandbox's worktree, and guarantees the result
-   * cannot escape the worktree root (`..`, absolute tricks, etc.).
-   * This guard is the VFS's trust boundary — every public method goes through it.
-   */
-  private async resolveHostPath(sandboxId: string, containerPath: string): Promise<string> {
-    const hostRoot = await this.sandboxManager.getWorkspaceHostPath(sandboxId);
-
+  /** Lexical map of a container path to a host path under `root`, rejecting any
+   *  result that escapes `root` via `..`/absolute tricks (string-level guard). */
+  private toResolved(root: string, containerPath: string): string {
     let relative = containerPath;
     if (relative === CONTAINER_WORKSPACE) {
       relative = '.';
@@ -40,9 +54,47 @@ export class FileSystemManager {
       relative = relative.replace(/^\/+/, '');
     }
 
-    const resolved = path.resolve(hostRoot, relative);
-    if (resolved !== hostRoot && !resolved.startsWith(hostRoot + path.sep)) {
+    const resolved = path.resolve(root, relative);
+    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
       throw new Error(`Path escapes the workspace: ${containerPath}`);
+    }
+    return resolved;
+  }
+
+  /**
+   * Maps a container-visible path (e.g. `/workspace/src/index.js`) to its host
+   * equivalent inside the sandbox's worktree, guaranteeing the result cannot
+   * escape the worktree root. This guard is the VFS's trust boundary — every
+   * public method goes through it. It blocks two distinct escapes:
+   *   1. Lexical (`..`, absolute paths) — the `toResolved` string guard.
+   *   2. Symlink — a worktree may contain a symlink (a cloned repo can check one
+   *      out) pointing at `/etc` or another sandbox's worktree; `path.resolve`
+   *      won't follow it but `node:fs` would. We realpath the deepest existing
+   *      ancestor and require it to stay inside the real root, blocking host and
+   *      cross-tenant reads.
+   * ponytail: the realpath check is TOCTOU-race-free enough for a single writer
+   * (git checkout). If untrusted concurrent symlink creation ever exists, switch
+   * the fs calls to O_NOFOLLOW opens.
+   */
+  private async resolveHostPath(sandboxId: string, containerPath: string): Promise<string> {
+    const hostRoot = await this.sandboxManager.getWorkspaceHostPath(sandboxId);
+
+    // Canonicalize the root itself (symlinks in the worktree path). A not-yet-
+    // created worktree has nothing to traverse into — the lexical guard alone is
+    // sufficient there (no files ⇒ no symlinks).
+    let realRoot: string;
+    try {
+      realRoot = await fs.realpath(hostRoot);
+    } catch (err: any) {
+      if (err.code === 'ENOENT') return this.toResolved(hostRoot, containerPath);
+      throw err;
+    }
+
+    const resolved = this.toResolved(realRoot, containerPath);
+
+    const realTarget = await realpathOfNearestExisting(resolved);
+    if (realTarget !== realRoot && !realTarget.startsWith(realRoot + path.sep)) {
+      throw new Error(`Path escapes the workspace via symlink: ${containerPath}`);
     }
     return resolved;
   }
@@ -92,8 +144,11 @@ export class FileSystemManager {
    */
   public async deletePath(sandboxId: string, pathToRemove: string): Promise<void> {
     const hostPath = await this.resolveHostPath(sandboxId, pathToRemove);
-    const hostRoot = await this.sandboxManager.getWorkspaceHostPath(sandboxId);
-    if (hostPath === hostRoot) {
+    // Compare against the canonical root — resolveHostPath returns paths rooted
+    // at the realpath'd worktree, so a raw getWorkspaceHostPath could mismatch.
+    const rawRoot = await this.sandboxManager.getWorkspaceHostPath(sandboxId);
+    const realRoot = await fs.realpath(rawRoot).catch(() => path.resolve(rawRoot));
+    if (hostPath === realRoot) {
       throw new Error('Refusing to delete the workspace root.');
     }
     await fs.rm(hostPath, { recursive: true, force: true });

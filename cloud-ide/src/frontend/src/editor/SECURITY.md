@@ -170,10 +170,32 @@ runs execve-style, no shell), so a path is only ever a literal argument:
 Verified against a real shell: the old interpolation created an attacker canary
 file; the new positional form did not.
 
-> Note: this closes command **injection**. Path **traversal** on the backend
-> (e.g. `../../etc`) is a separate concern — the front-end `safePath()` (#1)
-> blocks it from our UI, but the backend should still canonicalize paths against
-> the sandbox workspace root. Tracked as defense-in-depth, not yet done.
+> Note: this closes command **injection**. Backend path **traversal** is now
+> also closed independently (see #7 below) — the backend no longer trusts the
+> client's path.
+
+---
+
+## 7. Backend path traversal — client path not trusted · **High** · ✅ FIXED
+
+**Was:** the FS routes passed `req.query.path` / `req.body.path` straight to the
+filesystem. The front-end `safePath()` (#1) only guards our own UI; a crafted
+request (curl) could send `/workspace/../../etc/passwd`.
+
+**Fixed:** `FileSystemManager.resolveHostPath()` is the single choke point every
+public method (`ls`/`read`/`write`/`delete`) routes through, and it now blocks
+both escape classes:
+1. **Lexical** (`..`, absolute paths) — strip the `/workspace` prefix, `path.resolve`
+   against the worktree root, reject anything not under `root + sep`.
+2. **Symlink** — `path.resolve` doesn't follow links, so a worktree that checked
+   out `evil -> /etc` or `-> ../<other-sandbox>` would pass the lexical guard and
+   `node:fs` would follow it. We `realpath` the deepest existing ancestor and
+   require it to stay inside the real root, blocking host + cross-tenant reads.
+
+Self-check: `backend/services/FileSystemManager.test.ts` (lexical escape, symlink
+escape via a directory junction, and a valid in-workspace round-trip).
+Residual: TOCTOU under concurrent untrusted symlink creation (none today — only
+git checkout writes symlinks); upgrade path is `O_NOFOLLOW` opens.
 
 ---
 
@@ -197,7 +219,7 @@ file; the new positional form did not.
 | 3 | REPL `eval()` under-sandboxed | Medium | ✅ Fixed |
 | 4 | No CSP / security headers | Low | ✅ Fixed (edge header still owed) |
 | 5 | localStorage → CSS custom property | Low | ➖ Accepted (defense-in-depth only) |
+| 7 | Backend path traversal (client path not trusted) | High | ✅ Fixed (lexical + symlink) |
 
 All ranked findings are resolved. Remaining hardening is ops/defense-in-depth:
-production CSP + HSTS headers at the edge (#4), backend path canonicalization
-against the workspace root (#1/#6), and tightening `script-src` to nonces.
+production CSP + HSTS headers at the edge (#4) and tightening `script-src` to nonces.

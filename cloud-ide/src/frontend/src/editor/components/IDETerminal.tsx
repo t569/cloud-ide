@@ -1,7 +1,7 @@
 // frontend/src/editor/components/IDETerminal.tsx
 import { useState, useEffect, useRef } from 'react';
 import { TerminalTabs, TerminalSession } from '../../terminal/components/TerminalTabs';
-import { SseExecTransport } from '../../terminal/transport/SseExecTransport';
+import { createTerminalTransport } from '../../terminal/transport/createTerminalTransport';
 import { EditorEventBus } from '../core/EditorEventBus';
 
 
@@ -31,10 +31,11 @@ export const IDETerminal = ({ sandboxId, editorEventBus }: IDETerminalProps) => 
       const newId = `term-${Date.now()}`;
       const newTitle = `bash-${prev.length + 1}`;
 
-      // Live backend: line-mode command streaming over SSE (POST /exec → execd).
-      // ponytail: not a PTY — no vim/top, no persistent shell state between
-      // commands. Upgrade path is a WS PTY bridge; see backend TERMINAL_BACKEND.md.
-      const transport = new SseExecTransport(sandboxId);
+      // Transport chosen by driver capability (see createTerminalTransport).
+      // Today drivers report pty:false → line-mode SSE (POST /exec → execd; no
+      // vim/top, no persistent shell). Pass pty:true once a PTY-capable driver
+      // is wired to switch this tab to the WS /pty bridge — no change here.
+      const transport = createTerminalTransport(sandboxId);
       transport.connect();
 
       // sessionKey opts this tab into backend scrollback persistence + restore

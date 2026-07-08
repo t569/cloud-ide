@@ -29,6 +29,7 @@ import { csrfProtection } from './api/middleware/security';
 import { createFileSystemRouter } from './api/FileSystemRoutes';
 import { createPreviewRouter } from './api/PreviewRoutes';
 import { createEnvironmentRouter } from './api/routes/environment.routes';
+import { attachPtyGateway } from './api/PtyGateway';
 
 import { EventEmitter } from 'events';
 import { JsonEnvironmentRepository } from './database/json/JsonEnvironmentRepository';
@@ -139,6 +140,10 @@ app.use('/preview', createPreviewRouter(sandboxManager));
  * The high timeout is managed at the Controller layer for long-running Exec streams.
  */
 const server = http.createServer(app);
+
+// Interactive terminal: bridge WS /api/v1/sandboxes/:id/pty → a driver PTY session
+// (provider-agnostic; inert until a pty-capable driver is active). See PtyGateway.
+attachPtyGateway(server, { sandboxManager, sessionRepo });
 
 // 2. USE THE CONFIG OBJECT
 server.listen(config.PORT, () => {

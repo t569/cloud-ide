@@ -121,16 +121,20 @@ transport factory can ask "does this sandbox's driver do PTY?" and pick
 
 The frontend half (`WebSocketTransport`) exists. Three things to build:
 
-### 3a. A persistent PTY session in the sandbox
-`execd`'s `/command` is one-shot. We need a long-lived PTY. Pick one:
+### 3a. A persistent PTY session in the sandbox — ⚠️ VERIFIED BLOCKED (2026-07-08)
+Both approaches originally sketched here are **not buildable in this repo**, confirmed
+by reading `execd`'s actual protocol (`src-rust/.../opensandbox.rs`, `execdriver.ts`):
+- `execd` exposes **only** `POST /command` → SSE (`stdout`/`stderr`/`result`). No
+  stdin channel, no PTY, no session, no WebSocket — and no execd source here (it's a
+  prebuilt Go daemon in the container image). So "execd grows a `/session` endpoint"
+  needs an external team.
+- The "interim gateway `bash -i`" is impossible: the exec channel has **no stdin
+  back-channel**, so a shell started that way could never receive a keystroke.
 
-- **Preferred: `execd` grows a session endpoint** (Go side, out of this repo) —
-  `POST /session` opens a PTY-backed `bash`, streamed over WS (or bidi SSE), with
-  `stdin`/`resize` control frames. `OpenSandboxDriver.openSession` wraps it.
-- **Interim (no execd change): gateway-owned persistent shell** — `openSession`
-  starts one `bash -i` via the existing exec channel and keeps the stream open,
-  feeding stdin through. Weaker (no true TTY resize semantics) but unblocks the
-  UX. Mark it `pty: false, interactive: true` so we don't over-promise.
+**The only interactive-capable backend that exists is the Alibaba SDK** (proven by
+`SessionStream.ts`: `commands.run('bash',{background})` + `sendStdin` + `resize`). So
+the PTY unblock is a **PTY-capable driver** (step 5), not an execd/gateway shell. The
+provider-agnostic bridge (3b) and transport seam (3c) are built and waiting for it.
 
 ### 3b. Gateway WS bridge
 - Add a WebSocket server on the gateway (`ws` package; upgrade the existing HTTP
@@ -196,11 +200,20 @@ env var. No terminal, VFS, or UI code changes.
 - [x] **1.** `ISandboxSession` / `PtyOptions` / `DriverCapabilities` + optional
       `openSession` on `ISandboxDriver` (types only — no implementation yet, hence
       `pty:false`). This is the seam Phase 2 fills in.
-- [ ] **2.** Persistent PTY in the sandbox (3a) — execd session endpoint or the
-      interim gateway shell.
-- [ ] **3.** Gateway WS `/pty` bridge (3b) behind the ownership guard.
-- [ ] **4.** Frontend transport factory (3c); point `IDETerminal` at it.
-- [ ] **5.** `AlibabaSdkDriver` implementing the interface (Phase 4); `SANDBOX_DRIVER` env.
+- [~] **2.** Persistent PTY in the sandbox (3a) — ⚠️ **blocked**: execd is one-shot
+      + external; no gateway-shell path exists (no stdin channel). Superseded by a
+      PTY-capable driver (step 5) — see 3a.
+- [x] **3.** Gateway WS `/pty` bridge (`api/PtyGateway.ts`) — provider-agnostic,
+      reuses the IDOR guard on the upgrade handshake (`verifySandboxOwnership`),
+      capability-gated (closes 1011 unless the active driver reports `pty`), bridges
+      any `ISandboxSession` by frame type. `SandboxManager.capabilities()` /
+      `openTerminalSession()` (wake-on-demand) added. Inert today (RustEngineClient
+      is `pty:false`); self-check `PtyGateway.test.ts` proves the bridge with fakes.
+- [x] **4.** Frontend transport factory (`createTerminalTransport`); `IDETerminal`
+      uses it (picks SSE today, WS `/pty` when a driver advertises `pty`).
+- [ ] **5.** `AlibabaSdkDriver` implementing `openSession` — **now the critical path**
+      to a real PTY (re-homes `SessionStream`'s proven SDK calls into a Node driver);
+      needs the SDK validated server-side. `SANDBOX_DRIVER` env to select it.
 - [ ] **6.** PTY reattach across socket drops (pairs with Gap B session recovery).
 
 ---

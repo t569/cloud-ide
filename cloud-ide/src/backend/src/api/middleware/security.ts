@@ -74,6 +74,32 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
   next();
 }
 
+type OwnedSession = Awaited<ReturnType<ISessionRepository['get']>>;
+
+/**
+ * The IDOR check itself, decoupled from Express so both the HTTP middleware and
+ * the WebSocket upgrade handshake (PtyGateway) enforce the SAME rule from one
+ * place. Returns the verified session, or null on any failure (bad/missing sid,
+ * no link, lookup error). Callers map null to 404 so IDs can't be enumerated.
+ */
+export async function verifySandboxOwnership(
+  sessionRepo: ISessionRepository,
+  cookieHeader: string | string[] | undefined,
+  sandboxId: string | undefined,
+): Promise<OwnedSession> {
+  const header = Array.isArray(cookieHeader) ? cookieHeader.join('; ') : cookieHeader;
+  const sid = parseCookies(header)[SID_COOKIE];
+  if (!sid || !sandboxId) return null;
+  try {
+    const session = await sessionRepo.get(sid);
+    if (!session || session.sandboxId !== sandboxId) return null;
+    return session;
+  } catch (err: any) {
+    console.error('[Ownership] lookup failed:', err.message);
+    return null;
+  }
+}
+
 /**
  * IDOR guard for sandbox-scoped routes. Confirms the caller holds a session
  * (httpOnly `sid` cookie) that is linked to the :sandboxId being accessed.
@@ -86,22 +112,12 @@ export function requireSandboxOwnership(sessionRepo: ISessionRepository) {
   return async (req: Request, res: Response, next: NextFunction) => {
     if (req.method === 'OPTIONS') return next();
 
-    const sid = parseCookies(req.headers.cookie)[SID_COOKIE];
-    const sandboxId = req.params.sandboxId;
-    if (!sid || !sandboxId) {
+    const sandboxId = typeof req.params.sandboxId === 'string' ? req.params.sandboxId : undefined;
+    const session = await verifySandboxOwnership(sessionRepo, req.headers.cookie, sandboxId);
+    if (!session) {
       return res.status(404).json({ error: 'Not found' });
     }
-
-    try {
-      const session = await sessionRepo.get(sid);
-      if (!session || session.sandboxId !== sandboxId) {
-        return res.status(404).json({ error: 'Not found' });
-      }
-      (req as any).session = session; // hand the verified session downstream
-      next();
-    } catch (err: any) {
-      console.error('[Ownership] lookup failed:', err.message);
-      return res.status(404).json({ error: 'Not found' });
-    }
+    (req as any).session = session; // hand the verified session downstream
+    next();
   };
 }

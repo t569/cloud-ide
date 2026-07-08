@@ -1,19 +1,17 @@
 import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   SandboxExecRequest,
   SandboxExecResult,
   SandboxRecord,
   SandboxSpec,
-  SandboxState,
   SandboxStatus,
   VolumeMount,
 } from '@cloud-ide/shared/types/sandbox';
 import { ISandboxRepository } from '../../database/interfaces/ISandboxRepository';
 import { ExecConnectionInfo } from '../../types/engine';
 import { RustEngineClient } from './rustClient';
-import { ISandboxDriver } from './drivers/ISandboxDriver';
+import { ISandboxDriver, DriverCapabilities, ISandboxSession, PtyOptions } from './drivers/ISandboxDriver';
 import { WorktreeEngine } from '../storage/WorktreeEngine';
 import { WorkspaceProvisioner } from '../provisioning';
 import { WorktreeStrategy } from '../provisioning/strategies/git/WorktreeStrategy';
@@ -117,6 +115,29 @@ export class SandboxManager {
 
   public async getRecord(sandboxId: string): Promise<SandboxRecord | null> {
     return this.sandboxRepo.get(sandboxId);
+  }
+
+  /** What the active provider can do — read by the terminal layer to choose an
+   *  interactive PTY vs line-mode exec transport. */
+  public capabilities(): DriverCapabilities {
+    return this.driver.capabilities();
+  }
+
+  /**
+   * Opens an interactive PTY session (Phase 2). Wakes a PAUSED sandbox first
+   * (same wake-on-demand as exec), then delegates to the driver. Throws if the
+   * active driver has no interactive support — callers gate on capabilities().
+   */
+  public async openTerminalSession(sandboxId: string, opts: PtyOptions): Promise<ISandboxSession> {
+    if (!this.driver.openSession) {
+      throw new Error('The active sandbox driver does not support interactive sessions.');
+    }
+    const status = await this.driver.getSandboxStatus(sandboxId);
+    if (status.state === 'PAUSED') {
+      await this.resume(sandboxId);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    return this.driver.openSession(sandboxId, opts);
   }
 
   /**

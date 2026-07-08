@@ -5,6 +5,7 @@
  * and snapshot traits. This serves as the single source of truth for all type definitions related to the editor.
  */
 import { SyncStatus } from '../../vfs/types/vfs';
+import { EnvironmentConfig } from '@cloud-ide/shared/types/env';
 
 
 export type {SyncStatus};
@@ -192,12 +193,36 @@ export interface IEditorState {
 
 /**
  * ==========================================
- * 4. PLUGINS / MIDDLEWARE (Future Proofing)
+ * 4. PLUGINS / CONTRIBUTIONS (Extension Point)
  * ==========================================
+ * A plugin contributes UI surfaces (menus, activity-bar panels) at boot. The
+ * ContributionRegistry class implements IContributionRegistry; the interface is
+ * declared here so this .d.ts stays free of implementation imports.
  */
+export interface IContributionRegistry {
+  registerMenu(menu: TopMenuCategory): void;
+  registerActivityItem(item: ActivityBarItem): void;
+}
+
 export interface IEditorPlugin {
   name: string;
-  onInit(eventBus: any): void;
+  contribute(registry: IContributionRegistry): void;
+}
+
+/**
+ * The descriptor a host (e.g. env-manager) hands to the editor to boot a
+ * workspace. sandboxId is the only hard requirement; the rest are optional
+ * seams the boot flow fills in over time.
+ */
+export interface WorkspaceSession {
+  sandboxId: string;
+  workspaceName?: string;
+  /** From env-manager. Typed seam — not yet consumed by the editor. */
+  envConfig?: EnvironmentConfig;
+  /** Resume-from-snapshot seam — typed, not yet consumed. */
+  snapshot?: WorkspaceSnapshot;
+  /** Extra plugins layered on top of the built-in core contributions. */
+  plugins?: IEditorPlugin[];
 }
 
 /**

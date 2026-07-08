@@ -308,6 +308,8 @@ build log and `../../../ARCHITECTURE.md` (Phase 3) for the roadmap.
       `/delete`. Last-write-wins — no merkle/conflict protocol yet.
 - [x] `chokidar` FS-watch → `VFS_TREE_UPDATED` so external file changes (npm
       install, git) refresh the explorer (`ARCHITECTURE.md` Step 10b SSE channel +
-      10c demand-driven watcher). Interim guard skips re-hydrate while local edits
-      are unsynced; the dirty-preserving refresh (Tier 1) removes that coarseness —
-      see `ARCHITECTURE.md` "Known Debt".
+      10c demand-driven watcher). **Tier-1 dirty-preserving refresh shipped (10d):**
+      the watcher pushes the exact changed paths (`{action:'patch',changes}`) and
+      `VirtualFileSystem.applyPatch()` folds them in without touching dirty nodes, so
+      the tree stays live even with unsaved edits open. The old coarse `reload_tree`
+      re-hydrate survives only as a fallback (still guarded while edits are pending).

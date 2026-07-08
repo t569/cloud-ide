@@ -2,17 +2,21 @@
 // starts when the first editor subscribes to the SSE stream (acquire) and stops
 // when the last one disconnects (release), so we never watch a workspace nobody
 // is viewing — and resumed/persisted sandboxes work without provision hooks. A
-// debounced batch of tree-shape changes publishes a single reload_tree.
+// debounced batch of tree-shape changes publishes a single coalesced patch.
 //
 // The worktree is bind-mounted from the host, so we watch host files directly —
 // no container exec, works even while the sandbox is PAUSED (matches the
 // host-direct VFS in FileSystemManager). ponytail: single-node assumption — the
 // gateway and worktrees share a disk.
+import path from 'node:path';
 import { watch, FSWatcher } from 'chokidar';
 import { SandboxManager } from './sandbox/SandboxManager';
-import { FsEventHub } from './FsEventHub';
+import { FsEventHub, FsChange, coalesce } from './FsEventHub';
 
 const DEBOUNCE_MS = 300;
+
+// The container-visible root the frontend VFS keys everything under.
+const WORKSPACE_ROOT = '/workspace';
 
 // Skip the huge/noisy trees; churn there shouldn't refresh the explorer.
 const isIgnored = (p: string): boolean =>
@@ -22,6 +26,8 @@ interface WatchEntry {
   watcher: FSWatcher;
   refs: number;
   timer?: NodeJS.Timeout;
+  pending: FsChange[];
+  toWorkspacePath: (abs: string) => string;
 }
 
 export class WorkspaceWatchers {
@@ -60,19 +66,32 @@ export class WorkspaceWatchers {
       awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
     });
 
-    const entry: WatchEntry = { watcher, refs: 1 };
+    const entry: WatchEntry = {
+      watcher,
+      refs: 1,
+      pending: [],
+      // chokidar hands us host-absolute paths; the frontend VFS keys on the
+      // container path (/workspace/...). Map once, per entry.
+      toWorkspacePath: (abs: string) =>
+        WORKSPACE_ROOT + '/' + path.relative(hostPath, abs).split(path.sep).join('/'),
+    };
 
-    // Only tree-SHAPE changes need a reload; content edits ('change') don't move
+    // Only tree-SHAPE changes need a patch; content edits ('change') don't move
     // the tree and would just echo the VFS's own file writes back at it.
-    const onShapeChange = () => {
+    const record = (kind: FsChange['kind']) => (abs: string) => {
+      entry.pending.push({ kind, path: entry.toWorkspacePath(abs) });
       if (entry.timer) clearTimeout(entry.timer);
-      entry.timer = setTimeout(() => this.hub.publish(sandboxId), DEBOUNCE_MS);
+      entry.timer = setTimeout(() => {
+        const changes = coalesce(entry.pending);
+        entry.pending = [];
+        if (changes.length) this.hub.publish(sandboxId, { type: 'FS_EVENT', action: 'patch', changes });
+      }, DEBOUNCE_MS);
     };
     watcher
-      .on('add', onShapeChange)
-      .on('unlink', onShapeChange)
-      .on('addDir', onShapeChange)
-      .on('unlinkDir', onShapeChange);
+      .on('add', record('add'))
+      .on('unlink', record('unlink'))
+      .on('addDir', record('addDir'))
+      .on('unlinkDir', record('unlinkDir'));
 
     this.entries.set(sandboxId, entry);
   }

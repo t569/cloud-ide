@@ -3,6 +3,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { FileSystemManager } from '../services/FileSystemManager';
 import { FsEventHub } from '../services/FsEventHub';
 import { WorkspaceWatchers } from '../services/WorkspaceWatchers';
+import { SessionStore } from '../services/SessionStore';
 import { ISessionRepository } from '../database/interfaces';
 import { requireSandboxOwnership } from './middleware/security';
 
@@ -10,12 +11,15 @@ import { requireSandboxOwnership } from './middleware/security';
 // given and knows nothing about how or where files are actually stored.
 // sessionRepo is injected so the router can enforce sandbox ownership (IDOR).
 // fsEventHub feeds the SSE change stream; watchers start/stop the chokidar
-// watcher per SSE subscriber (GET /:id/events).
+// watcher per SSE subscriber (GET /:id/events). sessionStore persists terminal
+// scrollback for crash/reconnect recovery (Gap B) — sandbox-scoped, so it rides
+// the same ownership guard as the file routes.
 export function createFileSystemRouter(
   fsManager: FileSystemManager,
   sessionRepo: ISessionRepository,
   fsEventHub: FsEventHub,
   watchers: WorkspaceWatchers,
+  sessionStore: SessionStore,
 ): Router {
   const router = Router();
   /**
@@ -149,6 +153,52 @@ export function createFileSystemRouter(
       watchers.release(sandboxId);
       res.end();
     });
+  });
+
+  /**
+   * GET /api/fs/:sandboxId/session?terminalId=main
+   * Returns the saved terminal snapshot ({ scrollback, ... }) or null. Used on
+   * reconnect to rebuild the visible session (Gap B recovery interface).
+   */
+  router.get('/:sandboxId/session', async (req: Request, res: Response) => {
+    try {
+      const { sandboxId } = req.params;
+      if (typeof sandboxId !== 'string') {
+        return res.status(400).json({ error: 'Invalid Sandbox id' });
+      }
+      const terminalId = (req.query.terminalId as string) || 'main';
+      const snapshot = await sessionStore.load(sandboxId, terminalId);
+      res.status(200).json(snapshot);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  /**
+   * POST /api/fs/:sandboxId/session  { terminalId, scrollback }
+   * Persists a terminal's scrollback (pooling save: the client posts on an
+   * interval + beforeunload, not per keystroke).
+   */
+  router.post('/:sandboxId/session', async (req: Request, res: Response) => {
+    try {
+      const { sandboxId } = req.params;
+      if (typeof sandboxId !== 'string') {
+        return res.status(400).json({ error: 'Invalid Sandbox id' });
+      }
+      const { terminalId, scrollback } = req.body ?? {};
+      if (typeof terminalId !== 'string' || typeof scrollback !== 'string') {
+        return res.status(400).json({ error: 'terminalId and scrollback are required' });
+      }
+      // Trust boundary: cap the dump so a client can't fill the disk. xterm keeps
+      // 5000 lines of scrollback; ~1MB is a generous ceiling for that.
+      if (scrollback.length > 1_000_000) {
+        return res.status(413).json({ error: 'scrollback too large' });
+      }
+      await sessionStore.save(sandboxId, { v: 1, terminalId, ts: Date.now(), scrollback });
+      res.status(204).end();
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
   });
 
   /**

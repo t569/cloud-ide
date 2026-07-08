@@ -40,6 +40,7 @@ import { IdleSweeper } from './services/sandbox/IdleSweeper';
 import { FileSystemManager } from './services/FileSystemManager';
 import { FsEventHub } from './services/FsEventHub';
 import { WorkspaceWatchers } from './services/WorkspaceWatchers';
+import { SessionStore } from './services/SessionStore';
 
 // Build pipeline (swappable builder + status tracking) and Docker clean up
 import {
@@ -126,7 +127,8 @@ GarbageCollector.init();
 const fileSystemManager = new FileSystemManager(sandboxManager);
 const fsEventHub = new FsEventHub();
 const workspaceWatchers = new WorkspaceWatchers(sandboxManager, fsEventHub);
-app.use('/api/fs', createFileSystemRouter(fileSystemManager, sessionRepo, fsEventHub, workspaceWatchers));
+const sessionStore = new SessionStore();
+app.use('/api/fs', createFileSystemRouter(fileSystemManager, sessionRepo, fsEventHub, workspaceWatchers, sessionStore));
 
 // NEW: Mount the Ingress Router (Step 3) — proxies browser traffic into sandbox services
 app.use('/preview', createPreviewRouter(sandboxManager));

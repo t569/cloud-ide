@@ -50,12 +50,13 @@ export class VFSController {
 
   /**
    * Subscribes to the backend's FS change stream (SSE). When the workspace
-   * changes on disk (npm install, git, an agent), the backend pushes a
-   * reload_tree event and we re-hydrate the tree.
+   * changes on disk (npm install, git, an agent), the backend pushes the exact
+   * changed paths and we patch the tree surgically.
    *
-   * Guard: skip while there are unsynced local edits — a full re-hydrate clears
-   * the in-memory map and would clobber unsaved work. A proper merge lives with
-   * the merkle conflict-resolution protocol (see ARCHITECTURE.md "Known Debt").
+   *  - `patch`: apply the paths via vfs.applyPatch(), which preserves dirty
+   *    nodes — safe to run even with unsynced edits pending (Tier 1).
+   *  - `reload_tree`: coarse full re-hydrate fallback. It clears the map, so we
+   *    still skip it while local edits are unsynced to avoid clobbering them.
    */
   private connectFsEvents() {
     const url = `${API_BASE_URL}/fs/${encodeURIComponent(this.sandboxId)}/events`;
@@ -63,16 +64,22 @@ export class VFSController {
     this.fsEvents = source;
 
     source.onmessage = async (e) => {
-      let action: string | undefined;
+      let msg: any;
       try {
-        action = JSON.parse(e.data)?.action;
+        msg = JSON.parse(e.data);
       } catch {
         return; // ignore heartbeats / malformed frames
       }
-      if (action !== 'reload_tree') return;
 
+      if (msg?.action === 'patch' && Array.isArray(msg.changes)) {
+        const tree = this.vfs.applyPatch(msg.changes);
+        this.eventBus.emit('VFS_TREE_UPDATED', { tree });
+        return;
+      }
+
+      if (msg?.action !== 'reload_tree') return;
       if (this.vfs.hasPendingSync()) {
-        console.warn('[Controller] FS change ignored — unsynced local edits pending.');
+        console.warn('[Controller] FS reload_tree ignored — unsynced local edits pending.');
         return;
       }
       const tree = await this.vfs.hydrateWorkspace();

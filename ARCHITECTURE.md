@@ -138,8 +138,9 @@ Editor" button. Phase 3 turns that seam into the real product flow:
     with a toast. See `editor/README.md` → Design Notes.
 
 ### Step 10: Backend FS Watcher → Live Tree (chokidar)  — paired with `editor/README.md` Phase 5
-* **Status: ✅ Complete** (10a–c done; 10d optional). Follow-up: the Tier-1 dirty-preserving refresh
-  (removes the guard's coarseness) — see "Known Debt".
+* **Status: ✅ Complete** (10a–d done). The Tier-1 dirty-preserving refresh shipped as **10d** below:
+  the watcher now pushes the exact changed paths and the client patches surgically, so a disk change
+  no longer needs the coarse "skip while dirty" guard.
 * **Goal:** active backend mutations (`npm install`, `git`, `touch`) reflect in the tree without a
   manual refresh. The frontend can't know `npm install` changed 10k files — the backend must tell it.
 * **Blocker uncovered:** the frontend VFS was fully **mocked** (`hydrateWorkspace`/`flushSyncQueue`
@@ -153,10 +154,11 @@ Editor" button. Phase 3 turns that seam into the real product flow:
     optimistic-concurrency/conflict protocol yet.*
   * [x] **10b. Push channel (SSE).** `FsEventHub` (per-sandbox EventEmitter pub/sub) +
     `GET /api/fs/:id/events` (SSE, behind the IDOR guard, with heartbeat). Frontend: `VFSController`
-    opens an `EventSource` (`withCredentials`) and re-hydrates on `reload_tree`, emitting
-    `VFS_TREE_UPDATED`. **Guard:** skips re-hydrate while `vfs.hasPendingSync()` — a full re-hydrate
-    would clobber unsaved edits (the merge case is the "Known Debt" merkle protocol). No new dep, no
-    WS upgrade. Files: `backend/services/FsEventHub.ts`, `backend/api/FileSystemRoutes.ts`, `server.ts`,
+    opens an `EventSource` (`withCredentials`) and updates the tree, emitting `VFS_TREE_UPDATED`.
+    **Guard (fallback path only):** the coarse `reload_tree` re-hydrate is still skipped while
+    `vfs.hasPendingSync()` — it clears the map and would clobber unsaved edits. The `patch` path (10d)
+    has no such guard because it is dirty-preserving. No new dep, no WS upgrade. Files:
+    `backend/services/FsEventHub.ts`, `backend/api/FileSystemRoutes.ts`, `server.ts`,
     `frontend/editor/core/VFSController.ts`, `frontend/vfs/VirtualFileSystem.ts`.
   * [x] **10c. chokidar watcher.** `WorkspaceWatchers` (`backend/services/`): **demand-driven** —
     ref-counted per SSE subscriber (acquire on connect, release on last disconnect), so we never
@@ -165,11 +167,28 @@ Editor" button. Phase 3 turns that seam into the real product flow:
     (`add`/`unlink`/`addDir`/`unlinkDir` — not `change`, avoiding self-write echo) → `hub.publish`.
     Full chain: chokidar → `FsEventHub` → SSE → `EventSource` → `VFSController` re-hydrate →
     `VFS_TREE_UPDATED`.
-  * [ ] **10d.** Diff-based patch (only changed subtrees) if full re-hydrate is too heavy at scale.
+  * [x] **10d. Path-level patch (Tier-1 dirty-preserving refresh).** The watcher coalesces its
+    debounce window to one entry per path (`coalesce()` in `FsEventHub.ts` — the atomic hot path) and
+    publishes `{ action:'patch', changes:[{kind,path}] }` instead of a blunt `reload_tree`. The client
+    applies it via `VirtualFileSystem.applyPatch()`: **adds** insert only if absent (never overwrite a
+    local/optimistic node); **unlinks** drop the node/subtree but **skip any dirty node** — so a disk
+    delete never yanks unsaved work. Result: the explorer stays live even with unsaved edits open.
+    Self-checks: `FsEventHub.test.ts` (coalesce), `VirtualFileSystem.patch.test.ts` (dirty-preserve).
 
 ### Step 11: Snapshots (File Tree + Terminal/Sandbox Context)
 * **Status: ❌ Not Started**  (frontend contract stubbed: `WorkspaceSnapshot`, `SNAPSHOT_*` events,
   `ISerializable<T>` in `editor/types/editor.d.ts`)
+* **Prereq shipped — always-on terminal recovery (Gap B), distinct from shareable snapshots.**
+  A terminal's live state (cwd, env, processes) lives *inside the container* and survives pause/resume
+  with it; the one thing it doesn't hold is the **scrollback** the user sees. `SessionStore`
+  (`backend/services/SessionStore.ts`) persists that per terminal to `data/sessions/<sandboxId>/<terminalId>.json`
+  via the existing crash-safe `writeJsonAtomic` — kept **outside** the git worktree so it never dirties
+  `git status`. Routes `GET|POST /api/fs/:id/session` ride the sandbox-ownership guard. Frontend:
+  `useSessionPersistence` (a `TerminalPanel` hook) POSTs `serializeState()` on a 10s interval +
+  `beforeunload`, and on mount restores via the terminal's existing `initialState`/`write()` seam — the
+  durable replacement for the localStorage pattern in `Terminal.tsx`. Opt in per session by setting
+  `TerminalSession.sessionKey = `${sandboxId}:${terminalId}``. Shareable point-in-time snapshots (below)
+  remain unbuilt; this only covers crash/reconnect recovery.
 * **Goal:** capture a resumable, shareable point-in-time: open files + view state, the file/folder
   structure, and terminal/sandbox context — space/speed efficient.
 * **Design:** prefer a **content-addressed / copy-on-write** capture over a full tarball — reuse the
@@ -200,18 +219,26 @@ largest). Routing unblocks 9/12; snapshots lean on the worktree engine and are t
 
 ## ⚠️ Known Debt
 
-### VFS Conflict Resolution — Merkle sync protocol (owed)
-* **Status: ❌ Not built** — the VFS write path (Step 10a) is **last-write-wins**.
-* **Why it matters:** the backend FS API (`/write`, `/delete`) blindly overwrites. Two editors
-  (or two tabs) editing the same file, or — critically — the **chokidar watcher (Step 10c)** firing
-  a re-hydrate that races a local dirty edit, can **silently clobber** changes. There is no base-version
-  check, so nobody is told a conflict happened.
-* **What to build:** reinstate the git-style sync the VFS originally stubbed (the `GitSyncPayload`,
-  `calculateRootSha`, and `expectedBaseSha`/`newRootSha` scaffolding removed in Step 10a). The client
-  sends changed blobs + the workspace root SHA it started from; a new backend `POST /api/fs/:id/git-sync`
-  verifies that base SHA against the worktree's current state and returns **409** on divergence. The
-  client then pulls + merges (three-way or last-modified-wins with a prompt) instead of overwriting.
-* **Where it plugs in:** `frontend/src/vfs/VirtualFileSystem.ts` (`flushSyncQueue` → send SHAs, handle
-  409) + a backend endpoint over the existing `WorktreeEngine` (which already gives us git as the
-  merge substrate). **Pairs with Step 10c** — the watcher is exactly what turns "theoretical race" into
-  "real race," so build this alongside (or immediately after) the live-tree work.
+### State model — git IS our Merkle tree + WAL (read this before proposing one)
+Each sandbox is a **git worktree** on host disk (`WorktreeEngine.ts`, branch `sbx-<id>`). That is not
+incidental — it means the durable, content-addressed, diffable state store already exists:
+* **Merkle tree** = git tree objects (content-addressed SHAs). Drift detection = `git status --porcelain`
+  (already used by `isDirty()`). Root hash = `git rev-parse HEAD^{tree}`.
+* **WAL / crash recovery** = the worktree files survive a gateway crash (restart → re-read disk); commits
+  + reflog are the append-only recovery log; `git reset --hard <ref>` is exact hydration.
+* **Live drift** = chokidar hands us the exact changed path (Step 10d) — no tree needs to be re-hashed
+  to *rediscover* a change we were already told about.
+
+So there is **no hand-rolled Merkle/WAL engine**, by design. The only state git doesn't hold is terminal
+scrollback, which is a flat blob, not a tree — see Step 11 / `SessionStore`. The former
+`GitSyncPayload`/`calculateRootSha` client scaffolding was aspirational and was dropped; the VFS class
+docstring is now corrected to match reality (last-write-wins outbound, dirty-preserving patch inbound).
+
+### VFS Conflict Resolution — optimistic concurrency (owed, narrowed)
+* **Status: ⚠️ Partly mitigated.** The **watcher-vs-dirty-edit race is gone**: the 10d `patch` path is
+  dirty-preserving (`applyPatch` never overwrites/removes a dirty node). What remains is **two writers
+  to the same file** (two tabs/editors) — `/write` is still last-write-wins with no base-version check.
+* **What to build (only when multi-writer is real):** a base-SHA check on the write path — client sends
+  the blob + the file's `git hash-object` it started from; backend `POST /api/fs/:id/git-sync` compares
+  against the worktree and returns **409** on divergence; client pulls + merges. git (`WorktreeEngine`)
+  is the merge substrate — we do **not** reinvent it client-side. YAGNI until concurrent editing ships.

@@ -1,5 +1,11 @@
 // backend/src/services/synchronization/syncdaemon.ts
-
+//
+// ⚠️ UNWIRED / WORK-IN-PROGRESS as of 2026-07-08 — SyncDaemon is imported nowhere
+// and is half-built (empty stopWatching, "what to do with these emits" TODO). It
+// is NOT part of the live file-watching path — that is WorkspaceWatchers (chokidar
+// on the host worktree). Kept as the seed of in-container package-manager-file
+// watching (detect npm/pip/apt installs → update the env config). Finish or delete.
+//
 // this synchronises our development environment config file based on new installation commands
 
 import { IFileWatcher } from '@cloud-ide/shared';

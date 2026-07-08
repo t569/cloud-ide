@@ -21,6 +21,9 @@ import { TerminalContextMenu } from './TerminalContextMenu';
 // EVENT HANDLER
 import { TerminalEventBus } from '../core/TerminalEventBus';
 
+// SESSION RECOVERY (Gap B)
+import { useSessionPersistence } from '../hooks/useSessionPersistence';
+
 // PLUGINS
 import { TerminalRegistry } from '../core/TerminalRegistry';
 import { FileIconPlugin } from '../core/plugins/FileIconPlugin';
@@ -46,16 +49,25 @@ interface TerminalPanelProps {
   onLinkClick: (url: string) => void;
   /** The theme to apply to the terminal. */
   theme?: ITheme;
+  /**
+   * `<sandboxId>:<terminalId>` — when set, this panel's scrollback is persisted
+   * to the backend and restored on mount (Gap B). Omit for ephemeral terminals
+   * (e.g. build-log viewers) that should not survive a reload.
+   */
+  sessionKey?: string;
 }
 
 /**
  * A self-contained terminal environment that manages its own layout, events, and UI overlays.
  * * @param {TerminalPanelProps} props - The component props.
  */
-export const TerminalPanel = ({ transport, isActive, onFileClick, onLinkClick, theme }: TerminalPanelProps) => {
+export const TerminalPanel = ({ transport, isActive, onFileClick, onLinkClick, theme, sessionKey }: TerminalPanelProps) => {
   /** Ref to directly command the underlying xterm.js instance. */
   const terminalRef = useRef<TerminalHandle>(null);
-  
+
+  // Persist + restore this panel's scrollback via the backend (no-op if unset).
+  useSessionPersistence(terminalRef, sessionKey);
+
   // ==========================================
   // Event Isolation
   // ==========================================

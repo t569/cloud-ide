@@ -29,6 +29,12 @@ export interface TerminalSession {
   title: string;
   /** The isolated data stream linking this specific session to the backend daemon. */
   transport: ITransportStream;
+  /**
+   * `<sandboxId>:<terminalId>` — set by the parent workspace to opt this session
+   * into backend scrollback persistence + restore (Gap B). Omit for ephemeral
+   * sessions (build logs) that should not survive a reload.
+   */
+  sessionKey?: string;
 }
 
 /**
@@ -169,6 +175,7 @@ export const TerminalTabs = ({
               onFileClick={onFileClick}
               onLinkClick={onLinkClick}
               theme={theme}
+              sessionKey={session.sessionKey}
             />
           ))
         )}

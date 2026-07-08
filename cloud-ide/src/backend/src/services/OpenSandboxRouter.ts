@@ -1,10 +1,11 @@
 // backend/src/services/OpenSandboxRouter.ts
-
-
+//
+// ⚠️ UNWIRED / DEAD as of 2026-07-08 — this class is imported nowhere. Kept for
+// reference only (the node→pydantic request-shaping it does may be revived when
+// the rust backend integration lands). Do not assume it runs; nothing calls it.
+//
 // this file converts our node.js requests to a format that pydantic can understand
-
-// TODO: we need to see how we integrate this with our current rust backend
-// DEPRECIATED
+// TODO: integrate with the rust backend, or delete once that path is settled.
 import { config } from '../config/env';
 
 // --- 1. INTERNAL TYPES (What your Node App uses) ---

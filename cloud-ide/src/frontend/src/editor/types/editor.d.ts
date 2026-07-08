@@ -104,15 +104,6 @@ export interface WorkspaceLayoutState {
   bottomPanelHeight: number;  // in pixels
 }
 
-export interface IVirtualFileSystem {
-  readDirectory(path: string): Promise<FileNode[]>;
-  readFile(path: string): Promise<string>;
-  writeFile(path: string, content: string): Promise<void>;
-  createFile(path: string): Promise<void>;
-  createDirectory(path: string): Promise<void>;
-  deleteNode(path: string): Promise<void>;
-}
-
 /**
  * ==========================================
  * 2. THE EVENT BUS PAYLOADS

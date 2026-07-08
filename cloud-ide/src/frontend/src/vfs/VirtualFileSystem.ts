@@ -2,6 +2,7 @@
 import {
   VFSNode,
   FileNode,
+  FsChange,
   SyncStatus
 } from './types/vfs';
 import { apiClient } from '../lib/apiClient';
@@ -22,23 +23,23 @@ interface VfsEntry {
  * ============================================================================
  * * ARCHITECTURE OVERVIEW:
  * This class is the definitive Single Source of Truth for file data in the browser.
- * It is fully decoupled from the React UI and the EventBus. It acts purely as a 
+ * It is fully decoupled from the React UI and the EventBus. It acts purely as a
  * high-performance data engine and sync coordinator.
- * * THE DATA FLOW (Frontend -> Backend):
- * 1. UI Interaction: User types in Monaco or clicks "New File" in the Explorer.
- * 2. Controller Routing: The VFSController hears the UI event via the EventBus 
- * and calls the appropriate CRUD method here (e.g., `vfs.updateFile()`).
- * 3. Optimistic Update: The VFS instantly updates its O(1) `fileMap` in memory 
- * and adds the file path to the `syncQueue`.
- * 4. Background Hashing (Lazy Merkle): Every 2 seconds, the sync loop wakes up. 
- * It generates SHA-256 hashes *only* for the files that changed in the queue, 
- * then calculates a new `Root SHA` for the entire workspace.
- * 5. Network Push: The VFS sends a Git-style payload to the backend API containing 
- * only the changed blobs, the old Root SHA, and the new Root SHA.
- * 6. Backend Resolution: The backend verifies the SHAs against its own internal 
- * Git worktree. If successful, it writes the files and returns 200 OK.
- * 7. State Confirmation: The VFS removes the files from the queue and updates 
- * the UI Traffic Light to 'synced'.
+ * * OUTBOUND (browser -> backend), see flushSyncQueue():
+ * 1. UI Interaction: user types in Monaco or clicks "New File".
+ * 2. Controller Routing: VFSController hears the EventBus event and calls the
+ *    matching CRUD method here (e.g. `vfs.updateFile()`).
+ * 3. Optimistic Update: the O(1) `fileMap` updates instantly and the path is
+ *    added to `syncQueue`.
+ * 4. Debounced Flush: every 2s (or on Ctrl+S) the queue is drained to the
+ *    per-file FS API (POST /write, DELETE /delete). It is last-write-wins — the
+ *    real durability + history lives in the backend git worktree, not here.
+ *    (No client Merkle/Root-SHA protocol exists; that was aspirational.)
+ * * INBOUND (backend -> browser), see applyPatch():
+ * The backend chokidar watcher pushes the exact paths that changed on disk
+ * (npm install, git, an agent) over SSE. applyPatch() folds them into `fileMap`
+ * surgically, leaving dirty (unsaved) nodes untouched — so a disk change never
+ * clobbers unsynced local edits. hydrateWorkspace() is the coarse fallback.
  */
 export class VirtualFileSystem {
   /** * The O(1) Flat Map memory store. 
@@ -90,6 +91,45 @@ export class VirtualFileSystem {
       this.onSyncStatusChange('conflict');
       return [];
     }
+  }
+
+  /**
+   * Applies a backend watcher patch (Gap A) to the in-memory map and returns the
+   * fresh UI tree. Surgical and dirty-preserving — the key property that lets a
+   * disk change refresh the explorer WITHOUT a full re-hydrate clobbering unsaved
+   * work:
+   *  - add/addDir: insert only if we don't already hold the path (never overwrite
+   *    a local optimistic node or a fetched blob). New nodes lazy-load on open.
+   *  - unlink/unlinkDir: drop the node(s), but SKIP any that are dirty — the user
+   *    has unsaved edits there, so we keep them rather than yank them out.
+   */
+  public applyPatch(changes: FsChange[]): FileNode[] {
+    for (const { kind, path } of changes) {
+      if (kind === 'add' || kind === 'addDir') {
+        if (this.fileMap.has(path)) continue; // keep whatever we already have
+        this.fileMap.set(path, {
+          path,
+          name: path.split('/').pop() || '',
+          type: kind === 'addDir' ? 'directory' : 'file',
+          content: null,
+          sha: null,
+          isDirty: false,
+          markedForDeletion: false,
+          lastModified: Date.now(),
+          version: 1,
+        });
+      } else {
+        // unlink / unlinkDir — remove the node and (for a dir) its subtree,
+        // preserving any dirty node in the way.
+        for (const key of Array.from(this.fileMap.keys())) {
+          const inSubtree = kind === 'unlinkDir'
+            ? key === path || key.startsWith(path + '/')
+            : key === path;
+          if (inSubtree && !this.fileMap.get(key)!.isDirty) this.fileMap.delete(key);
+        }
+      }
+    }
+    return this.getNestedTree();
   }
 
   /**

@@ -1,5 +1,5 @@
 // frontend/src/editor/components/IDETerminal.tsx
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { TerminalTabs, TerminalSession } from '../../terminal/components/TerminalTabs';
 import { ITransportStream } from '../../terminal/types/terminal';
 import { EditorEventBus } from '../core/EditorEventBus';
@@ -64,12 +64,14 @@ export const IDETerminal = ({ sandboxId, editorEventBus }: IDETerminalProps) => 
       // TODO: When backend is ready, do: new WebSocketTransport(`ws://.../${sandboxId}/pty`)
       const transport = new MockLocalTransport(newTitle);
       transport.connect();
-      
-      return [...prev, { id: newId, title: newTitle, transport }];
+
+      // sessionKey opts this tab into backend scrollback persistence + restore
+      // (Gap B). Keyed per-tab so multiple terminals don't clobber each other.
+      return [...prev, { id: newId, title: newTitle, transport, sessionKey: `${sandboxId}:${newId}` }];
     });
   };
 
-  // Ensure we boot exactly one terminal on load
+  // Ensure we boot exactly one terminal on load.
   useEffect(() => {
     if (!hasBooted.current) {
       hasBooted.current = true;
@@ -85,13 +87,6 @@ export const IDETerminal = ({ sandboxId, editorEventBus }: IDETerminalProps) => 
       return prev.filter(s => s.id !== idToClose);
     });
   };
-
-  useEffect(() => {
-    if(!hasBooted.current) {
-      hasBooted.current = true;
-      addTab();
-    }
-  }, []);
 
   // ==========================================
   // 3. THE CROSS-SYSTEM BRIDGE

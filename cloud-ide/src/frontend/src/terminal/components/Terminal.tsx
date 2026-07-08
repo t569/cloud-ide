@@ -65,10 +65,12 @@ import { TerminalRegistry } from '../core/TerminalRegistry';
  * using the returned port, and call `transport.connect()`.
  * * [ ] 3. Mount the UI: Pass the connected transport into `<TerminalComponent />`. 
  * If tailing build logs, set `isReadOnly={true}`.
- * * [ ] 4. Manage State (Refresh Protection): 
- * - On Mount: Read from `localStorage` and call `ref.current.write()`.
- * - On Unmount/Refresh: Call `ref.current.serializeState()` and save 
- * it back to `localStorage` using the `beforeunload` event.
+ * * [ ] 4. Manage State (Refresh Protection):
+ * - Pass `sessionKey={`${sandboxId}:${terminalId}`}` on the TerminalSession/Panel.
+ * `useSessionPersistence` then restores on mount and snapshots scrollback to the
+ * backend `SessionStore` (Gap B) — the durable replacement for the localStorage
+ * approach (which dies on a browser wipe / device switch). See root ARCHITECTURE.md
+ * Step 11. Omit sessionKey for ephemeral build-log terminals.
  * * --- ADDING NEW AUTOMATED EVENTS ---
  * Do not modify the React components to add side-effects. Instead:
  * 1. Define the exact event payload in `TerminalEventPayloads` (`TerminalEventBus.ts`).

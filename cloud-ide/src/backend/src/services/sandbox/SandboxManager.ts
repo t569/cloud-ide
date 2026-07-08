@@ -307,35 +307,8 @@ export class SandboxManager {
 
 
   /**
-   * @description Prepares the SandboxSpec for provisioning by:
-   * 1. Building the default workspace volume mount with a unique hostPath.
-   * 2. Normalizing user-defined volumes (validating and setting mount paths).
-   * 3. Combining them into the final spec that will be sent to the Rust engine.
-   * @param spec 
-   * @returns 
-   */
-  // DEPRECIATED - Replaced by normalizeUserVolumes and the WorktreeStrategy
-  private async prepareProvisionSpec(
-    spec: SandboxSpec
-  ): Promise<{ spec: SandboxSpec; desiredVolumes: VolumeMount[] }> {
-    const workspaceVolume = await this.buildWorkspaceVolume(spec.imageTag);
-    const userVolumes = (spec.volumes || [])
-      .filter((volume) => volume.kind !== 'workspace')
-      .map((volume) => this.normalizeUserVolume(volume));
-
-    const desiredVolumes = [workspaceVolume, ...userVolumes];
-
-    return {
-      spec: {
-        ...spec,
-        volumes: desiredVolumes,
-      },
-      desiredVolumes,
-    };
-  }
-
-  /**
-   * Replaces prepareProvisionSpec. Only normalizes extra volumes the user requested.
+   * Normalizes the extra volumes the user requested (the workspace volume is
+   * supplied by the WorktreeStrategy during provision()).
    */
   private normalizeUserVolumes(spec: SandboxSpec): SandboxSpec {
     const userVolumes = (spec.volumes || [])
@@ -347,30 +320,6 @@ export class SandboxManager {
     return {
       ...spec,
       volumes: workspaceVolume ? [workspaceVolume, ...userVolumes] : userVolumes,
-    };
-  }
-
-  /**
-   * @description Dynamically builds the default workspace volume mount for a given environment.
-   * Currently, this generates a naive, isolated empty directory on the host machine.
-   * * TODO (Git Worktree Manager): Overhaul this pipeline. Instead of creating an empty 
-   * folder, this method should invoke the Worktree Manager to check out a specific branch 
-   * from a central bare repository, and mount that newly created worktree path directly 
-   * into the container's `/workspace`.
-   * @param environmentId The requested image tag used to generate the temp folder name.
-   * @returns The generated VolumeMount object pointing to the host directory.
-   */
-  private async buildWorkspaceVolume(environmentId: string): Promise<VolumeMount> {
-    const workspaceId = `${environmentId.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 32) || 'workspace'}-${crypto.randomUUID()}`;
-    const hostPath = path.resolve(process.cwd(), 'data', 'sandboxes', workspaceId, 'workspace');
-    await fs.mkdir(hostPath, { recursive: true });
-
-    return {
-      name: 'workspace',
-      kind: 'workspace',
-      mountPath: DEFAULT_WORKSPACE_MOUNT_PATH,
-      hostPath,
-      readOnly: false,
     };
   }
 

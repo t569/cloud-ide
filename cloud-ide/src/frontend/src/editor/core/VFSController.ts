@@ -1,6 +1,7 @@
 // frontend/src/editor/core/VFSController.ts
 import { EditorEventBus } from './EditorEventBus';
 import { VirtualFileSystem } from '../../vfs/VirtualFileSystem';
+import { API_BASE_URL } from '../../config/env';
 import React from 'react';
 
 /**
@@ -24,6 +25,8 @@ export class VFSController {
   private vfs: VirtualFileSystem;
   // An array to hold all our event un-subscribers to prevent memory leaks
   private unsubs: Array<() => void> = [];
+  // Live SSE stream of backend filesystem changes (chokidar → re-hydrate).
+  private fsEvents?: EventSource;
 
   constructor(
     private eventBus: EditorEventBus, 
@@ -42,6 +45,42 @@ export class VFSController {
   public async initWorkspace() {
     const initialTree = await this.vfs.hydrateWorkspace();
     this.eventBus.emit('VFS_TREE_UPDATED', { tree: initialTree });
+    this.connectFsEvents();
+  }
+
+  /**
+   * Subscribes to the backend's FS change stream (SSE). When the workspace
+   * changes on disk (npm install, git, an agent), the backend pushes a
+   * reload_tree event and we re-hydrate the tree.
+   *
+   * Guard: skip while there are unsynced local edits — a full re-hydrate clears
+   * the in-memory map and would clobber unsaved work. A proper merge lives with
+   * the merkle conflict-resolution protocol (see ARCHITECTURE.md "Known Debt").
+   */
+  private connectFsEvents() {
+    const url = `${API_BASE_URL}/fs/${encodeURIComponent(this.sandboxId)}/events`;
+    const source = new EventSource(url, { withCredentials: true });
+    this.fsEvents = source;
+
+    source.onmessage = async (e) => {
+      let action: string | undefined;
+      try {
+        action = JSON.parse(e.data)?.action;
+      } catch {
+        return; // ignore heartbeats / malformed frames
+      }
+      if (action !== 'reload_tree') return;
+
+      if (this.vfs.hasPendingSync()) {
+        console.warn('[Controller] FS change ignored — unsynced local edits pending.');
+        return;
+      }
+      const tree = await this.vfs.hydrateWorkspace();
+      this.eventBus.emit('VFS_TREE_UPDATED', { tree });
+    };
+
+    // EventSource auto-reconnects on transient errors; nothing to do but note it.
+    source.onerror = () => console.warn('[Controller] FS event stream interrupted; retrying…');
   }
 
   private initListeners() {
@@ -184,6 +223,7 @@ export class VFSController {
   // ==========================================
   public destroy() {
     this.vfs.destroy();
+    this.fsEvents?.close(); // stop the SSE stream + its auto-reconnect
     // Fire all the unsubscribe functions to detach from the EventBus
     this.unsubs.forEach(unsub => unsub());
     this.unsubs = [];

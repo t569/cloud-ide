@@ -150,8 +150,13 @@ Editor" button. Phase 3 turns that seam into the real product flow:
     `git-sync` push was dropped — no such backend endpoint). Paths stay in the container space
     (`/workspace/...`) end to end. `frontend/src/vfs/VirtualFileSystem.ts`. *Last-write-wins — no
     optimistic-concurrency/conflict protocol yet.*
-  * [ ] **10b. Push channel (SSE, not WS).** `GET /api/fs/:id/events` streams `FS_EVENT` — reuses the
-    SSE pattern already in the codebase (exec streaming); no new dep, no WS upgrade plumbing.
+  * [x] **10b. Push channel (SSE).** `FsEventHub` (per-sandbox EventEmitter pub/sub) +
+    `GET /api/fs/:id/events` (SSE, behind the IDOR guard, with heartbeat). Frontend: `VFSController`
+    opens an `EventSource` (`withCredentials`) and re-hydrates on `reload_tree`, emitting
+    `VFS_TREE_UPDATED`. **Guard:** skips re-hydrate while `vfs.hasPendingSync()` — a full re-hydrate
+    would clobber unsaved edits (the merge case is the "Known Debt" merkle protocol). No new dep, no
+    WS upgrade. Files: `backend/services/FsEventHub.ts`, `backend/api/FileSystemRoutes.ts`, `server.ts`,
+    `frontend/editor/core/VFSController.ts`, `frontend/vfs/VirtualFileSystem.ts`.
   * [ ] **10c. chokidar watcher.** Per-sandbox watch on the host worktree
     (`SandboxManager.getWorkspaceHostPath`), debounced, ignore `node_modules`/`.git` → emits
     `FS_EVENT` on the SSE channel. `VFSController` gets an `FS_EVENT` bus event/handler → calls

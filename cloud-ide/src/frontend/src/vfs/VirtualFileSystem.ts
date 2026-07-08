@@ -319,8 +319,14 @@ export class VirtualFileSystem {
 
   /** * Bypasses the 2-second timer to sync immediately. Called when the user hits Ctrl+S.
    */
-  public async forceSync() { 
-    await this.flushSyncQueue(); 
+  public async forceSync() {
+    await this.flushSyncQueue();
+  }
+
+  /** True while local edits haven't been acknowledged by the backend. A backend
+   *  FS event must NOT re-hydrate over these, or unsaved work is clobbered. */
+  public hasPendingSync(): boolean {
+    return this.syncQueue.size > 0;
   }
 
   /**

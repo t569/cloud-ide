@@ -38,6 +38,7 @@ import { PersistenceLayer } from './database/PersistenceLayer';
 import { SandboxManager } from './services/sandbox/SandboxManager';
 import { IdleSweeper } from './services/sandbox/IdleSweeper';
 import { FileSystemManager } from './services/FileSystemManager';
+import { FsEventHub } from './services/FsEventHub';
 
 // Build pipeline (swappable builder + status tracking) and Docker clean up
 import {
@@ -120,8 +121,10 @@ GarbageCollector.init();
 
 // NEW: Mount the Virtual File System routes (host-direct against the worktrees).
 // sessionRepo is injected so the router can enforce sandbox ownership (IDOR).
+// fsEventHub carries chokidar (Step 10c) change events out over SSE.
 const fileSystemManager = new FileSystemManager(sandboxManager);
-app.use('/api/fs', createFileSystemRouter(fileSystemManager, sessionRepo));
+const fsEventHub = new FsEventHub();
+app.use('/api/fs', createFileSystemRouter(fileSystemManager, sessionRepo, fsEventHub));
 
 // NEW: Mount the Ingress Router (Step 3) — proxies browser traffic into sandbox services
 app.use('/preview', createPreviewRouter(sandboxManager));

@@ -1,13 +1,19 @@
 // backend/src/api/FileSystemRoutes.ts
 import { Router, Request, Response, NextFunction } from 'express';
 import { FileSystemManager } from '../services/FileSystemManager';
+import { FsEventHub } from '../services/FsEventHub';
 import { ISessionRepository } from '../database/interfaces';
 import { requireSandboxOwnership } from './middleware/security';
 
 // The router is pure transport: it depends on the FileSystemManager it is
 // given and knows nothing about how or where files are actually stored.
 // sessionRepo is injected so the router can enforce sandbox ownership (IDOR).
-export function createFileSystemRouter(fsManager: FileSystemManager, sessionRepo: ISessionRepository): Router {
+// fsEventHub feeds the SSE change stream (GET /:id/events).
+export function createFileSystemRouter(
+  fsManager: FileSystemManager,
+  sessionRepo: ISessionRepository,
+  fsEventHub: FsEventHub,
+): Router {
   const router = Router();
   /**
    * PARAMETER VALIDATION MIDDLEWARE
@@ -102,6 +108,40 @@ export function createFileSystemRouter(fsManager: FileSystemManager, sessionRepo
       console.error(`[VFS Error] Failed to write file: ${error.message}`);
       res.status(500).json({ error: error.message });
     }
+  });
+
+  /**
+   * GET /api/fs/:sandboxId/events
+   * Server-Sent Events: streams { type: 'FS_EVENT', action: 'reload_tree' } when
+   * the sandbox's workspace changes on disk (chokidar watcher, Step 10c), so the
+   * editor re-hydrates its tree. Ownership is enforced by the /:sandboxId guard.
+   */
+  router.get('/:sandboxId/events', (req: Request, res: Response) => {
+    const { sandboxId } = req.params;
+    if (typeof sandboxId !== 'string') {
+      res.status(400).json({ error: 'Invalid Sandbox id' });
+      return;
+    }
+
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+    res.write(': connected\n\n'); // open the stream immediately
+
+    const unsubscribe = fsEventHub.subscribe(sandboxId, (event) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    });
+
+    // Heartbeat so idle proxies/load balancers don't drop the connection.
+    const heartbeat = setInterval(() => res.write(': ping\n\n'), 25_000);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+      res.end();
+    });
   });
 
   /**

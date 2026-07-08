@@ -21,6 +21,12 @@ export const config = {
   OPENSANDBOX_API_KEY: process.env.OPENSANDBOX_API_KEY || '',
   OPENSANDBOX_EXECD_ACCESS_TOKEN: process.env.OPENSANDBOX_EXECD_ACCESS_TOKEN || '',
 
+  // Which sandbox driver backs SandboxManager (see services/sandbox/drivers).
+  // 'opensandbox' = Rust-kernel driver (default; exec-only, no PTY).
+  // 'alibaba'     = AlibabaSdkDriver (adds an interactive PTY; requires the
+  //                 @alibaba-group/opensandbox SDK + server-side validation).
+  SANDBOX_DRIVER: process.env.SANDBOX_DRIVER || 'opensandbox',
+
   // The public-facing URL of THIS backend server.
   // In your local .env, this is "http://localhost:3000"
   // In your production .env, this will be "https://api.yourdomain.com"

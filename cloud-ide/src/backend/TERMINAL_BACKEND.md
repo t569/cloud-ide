@@ -211,9 +211,17 @@ env var. No terminal, VFS, or UI code changes.
       is `pty:false`); self-check `PtyGateway.test.ts` proves the bridge with fakes.
 - [x] **4.** Frontend transport factory (`createTerminalTransport`); `IDETerminal`
       uses it (picks SSE today, WS `/pty` when a driver advertises `pty`).
-- [ ] **5.** `AlibabaSdkDriver` implementing `openSession` — **now the critical path**
-      to a real PTY (re-homes `SessionStream`'s proven SDK calls into a Node driver);
-      needs the SDK validated server-side. `SANDBOX_DRIVER` env to select it.
+- [~] **5.** `AlibabaSdkDriver` — **scaffold landed, UNVERIFIED.** Composition over
+      the Rust driver (lifecycle/exec delegate; only `openSession` is the SDK's job),
+      `capabilities().pty = true`, selected by `SANDBOX_DRIVER=alibaba` (default
+      `opensandbox`, unchanged). The `SdkSession` adapter (SDK bash+sendStdin+resize
+      → `ISandboxSession`) mirrors the proven `SessionStream` calls and is unit-tested
+      (`AlibabaSdkDriver.test.ts`, 4 cases incl. early-output buffering). SDK is
+      dynamic-imported so the build stays green without it. **To finish (TODO(validate)
+      in the file):** `npm i @alibaba-group/opensandbox` in the backend; confirm the
+      SDK runs on Node + the server-side ConnectionConfig/auth is correct; confirm the
+      process-exit event. Once green against a live sandbox, flip `capabilities` truth
+      and the whole chain (driver → PtyGateway → WebSocketTransport) is live.
 - [ ] **6.** PTY reattach across socket drops (pairs with Gap B session recovery).
 
 ---

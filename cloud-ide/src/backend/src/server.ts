@@ -37,6 +37,7 @@ import { JsonSandboxRepository } from './database/json/JsonSandboxRepository';
 import { JsonSessionRepository } from './database/json/JsonSessionRepository';
 import { PersistenceLayer } from './database/PersistenceLayer';
 import { SandboxManager } from './services/sandbox/SandboxManager';
+import { createSandboxDriver } from './services/sandbox/drivers/createSandboxDriver';
 import { IdleSweeper } from './services/sandbox/IdleSweeper';
 import { FileSystemManager } from './services/FileSystemManager';
 import { FsEventHub } from './services/FsEventHub';
@@ -79,7 +80,7 @@ const systemEvents = new EventEmitter();
 
 // // Initialize the Kernel & Background Daemons
 const persistenceLayer = new PersistenceLayer(systemEvents, sessionRepo, sandboxRepo);
-const sandboxManager = new SandboxManager(sandboxRepo);
+const sandboxManager = new SandboxManager(sandboxRepo, createSandboxDriver());
 
 // The IdleSweeper implements our Scale-to-Zero architecture, freezing inactive 
 // containers to save compute. Must run alongside the Wake-on-Demand Gateway logic.

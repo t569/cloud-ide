@@ -14,6 +14,8 @@ await docker.succeeds(['image','inspect', tag]); // boolean; never throws (probe
 const proc = docker.stream(['build', '--progress=plain', '-t', tag, '-'], {
   stdin: dockerfile,          // fed to the child, then closed
   banner: 'Building...\n',    // emitted as 'data' before start
+  timeoutMs: 300_000,         // SIGTERM the child after N ms, then settle 'failed'
+  timeoutMessage: 'Build timed out',
   onExit: (code) => code === 0 ? { ok: true, message: 'done' } : { ok: false, message: `exit ${code}` },
   onSpawnError: (err) => `docker missing? ${err.message}`,
   cancelMessage: 'Build cancelled',
@@ -41,8 +43,13 @@ so it needs no Docker installed.
 
 ## 🗺️ Roadmap
 
-- [ ] **`stream()` timeout.** A `timeoutMs` option that SIGTERMs the child after N
-  seconds — the natural home for enforcing `EnvironmentConfig.timeout`, which is
-  currently unwired (a build hang starves the build queue).
-- [ ] **Resource-limit passthrough.** `--memory` / `--cpus` / ulimits flow through
-  `run`/`stream` args unchanged once the builder starts passing them — no API change.
+- [x] **`stream()` timeout.** `timeoutMs`/`timeoutMessage` SIGTERM the child after N
+  ms, then settle `failed`. `DockerBuilder.build` wires `EnvironmentConfig.timeout`
+  through, so a build hang can't starve the queue.
+- [x] **Resource limits.** Landed as a *buildx-builder* seam, not per-build flags:
+  `DockerBuilder` passes `--builder $DOCKER_BUILDER` when set, so ops provision one
+  capped builder (`buildx create --driver-opt memory=..,cpus=..`) and every build is
+  capped natively with BuildKit caching intact. Per-build `--memory`/`--cpus` were
+  dropped — BuildKit ignores them.
+
+Nothing open. Next work items live with the builder, not here.

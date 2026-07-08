@@ -2,17 +2,20 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { FileSystemManager } from '../services/FileSystemManager';
 import { FsEventHub } from '../services/FsEventHub';
+import { WorkspaceWatchers } from '../services/WorkspaceWatchers';
 import { ISessionRepository } from '../database/interfaces';
 import { requireSandboxOwnership } from './middleware/security';
 
 // The router is pure transport: it depends on the FileSystemManager it is
 // given and knows nothing about how or where files are actually stored.
 // sessionRepo is injected so the router can enforce sandbox ownership (IDOR).
-// fsEventHub feeds the SSE change stream (GET /:id/events).
+// fsEventHub feeds the SSE change stream; watchers start/stop the chokidar
+// watcher per SSE subscriber (GET /:id/events).
 export function createFileSystemRouter(
   fsManager: FileSystemManager,
   sessionRepo: ISessionRepository,
   fsEventHub: FsEventHub,
+  watchers: WorkspaceWatchers,
 ): Router {
   const router = Router();
   /**
@@ -134,12 +137,16 @@ export function createFileSystemRouter(
       res.write(`data: ${JSON.stringify(event)}\n\n`);
     });
 
+    // Start the chokidar watcher on demand (ref-counted across subscribers).
+    void watchers.acquire(sandboxId);
+
     // Heartbeat so idle proxies/load balancers don't drop the connection.
     const heartbeat = setInterval(() => res.write(': ping\n\n'), 25_000);
 
     req.on('close', () => {
       clearInterval(heartbeat);
       unsubscribe();
+      watchers.release(sandboxId);
       res.end();
     });
   });

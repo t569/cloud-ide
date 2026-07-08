@@ -138,7 +138,8 @@ Editor" button. Phase 3 turns that seam into the real product flow:
     with a toast. See `editor/README.md` → Design Notes.
 
 ### Step 10: Backend FS Watcher → Live Tree (chokidar)  — paired with `editor/README.md` Phase 5
-* **Status: 🚧 In Progress** (10a done)
+* **Status: ✅ Complete** (10a–c done; 10d optional). Follow-up: the Tier-1 dirty-preserving refresh
+  (removes the guard's coarseness) — see "Known Debt".
 * **Goal:** active backend mutations (`npm install`, `git`, `touch`) reflect in the tree without a
   manual refresh. The frontend can't know `npm install` changed 10k files — the backend must tell it.
 * **Blocker uncovered:** the frontend VFS was fully **mocked** (`hydrateWorkspace`/`flushSyncQueue`
@@ -157,10 +158,13 @@ Editor" button. Phase 3 turns that seam into the real product flow:
     would clobber unsaved edits (the merge case is the "Known Debt" merkle protocol). No new dep, no
     WS upgrade. Files: `backend/services/FsEventHub.ts`, `backend/api/FileSystemRoutes.ts`, `server.ts`,
     `frontend/editor/core/VFSController.ts`, `frontend/vfs/VirtualFileSystem.ts`.
-  * [ ] **10c. chokidar watcher.** Per-sandbox watch on the host worktree
-    (`SandboxManager.getWorkspaceHostPath`), debounced, ignore `node_modules`/`.git` → emits
-    `FS_EVENT` on the SSE channel. `VFSController` gets an `FS_EVENT` bus event/handler → calls
-    `hydrateWorkspace()` → emits `VFS_TREE_UPDATED`.
+  * [x] **10c. chokidar watcher.** `WorkspaceWatchers` (`backend/services/`): **demand-driven** —
+    ref-counted per SSE subscriber (acquire on connect, release on last disconnect), so we never
+    watch an unviewed workspace and resumed/persisted sandboxes work without provision hooks. Watches
+    the host worktree, debounced (300ms), ignores `node_modules`/`.git`, only tree-shape events
+    (`add`/`unlink`/`addDir`/`unlinkDir` — not `change`, avoiding self-write echo) → `hub.publish`.
+    Full chain: chokidar → `FsEventHub` → SSE → `EventSource` → `VFSController` re-hydrate →
+    `VFS_TREE_UPDATED`.
   * [ ] **10d.** Diff-based patch (only changed subtrees) if full re-hydrate is too heavy at scale.
 
 ### Step 11: Snapshots (File Tree + Terminal/Sandbox Context)

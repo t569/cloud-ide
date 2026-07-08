@@ -306,6 +306,8 @@ build log and `../../../ARCHITECTURE.md` (Phase 3) for the roadmap.
       (Step 10a): `hydrateWorkspace()` walks `/api/fs/:id/ls` recursively, `readFile()`
       lazy-loads via `/read`, and `flushSyncQueue()` persists edits via `/write` +
       `/delete`. Last-write-wins — no merkle/conflict protocol yet.
-- [ ] `chokidar` FS-watch → `VFS_TREE_UPDATED` so external file changes (npm
-      install, git) refresh the explorer. This is `ARCHITECTURE.md` Step 10b (SSE
-      push channel) + 10c (the watcher + `VFSController` `FS_EVENT` handler).
+- [x] `chokidar` FS-watch → `VFS_TREE_UPDATED` so external file changes (npm
+      install, git) refresh the explorer (`ARCHITECTURE.md` Step 10b SSE channel +
+      10c demand-driven watcher). Interim guard skips re-hydrate while local edits
+      are unsynced; the dirty-preserving refresh (Tier 1) removes that coarseness —
+      see `ARCHITECTURE.md` "Known Debt".

@@ -138,10 +138,11 @@ The frontend half (`WebSocketTransport`) exists. Three things to build:
   handler, do **not** spin a second port).
 - Route `GET /api/v1/sandboxes/:id/pty` (WS). On upgrade: enforce the **same
   sandbox-ownership guard** the FS/SSE routes use (IDOR), then
-  `driver.openSession(id, {cols,rows})` and bridge:
-  - WS binary/text in `{type:'data'}` → `session.write`
-  - WS `{type:'resize',cols,rows}` → `session.resize`
-  - `session.onData` → WS send; `session.onExit` → close.
+  `driver.openSession(id, {cols,rows})` and bridge, disambiguating by frame type:
+  - inbound **binary** frame → `session.write` (stdin); inbound **text** JSON
+    `{type:'resize',cols,rows}` → `session.resize`.
+  - `session.onData` → WS **binary** send; `session.onExit` → WS **text**
+    `{type:'exit',code}`, then close.
 - Reuse `AbortController`/`req.on('close')` cleanup discipline from
   `execCommand`.
 
@@ -200,8 +201,13 @@ env var. No terminal, VFS, or UI code changes.
 ## 6. Contracts to keep stable
 
 - **Frontend port:** `ITransportStream` — do not change; add transports behind it.
-- **WS PTY protocol:** `{type:'data',data}` · `{type:'resize',cols,rows}` in;
-  raw bytes / `{type:'exit',code}` out. Version it if it ever changes.
+- **WS PTY protocol** — disambiguated by **frame type**, not a tag field:
+  - inbound (browser→gateway): **binary** = raw stdin bytes; **text** = JSON
+    control, e.g. `{type:'resize',cols,rows}`.
+  - outbound (gateway→browser): **binary** = raw PTY stdout/stderr; **text** =
+    JSON lifecycle, e.g. `{type:'exit',code}`.
+  `WebSocketTransport` already implements this side (binary stdin, text control,
+  size re-synced on reconnect). Version the JSON control shapes if they change.
 - **Driver seam:** `ISandboxDriver` — vendor SDK types never escape a driver file.
 
 ### Non-goals (YAGNI until asked)

@@ -1,6 +1,14 @@
-// frontedn/src/terminal/WebScoketTransport.ts
+// frontend/src/terminal/transport/WebSocketTransport.ts
+//
+// Interactive PTY transport (Phase 2 — see backend/TERMINAL_BACKEND.md).
+// Wire protocol, disambiguated by FRAME TYPE (not a tag field):
+//   • binary frame = raw stdin/stdout bytes — a real TTY (vim, top, colors).
+//   • text frame   = JSON control message, e.g. {type:'resize',cols,rows}.
+// The backend /pty bridge mirrors this: binary ⇒ PTY stdin, text ⇒ control.
 
 import { ITransportStream } from "../types/terminal";
+
+interface TerminalSize { cols: number; rows: number; }
 
 export class WebSocketTransport implements ITransportStream {
     private ws: WebSocket | null = null;
@@ -16,8 +24,18 @@ export class WebSocketTransport implements ITransportStream {
     private maxReconnectAttempts = 5;
     private isIntentionalDisconnect = false;
 
-    constructor(url: string) {
+    // Last known size, re-sent on every (re)connect so the PTY starts — and stays
+    // after a reconnect — correctly sized. Seeded from the optional ctor arg.
+    private lastSize: TerminalSize | null = null;
+
+    // Streaming decoder: PTY output is binary and a multi-byte UTF-8 char can
+    // straddle two frames — {stream:true} stitches it instead of mangling it.
+    private decoder = new TextDecoder();
+    private encoder = new TextEncoder();
+
+    constructor(url: string, initialSize?: TerminalSize) {
         this.url = url;
+        this.lastSize = initialSize ?? null;
     }
 
     /**
@@ -37,6 +55,8 @@ export class WebSocketTransport implements ITransportStream {
                 this.ws.onopen = () => {
                     console.log(`[WebSocketTransport] Connected to ${this.url}`);
                     this.reconnectAttempts = 0;     // Reset the counter on success
+                    // Re-sync the PTY size on connect / reconnect (if known).
+                    if (this.lastSize) this.sendControl({ type: 'resize', ...this.lastSize });
                     resolve();
                 };
 
@@ -75,11 +95,12 @@ export class WebSocketTransport implements ITransportStream {
     }
 
     /**
-     * Writes data from the frontend to the backend PTY.
+     * Writes stdin to the backend PTY as a BINARY frame (UTF-8 bytes), so raw
+     * keystrokes can never be confused with a text/JSON control message.
      */
     public write(data: string): void {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            this.ws.send(data);
+            this.ws.send(this.encoder.encode(data));
         } else {
             console.warn('[WebSocketTransport] Attempted to write to a closed WebSocket.');
         }
@@ -87,14 +108,19 @@ export class WebSocketTransport implements ITransportStream {
 
 
     /**
-     * Sends a control message to resize the backend PTY.
-     * Note: This assumes your backend expects a JSON payload for resizing.
+     * Resizes the backend PTY. Sent as a TEXT (JSON) control frame, and
+     * remembered so a reconnect re-syncs the size automatically.
      */
     public resize(cols: number, rows: number): void {
+        this.lastSize = { cols, rows };
+        this.sendControl({ type: 'resize', cols, rows });
+    }
+
+    /** Send a JSON control message as a TEXT frame. The backend reads text
+     *  frames as control and binary frames as stdin. No-op if the socket is down. */
+    private sendControl(message: object): void {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-            // Industry standard multiplexing: Send a JSON string formatted as a resize command
-            const resizePayload = JSON.stringify({ type: 'resize', cols, rows });
-            this.ws.send(resizePayload);
+            this.ws.send(JSON.stringify(message));
         }
     }
 
@@ -116,13 +142,14 @@ export class WebSocketTransport implements ITransportStream {
         let dataStr = '';
 
         if (typeof event.data === 'string') {
-            dataStr = event.data;
+            dataStr = event.data; // text frame — control/echo (rare inbound)
         } else if (event.data instanceof ArrayBuffer) {
-            // Convert raw bytes from the Linux PTY into a readable string for xterm.js
-            dataStr = new TextDecoder().decode(event.data);
+            // Raw PTY bytes → string; stream:true keeps multi-byte UTF-8 intact
+            // when a character straddles two frames.
+            dataStr = this.decoder.decode(event.data, { stream: true });
         }
 
-        this.dataListeners.forEach(cb => cb(dataStr));
+        if (dataStr) this.dataListeners.forEach(cb => cb(dataStr));
     }
 
     /**

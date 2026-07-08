@@ -230,9 +230,9 @@ incidental — it means the durable, content-addressed, diffable state store alr
   to *rediscover* a change we were already told about.
 
 So there is **no hand-rolled Merkle/WAL engine**, by design. The only state git doesn't hold is terminal
-scrollback, which is a flat blob, not a tree — see Step 11 / `SessionStore`. The former
-`GitSyncPayload`/`calculateRootSha` client scaffolding was aspirational and was dropped; the VFS class
-docstring is now corrected to match reality (last-write-wins outbound, dirty-preserving patch inbound).
+scrollback, which is a flat blob, not a tree — see Step 11 / `SessionStore`. The VFS is deliberately
+plain: last-write-wins outbound, a dirty-preserving patch inbound, no client-side hashing or SHA-sync
+protocol (it would only duplicate git with weaker guarantees).
 
 ### VFS Conflict Resolution — optimistic concurrency (owed, narrowed)
 * **Status: ⚠️ Partly mitigated.** The **watcher-vs-dirty-edit race is gone**: the 10d `patch` path is

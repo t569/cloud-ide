@@ -1,7 +1,7 @@
 // frontend/src/editor/components/IDETerminal.tsx
 import { useState, useEffect, useRef } from 'react';
 import { TerminalTabs, TerminalSession } from '../../terminal/components/TerminalTabs';
-import { ITransportStream } from '../../terminal/types/terminal';
+import { SseExecTransport } from '../../terminal/transport/SseExecTransport';
 import { EditorEventBus } from '../core/EditorEventBus';
 
 
@@ -11,37 +11,7 @@ import { toXtermTheme } from '../utils/themeAdapters';
 
 
 // ==========================================
-// 1. THE TRANSPORT INTERFACE (Backend Bridge)
-// ==========================================
-// TODO: Replace this with your real WebSocketTransport when the backend is ready.
-class MockLocalTransport implements ITransportStream {
-  private dataListeners: ((data: string) => void)[] = [];
-  
-  constructor(private title: string) {}
-
-  async connect(): Promise<void> {
-    setTimeout(() => {
-      this.broadcast(`\r\n\x1b[36m[System]\x1b[0m Connected to ${this.title}.`);
-      this.broadcast('\r\n~/cloud-ide $ ');
-    }, 100);
-  }
-
-  disconnect(): void { this.dataListeners = []; }
-  onData(callback: (data: string) => void): void { this.dataListeners.push(callback); }
-  onError(): void {}
-  write(data: string): void {
-    if (data === '\x7f') {
-      this.broadcast('\b \b'); // Handle basic backspace for the mock
-      return;
-    }
-    this.broadcast(data); // Local typing echo
-    if (data === '\r') this.broadcast('\r\n~/cloud-ide $ '); // Fake enter prompt
-  }
-  private broadcast(data: string) { this.dataListeners.forEach(cb => cb(data)); }
-}
-
-// ==========================================
-// 2. THE COMPONENT INTERFACE
+// THE COMPONENT INTERFACE
 // ==========================================
 interface IDETerminalProps {
   sandboxId: string;
@@ -60,9 +30,11 @@ export const IDETerminal = ({ sandboxId, editorEventBus }: IDETerminalProps) => 
     setSessions(prev => {
       const newId = `term-${Date.now()}`;
       const newTitle = `bash-${prev.length + 1}`;
-      
-      // TODO: When backend is ready, do: new WebSocketTransport(`ws://.../${sandboxId}/pty`)
-      const transport = new MockLocalTransport(newTitle);
+
+      // Live backend: line-mode command streaming over SSE (POST /exec → execd).
+      // ponytail: not a PTY — no vim/top, no persistent shell state between
+      // commands. Upgrade path is a WS PTY bridge; see backend TERMINAL_BACKEND.md.
+      const transport = new SseExecTransport(sandboxId);
       transport.connect();
 
       // sessionKey opts this tab into backend scrollback persistence + restore

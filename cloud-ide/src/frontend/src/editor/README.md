@@ -299,10 +299,13 @@ build log and `../../../ARCHITECTURE.md` (Phase 3) for the roadmap.
 > transport advertises. This is the payoff of the ports-and-adapters refactor:
 > six features added, zero changes to the core kernel or the components.
 
-### ⏳ Phase 5: Backend Wiring (Blocked on backend)
+### ⏳ Phase 5: Backend Wiring (Blocked on backend) — see `ARCHITECTURE.md` Step 10
 - [ ] Point `lsp/manifest.ts` at a real language-server daemon over
       `WebSocketLSPTransport` (protocol already implemented).
-- [ ] Replace the VFS mock (`vfs/VirtualFileSystem.ts` hydrate/sync TODOs) with
-      the live `apiClient` calls (auth already wired).
+- [x] Replace the VFS mock (`vfs/VirtualFileSystem.ts`) with live `apiClient` calls
+      (Step 10a): `hydrateWorkspace()` walks `/api/fs/:id/ls` recursively, `readFile()`
+      lazy-loads via `/read`, and `flushSyncQueue()` persists edits via `/write` +
+      `/delete`. Last-write-wins — no merkle/conflict protocol yet.
 - [ ] `chokidar` FS-watch → `VFS_TREE_UPDATED` so external file changes (npm
-      install, git) refresh the explorer.
+      install, git) refresh the explorer. This is `ARCHITECTURE.md` Step 10b (SSE
+      push channel) + 10c (the watcher + `VFSController` `FS_EVENT` handler).

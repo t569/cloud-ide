@@ -1,11 +1,20 @@
 // frontend/src/editor/core/VirtualFileSystem.ts
-import { 
-  VFSNode, 
-  FileNode, 
-  GitSyncPayload, 
-  WorkspaceHydrationPayload, 
-  SyncStatus 
+import {
+  VFSNode,
+  FileNode,
+  SyncStatus
 } from './types/vfs';
+import { apiClient } from '../lib/apiClient';
+
+/** The container-visible workspace root; the whole tree hangs under here. */
+const WORKSPACE_ROOT = '/workspace';
+
+/** One entry from GET /api/fs/:id/ls (backend VfsNode: name + container path + type). */
+interface VfsEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+}
 
 /**
  * ============================================================================
@@ -45,11 +54,6 @@ export class VirtualFileSystem {
   /** Interval ID for the background sync loop so it can be cleanly destroyed. */
   private syncIntervalId: number | null = null;
   private readonly SYNC_INTERVAL_MS = 2000;
-  
-  /** * The Merkle Root Hash. 
-   * Represents the cryptographic state of the workspace as currently acknowledged by the backend. 
-   */
-  private currentRootSha: string = '';
 
   /**
    * Initializes the VFS and starts the background synchronization daemon.
@@ -76,50 +80,45 @@ export class VirtualFileSystem {
     this.onSyncStatusChange('syncing');
 
     try {
-      // TODO: Replace with a call through the shared apiClient (carries the
-      // session cookie + CSRF token; never hand-roll fetch() here):
-      //   import { apiClient } from '../lib/apiClient';
-      //   const payload = await apiClient.get<WorkspaceHydrationPayload>(`/sandboxes/${this.sandboxId}/workspace`);
-      
-      // MOCK BACKEND RESPONSE: What your backend should ideally return on boot.
-      const mockPayload: WorkspaceHydrationPayload = {
-        sandboxId: this.sandboxId,
-        rootSha: 'initial_base_sha_from_git',
-        files: [
-          { path: '/src', type: 'directory', content: null, lastModified: Date.now(), version: 1 },
-          { path: '/src/main.py', type: 'file', content: 'print("Booting system...")', lastModified: Date.now(), version: 1 },
-          { path: '/README.md', type: 'file', content: '# Documentation', lastModified: Date.now(), version: 1 }
-        ]
-      };
-
-      await new Promise(resolve => setTimeout(resolve, 800)); // Simulate network latency
-
-      // Inject the backend payload into our high-speed O(1) map
-      mockPayload.files.forEach(file => {
-        this.fileMap.set(file.path, {
-          path: file.path,
-          name: file.path.split('/').pop() || '',
-          type: file.type,
-          content: file.content,
-          sha: null, // Will be calculated dynamically when edited to save initial boot time
-          isDirty: false,
-          markedForDeletion: false,
-          lastModified: file.lastModified,
-          version: file.version
-        });
-      });
-
-      this.currentRootSha = mockPayload.rootSha || '';
+      // The backend host-mount is the source of truth; take a fresh snapshot.
+      this.fileMap.clear();
+      await this.loadDirectory(WORKSPACE_ROOT);
       this.onSyncStatusChange('synced');
-      
-      // Instantly generate and return the nested tree for the UI to render
       return this.getNestedTree();
-
     } catch (error) {
-      console.error("[VFS] Failed to hydrate workspace:", error);
+      console.error('[VFS] Failed to hydrate workspace:', error);
       this.onSyncStatusChange('conflict');
       return [];
     }
+  }
+
+  /**
+   * Recursively lists a directory via GET /api/fs/:id/ls and populates the flat
+   * map. File contents are left null and lazy-loaded on first read() — boot only
+   * needs the tree shape, not every blob.
+   * ponytail: naive per-directory walk (N requests, children fetched in
+   * parallel). Add a recursive /tree endpoint only if this hurts on big repos.
+   */
+  private async loadDirectory(dirPath: string): Promise<void> {
+    const entries = await apiClient.get<VfsEntry[]>(
+      `/fs/${encodeURIComponent(this.sandboxId)}/ls?path=${encodeURIComponent(dirPath)}`,
+    );
+    await Promise.all(
+      entries.map(async (entry) => {
+        this.fileMap.set(entry.path, {
+          path: entry.path,
+          name: entry.name,
+          type: entry.type,
+          content: null,
+          sha: null,
+          isDirty: false,
+          markedForDeletion: false,
+          lastModified: Date.now(),
+          version: 1,
+        });
+        if (entry.type === 'directory') await this.loadDirectory(entry.path);
+      }),
+    );
   }
 
   // ==========================================
@@ -133,10 +132,18 @@ export class VirtualFileSystem {
   public async readFile(path: string): Promise<string> {
     const node = this.fileMap.get(path);
     if (!node) throw new Error(`File not found in VFS: ${path}`);
-    
-    // Future optimization: If you implement lazy-loading for huge files (where content is null initially),
-    // you would execute a fetch() here, cache it in the map, and then return it.
-    return node.content || '';
+    if (node.type !== 'file') return '';
+
+    // Lazy-load: hydrate only fetched the tree, so pull the blob on first open
+    // via GET /api/fs/:id/read and cache it for instant subsequent reads.
+    if (node.content === null) {
+      const { content } = await apiClient.get<{ content: string }>(
+        `/fs/${encodeURIComponent(this.sandboxId)}/read?path=${encodeURIComponent(path)}`,
+      );
+      node.content = content;
+      this.fileMap.set(path, node);
+    }
+    return node.content;
   }
 
   /**
@@ -307,39 +314,7 @@ export class VirtualFileSystem {
   }
 
   // ==========================================
-  // 4. LIGHTWEIGHT MERKLE / GIT ENGINE
-  // ==========================================
-
-  /**
-   * Generates a cryptographic SHA-256 hash using the native browser Web Crypto API.
-   * Zero dependencies, extremely fast. Used to verify file integrity.
-   */
-  private async calculateSha(content: string): Promise<string> {
-    const msgBuffer = new TextEncoder().encode(content);
-    const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-
-  /**
-   * Calculates the Root Merkle Hash for the entire workspace.
-   * Achieved by concatenating the individual SHAs of all valid files in alphabetical order and hashing the result.
-   */
-  private async calculateRootSha(): Promise<string> {
-    const sortedPaths = Array.from(this.fileMap.keys()).sort();
-    let combinedHashes = '';
-    
-    for (const path of sortedPaths) {
-      const node = this.fileMap.get(path);
-      if (node && !node.markedForDeletion && node.sha) {
-        combinedHashes += node.sha;
-      }
-    }
-    return this.calculateSha(combinedHashes);
-  }
-
-  // ==========================================
-  // 5. THE GIT-STYLE SYNC LOOP
+  // 4. THE SYNC LOOP
   // ==========================================
 
   /** * Bypasses the 2-second timer to sync immediately. Called when the user hits Ctrl+S.
@@ -358,65 +333,45 @@ export class VirtualFileSystem {
   }
 
   /**
-   * The core networking loop. Emulates a `git add`, `git commit`, and `git push`.
-   * Packages only the delta changes and cryptographic proofs, minimizing bandwidth.
+   * Pushes queued changes to the backend using the real per-file FS API
+   * (POST /write, DELETE /delete). Only files (content !== null) are written —
+   * empty directories aren't persisted, git-style: a file write auto-creates its
+   * parent dirs on the backend.
+   * ponytail: no merkle/conflict protocol — the FS API is last-write-wins. Add
+   * optimistic concurrency (base/next SHA) if/when a /git-sync endpoint exists.
    */
   private async flushSyncQueue() {
     if (this.syncQueue.size === 0) return;
     this.onSyncStatusChange('syncing');
 
-    // Store the state prior to this sync round (analogous to the parent commit hash)
-    const expectedBaseSha = this.currentRootSha;
-
-    // STEP 1: "git add" -> Identify dirty files and calculate their new individual SHAs
-    const blobsToPush: { path: string; sha: string; content: string }[] = [];
-    const deletesToPush: string[] = [];
+    const writes: { path: string; content: string }[] = [];
+    const deletes: string[] = [];
 
     for (const path of Array.from(this.syncQueue)) {
       const node = this.fileMap.get(path);
       if (!node) continue;
-
-      if (node.markedForDeletion) {
-        deletesToPush.push(path);
-      } else if (node.content !== null) {
-        // We only calculate the SHA right before pushing to save CPU cycles while typing
-        node.sha = await this.calculateSha(node.content);
-        blobsToPush.push({ path, sha: node.sha, content: node.content });
-      }
+      if (node.markedForDeletion) deletes.push(path);
+      else if (node.content !== null) writes.push({ path, content: node.content });
     }
 
-    // STEP 2: "git commit" -> Calculate the new overall workspace Root SHA
-    const newRootSha = await this.calculateRootSha();
-
-    // STEP 3: "git push" -> Build the payload for the backend API
-    const payload: GitSyncPayload = {
-      sandboxId: this.sandboxId,
-      expectedBaseSha, // Backend checks this to ensure no other user/process modified the backend while we were typing
-      newRootSha,      // Backend updates to this hash if the merge is successful
-      blobs: blobsToPush,
-      deletes: deletesToPush
-    };
-
+    const id = encodeURIComponent(this.sandboxId);
     try {
-      // TODO: POST payload through the shared apiClient (attaches the session
-      // cookie + CSRF token automatically; never hand-roll fetch() here):
-      //   import { apiClient } from '../lib/apiClient';
-      //   await apiClient.post(`/sandboxes/${this.sandboxId}/git-sync`, payload);
-      await new Promise(resolve => setTimeout(resolve, 600)); // Simulate network request
+      await Promise.all([
+        ...writes.map((w) => apiClient.post(`/fs/${id}/write`, { path: w.path, content: w.content })),
+        ...deletes.map((p) => apiClient.delete(`/fs/${id}/delete?path=${encodeURIComponent(p)}`)),
+      ]);
 
-      // STEP 4: Cleanup on success (Backend accepted the push)
-      this.currentRootSha = newRootSha;
+      // Success: clear the queue, drop deleted nodes, un-dirty the written ones.
       this.syncQueue.clear();
-      
-      // The backend confirmed the deletions, so we can finally drop them from frontend memory
-      deletesToPush.forEach(path => this.fileMap.delete(path));
-
+      deletes.forEach((path) => this.fileMap.delete(path));
+      writes.forEach((w) => {
+        const node = this.fileMap.get(w.path);
+        if (node) node.isDirty = false;
+      });
       this.onSyncStatusChange('synced');
     } catch (error) {
-      console.error("[VFS] Push rejected (Conflict or Network Error):", error);
-      // The queue remains intact. The files are still marked as dirty.
-      // The next loop tick will attempt to push them again.
-      // If the backend threw a 409 Conflict, you would need to implement a pull/merge resolution strategy here.
+      // Queue stays intact; the next tick retries (write/delete are idempotent).
+      console.error('[VFS] Sync failed (network or backend error):', error);
       this.onSyncStatusChange('conflict');
     }
   }

@@ -137,18 +137,26 @@ Editor" button. Phase 3 turns that seam into the real product flow:
     until `RUNNING` before entering the editor; a sticky toast covers the wait, errors/timeouts abort
     with a toast. See `editor/README.md` → Design Notes.
 
-### Step 10: Backend FS Watcher → Live Tree (chokidar)
-* **Status: ❌ Not Started**
+### Step 10: Backend FS Watcher → Live Tree (chokidar)  — paired with `editor/README.md` Phase 5
+* **Status: 🚧 In Progress** (10a done)
 * **Goal:** active backend mutations (`npm install`, `git`, `touch`) reflect in the tree without a
   manual refresh. The frontend can't know `npm install` changed 10k files — the backend must tell it.
-* **Design:** a lightweight `chokidar` watcher per sandbox in the Node gateway emits a debounced
-  WS message `{ type: 'FS_EVENT', action: 'reload_tree', paths? }`. `VFSController` subscribes and
-  calls `vfs.hydrateWorkspace()` (already exists) → emits `VFS_TREE_UPDATED`.
-* **Files:** backend `FileSystemManager.ts` / a new `FsWatcher.ts` + the WS transport;
-  `editor/core/VFSController.ts` (add an `FS_EVENT` bus event + handler).
-  * [ ] **10a.** Per-sandbox chokidar watcher with debounce + ignore globs (`node_modules`, `.git`).
-  * [ ] **10b.** WS `FS_EVENT` push; `VFSController` re-hydrates on receipt.
-  * [ ] **10c.** Diff-based patch (only changed subtrees) if full re-hydrate is too heavy at scale.
+* **Blocker uncovered:** the frontend VFS was fully **mocked** (`hydrateWorkspace`/`flushSyncQueue`
+  were `setTimeout`s), and there is **no push channel** (backend is plain Express — the terminal uses
+  SSE, there is no WS server). So Step 10 is a dependency chain, not a single watcher:
+  * [x] **10a. Real VFS read + write (Phase 5 prereq).** `hydrateWorkspace()` recursively walks
+    `GET /api/fs/:id/ls` (children in parallel) to build the tree; `readFile()` lazy-loads blobs via
+    `/read`; `flushSyncQueue()` persists edits via `POST /write` + `DELETE /delete` (the mock merkle
+    `git-sync` push was dropped — no such backend endpoint). Paths stay in the container space
+    (`/workspace/...`) end to end. `frontend/src/vfs/VirtualFileSystem.ts`. *Last-write-wins — no
+    optimistic-concurrency/conflict protocol yet.*
+  * [ ] **10b. Push channel (SSE, not WS).** `GET /api/fs/:id/events` streams `FS_EVENT` — reuses the
+    SSE pattern already in the codebase (exec streaming); no new dep, no WS upgrade plumbing.
+  * [ ] **10c. chokidar watcher.** Per-sandbox watch on the host worktree
+    (`SandboxManager.getWorkspaceHostPath`), debounced, ignore `node_modules`/`.git` → emits
+    `FS_EVENT` on the SSE channel. `VFSController` gets an `FS_EVENT` bus event/handler → calls
+    `hydrateWorkspace()` → emits `VFS_TREE_UPDATED`.
+  * [ ] **10d.** Diff-based patch (only changed subtrees) if full re-hydrate is too heavy at scale.
 
 ### Step 11: Snapshots (File Tree + Terminal/Sandbox Context)
 * **Status: ❌ Not Started**  (frontend contract stubbed: `WorkspaceSnapshot`, `SNAPSHOT_*` events,
@@ -178,3 +186,23 @@ Editor" button. Phase 3 turns that seam into the real product flow:
 
 **Suggested order:** 8 (routing) → 9 (env→editor) → 10 (FS events) → 12 (resume page) → 11 (snapshots,
 largest). Routing unblocks 9/12; snapshots lean on the worktree engine and are the heaviest lift.
+
+---
+
+## ⚠️ Known Debt
+
+### VFS Conflict Resolution — Merkle sync protocol (owed)
+* **Status: ❌ Not built** — the VFS write path (Step 10a) is **last-write-wins**.
+* **Why it matters:** the backend FS API (`/write`, `/delete`) blindly overwrites. Two editors
+  (or two tabs) editing the same file, or — critically — the **chokidar watcher (Step 10c)** firing
+  a re-hydrate that races a local dirty edit, can **silently clobber** changes. There is no base-version
+  check, so nobody is told a conflict happened.
+* **What to build:** reinstate the git-style sync the VFS originally stubbed (the `GitSyncPayload`,
+  `calculateRootSha`, and `expectedBaseSha`/`newRootSha` scaffolding removed in Step 10a). The client
+  sends changed blobs + the workspace root SHA it started from; a new backend `POST /api/fs/:id/git-sync`
+  verifies that base SHA against the worktree's current state and returns **409** on divergence. The
+  client then pulls + merges (three-way or last-modified-wins with a prompt) instead of overwriting.
+* **Where it plugs in:** `frontend/src/vfs/VirtualFileSystem.ts` (`flushSyncQueue` → send SHAs, handle
+  409) + a backend endpoint over the existing `WorktreeEngine` (which already gives us git as the
+  merge substrate). **Pairs with Step 10c** — the watcher is exactly what turns "theoretical race" into
+  "real race," so build this alongside (or immediately after) the live-tree work.

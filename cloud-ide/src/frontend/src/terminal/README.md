@@ -34,9 +34,11 @@ terminal/
 ├── providers/
 │   └── IdeLinkProvider.ts# Parses raw text into clickable elements
 ├── transport/            # The Infrastructure Layer (Network APIs)
-│   ├── DockerStream.ts
-│   ├── SessionStream.ts
-│   └── WebSocketTransport.ts
+│   ├── createTerminalTransport.ts  # factory: picks the transport by capability
+│   ├── SseExecTransport.ts         # line-mode command streaming (LIVE default)
+│   ├── WebSocketTransport.ts       # interactive PTY over the gateway /pty bridge
+│   ├── SessionStream.ts            # legacy: browser-direct Alibaba SDK shell
+│   └── DockerStream.ts             # read-only (build-log tailing)
 ├── types/
 │   ├── terminal.d.ts
 │   └── index.ts
@@ -57,10 +59,16 @@ terminal/
 
 ### 2. The Infrastructure Layer (`/transport`)
 
-The UI components never speak directly to a WebSocket or an API. They only communicate via the `ITransportStream` interface.
+The UI components never speak directly to a WebSocket or an API. They only communicate via the `ITransportStream` interface, and **`createTerminalTransport(sandboxId, {pty})`** is the single place that decides which one backs a tab — by driver capability. See the backend **[TERMINAL_BACKEND.md](../../../../backend/TERMINAL_BACKEND.md)** for the full picture.
 
-*   **`WebSocketTransport.ts`**: The production workhorse. Connects to the `execd` PTY daemon inside the isolated container. Handles **binary ArrayBuffer conversion**, exponential backoff reconnection, and sending JSON control payloads (like window resizing commands).
-*   **`DockerStream.ts` / `SessionStream.ts`**: Alternate transport implementations. For example, `DockerStream` might be a read-only transport used purely for tailing build logs from the environment manager.
+*   **`SseExecTransport.ts`** — **the live default.** Line-mode: local echo, buffer a line, `POST /api/v1/sandboxes/:id/exec` on Enter, stream stdout/stderr back over SSE. Not a PTY — no vim/top, and no persistent shell (each command is a fresh `sh -c`).
+*   **`WebSocketTransport.ts`** — the interactive PTY transport. Connects to the gateway's **`/pty` WebSocket bridge** (`PtyGateway`), *not* execd directly — execd is one-shot and cannot do a PTY. Wire protocol by frame type: **binary = stdin/stdout bytes**, **text = JSON control** (`{type:'resize'}` out, `{type:'exit'}` in). Handles size re-sync on reconnect and streaming UTF-8 decode. Selected only when the active sandbox driver advertises `pty` (see requirement below).
+*   **`SessionStream.ts`** — legacy: connects the Alibaba SDK directly from the browser to run a real background `bash`. Superseded by the gateway-side `AlibabaSdkDriver` (keeps the vendor SDK out of the client); kept for reference.
+*   **`DockerStream.ts`** — read-only transport for tailing build logs from the environment manager.
+
+> **Interactive PTY is not live yet.** The chain above is built, but it needs a PTY-capable
+> backend driver (`AlibabaSdkDriver`, an unverified scaffold). Until that's validated,
+> `createTerminalTransport` returns `SseExecTransport`. See TERMINAL_BACKEND.md step 5.
 
 ### 3. The Protocol Layer (`/core/middlewares`)
 Sits directly between the **Transport** and the **Screen**. It sanitizes data moving in both directions.
@@ -82,7 +90,11 @@ The core architectural principle of this terminal is **Zero UI Blocking**. Featu
 
 ## Implementation Guide: Building Workspace.tsx
 
-When migrating from the Dev Harness to the production IDE Workspace, use this boilerplate to dynamically instantiate real `WebSocketTransport` connections and handle Cloud IDE URL proxying.
+> **The real production component already exists: `editor/components/IDETerminal.tsx`.** It
+> builds sessions with `createTerminalTransport(sandboxId)` (SSE today; WS/PTY when a driver
+> supports it) and opts each tab into scrollback persistence via `TerminalSession.sessionKey`.
+> The snippet below is **illustrative only** — the `/spawn` endpoint and hardcoded `wsUrl` are
+> not the real API; prefer the factory + `IDETerminal`. The URL-proxy note remains accurate.
 
 ### Architectural Note: URL Proxying
 When a user runs a dev server (like Vite or React) inside their container, the terminal outputs `http://localhost:5173`. However, localhost inside a Docker container is not accessible to the user's browser. The Workspace component intercepts these clicks, extracts the port, and rewrites the URL to route through the Cloud IDE's proxy domain (e.g., `https://5173-[sandbox-id].your-cloud-ide.com`).
@@ -406,15 +418,18 @@ to give us this:
 - [x] Implement **UI Plugins** (`FileIconPlugin`, `LinkSnifferPlugin`).
 - [x] Implement **URL Proxy routing** for Cloud IDE localhost intercepts.
 
-### ⏳ Phase 4: Backend Integration (Next Up)
-- [ ] Build **`WebSocketTransport.ts`** (Frontend): Implement the production transport layer with binary `ArrayBuffer` support, exponential backoff, and auto-reconnection.
-- [ ] Build **`execd` Daemon** (Backend): Create the Node.js WebSocket server inside the container.
-- [ ] Integrate **`node-pty`** (Backend): Spawn real Linux bash shells and pipe the streams to the WebSocket.
-- [ ] **Handle Resize Events**: Send JSON control messages from the frontend `ResizeObserver` to update the backend `node-pty` column/row limits.
+### ✅ Phase 4: Backend Integration (Live)
+- [x] **`SseExecTransport`** wired to the real `POST /exec` → execd path; `IDETerminal` uses it via `createTerminalTransport`.
+- [x] **`WebSocketTransport`** finished (binary stdin/stdout, text control, size re-sync, backoff reconnect).
+- [x] **Gateway `/pty` WS bridge** (`PtyGateway`) — provider-agnostic, ownership-guarded, capability-gated.
+- [x] **Resize events**: `ResizeObserver` → `transport.resize()` → text control frame → `session.resize()`.
+- Note: there is **no** `execd`-WS/`node-pty` work — execd is one-shot and external; interactive PTY comes from a driver's `openSession` (see below).
 
-### ⏳ Phase 5: State & Ecosystem (Planned)
-- [ ] **Session Persistence**: Use `SerializeAddon` to save the active terminal buffer to `localStorage` or the backend, restoring it seamlessly on browser refreshes.
-- [ ] **Complete `RepoGraphPlugin`**: Finalize the agentic tracking system to map executed commands into a version-controlled knowledge graph for the IDE's AI assistant.
-- [ ] **Global IDE Wiring**: Connect the Context HUD `onFileClick` events to the global state manager (e.g., Redux/Zustand) to automatically open files in the main code editor.
+### ⏳ Phase 5: Interactive PTY + State (In progress)
+- [ ] **PTY-capable driver** (`AlibabaSdkDriver`): the one missing piece to light up the WS/PTY chain — unverified scaffold, needs the SDK + live validation (backend TERMINAL_BACKEND.md step 5).
+- [ ] **PTY reattach** across socket drops (step 6; pairs with the driver + session recovery).
+- [x] **Session Persistence**: scrollback saved to the backend `SessionStore` (crash-safe, cross-device) and restored on mount via `useSessionPersistence` — replaces the old localStorage plan.
+- [ ] **Complete `RepoGraphPlugin`**: agentic command→knowledge-graph tracking for the AI assistant.
+- [ ] **Global IDE Wiring**: Context HUD `onFileClick` already bridges to the editor via `IDETerminal` → `FILE_OPEN_REQUESTED`; extend as needed.
 
 

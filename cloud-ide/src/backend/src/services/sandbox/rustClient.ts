@@ -6,17 +6,7 @@ import {
   SandboxStatus,
 } from '@cloud-ide/shared/types/sandbox';
 import { ExecConnectionInfo, RustEngineAPI } from '../../types/engine';
-
-export interface IRustEngineClient {
-  bootSandbox(spec: SandboxSpec): Promise<SandboxStatus>;
-  getSandboxStatus(sandboxId: string): Promise<SandboxStatus>;
-  execCommand(sandboxId: string, payload: SandboxExecRequest): Promise<SandboxExecResult>;
-  pauseSandbox(sandboxId: string): Promise<boolean>;
-  resumeSandbox(sandboxId: string): Promise<boolean>;
-  destroySandbox(sandboxId: string): Promise<boolean>;
-  resolveExecConnection(sandboxId: string): Promise<ExecConnectionInfo>;
-  getSandboxIp(sandboxId: string): string | null;
-}
+import { ISandboxDriver, DriverCapabilities } from './drivers/ISandboxDriver';
 
 let cachedEngine: RustEngineAPI | null = null;
 
@@ -65,14 +55,23 @@ function loadEngine(): RustEngineAPI {
 
 /**
  * @class RustEngineClient
- * @description The TypeScript proxy for the Rust Sandbox Engine. 
- * This class abstracts the N-API boundary, allowing the rest of the Node.js 
- * application to interact with the underlying hypervisor/container runtime 
- * (via Rust) using standard Promises and strict TypeScript interfaces.
+ * @description The OpenSandbox driver, implemented via our Rust kernel. It is the
+ * concrete `ISandboxDriver` for the default provider: the TS proxy over the N-API
+ * boundary to the container runtime. A future AlibabaSdkDriver would implement the
+ * same interface (see backend/TERMINAL_BACKEND.md).
+ *
+ * ponytail: kept named RustEngineClient (not OpenSandboxDriver) and in this file
+ * on purpose — loadEngine() resolves index.node relative to __dirname, so moving
+ * or renaming the file would silently break the FFI loader at runtime.
  */
-export class RustEngineClient implements IRustEngineClient {
+export class RustEngineClient implements ISandboxDriver {
   private get engine(): RustEngineAPI {
     return loadEngine();
+  }
+
+  /** Rust-kernel path is line-mode exec only for now; PTY arrives with openSession. */
+  public capabilities(): DriverCapabilities {
+    return { exec: true, pty: false };
   }
 
   public bootSandbox(spec: SandboxSpec): Promise<SandboxStatus> {

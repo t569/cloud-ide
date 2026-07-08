@@ -185,10 +185,17 @@ env var. No terminal, VFS, or UI code changes.
 
 ## 5. Build order (each step ships independently)
 
-- [ ] **0.** Rename `IRustEngineClient` → `ISandboxDriver`; `RustEngineClient` →
-      `OpenSandboxDriver`. Add `capabilities()` returning `{exec:true, pty:false}`.
-      Pure refactor, no behavior change. (Keeps everything else in this doc small.)
-- [ ] **1.** `ISandboxSession` + optional `openSession` on the interface.
+- [x] **0.** `IRustEngineClient` → `ISandboxDriver` (new `drivers/ISandboxDriver.ts`);
+      `RustEngineClient implements ISandboxDriver` + `capabilities()` returns
+      `{exec:true, pty:false}`; `SandboxManager` now depends on the interface (field
+      `driver`). Deviation from the plan: the concrete class stays named
+      `RustEngineClient` in `rustClient.ts` — it resolves `index.node` via `__dirname`,
+      so moving/renaming the file would silently break the FFI loader at runtime. A
+      provider-neutral rename can ride the AlibabaSdkDriver work (step 5). No behavior
+      change; all backend tests green.
+- [x] **1.** `ISandboxSession` / `PtyOptions` / `DriverCapabilities` + optional
+      `openSession` on `ISandboxDriver` (types only — no implementation yet, hence
+      `pty:false`). This is the seam Phase 2 fills in.
 - [ ] **2.** Persistent PTY in the sandbox (3a) — execd session endpoint or the
       interim gateway shell.
 - [ ] **3.** Gateway WS `/pty` bridge (3b) behind the ownership guard.

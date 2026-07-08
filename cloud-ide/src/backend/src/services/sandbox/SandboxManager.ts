@@ -12,7 +12,8 @@ import {
 } from '@cloud-ide/shared/types/sandbox';
 import { ISandboxRepository } from '../../database/interfaces/ISandboxRepository';
 import { ExecConnectionInfo } from '../../types/engine';
-import { IRustEngineClient, RustEngineClient } from './rustClient';
+import { RustEngineClient } from './rustClient';
+import { ISandboxDriver } from './drivers/ISandboxDriver';
 import { WorktreeEngine } from '../storage/WorktreeEngine';
 import { WorkspaceProvisioner } from '../provisioning';
 import { WorktreeStrategy } from '../provisioning/strategies/git/WorktreeStrategy';
@@ -52,8 +53,10 @@ export class SandboxManager {
 
   constructor(
     private sandboxRepo: ISandboxRepository,
-    private rustClient: IRustEngineClient = new RustEngineClient(),
-    // Injected like rustClient so tests and alternate storage layouts can
+    // The sandbox provider. Defaults to the OpenSandbox/Rust-kernel driver;
+    // injectable so tests and alternate providers can swap it (see ISandboxDriver).
+    private driver: ISandboxDriver = new RustEngineClient(),
+    // Injected like the driver so tests and alternate storage layouts can
     // swap it; the default points at the server's data folder.
     private worktreeEngine: WorktreeEngine = new WorktreeEngine(
       path.resolve(process.cwd(), 'data/central-repo.git'),
@@ -92,7 +95,7 @@ export class SandboxManager {
     const finalSpec = this.normalizeUserVolumes(mutatedSpec);
 
     // 5. Boot the container via Rust
-    const rustStatus = await this.rustClient.bootSandbox(finalSpec);
+    const rustStatus = await this.driver.bootSandbox(finalSpec);
 
     // 6. Save the record, explicitly linking the Rust ID to the Worktree ID
     const record: SandboxRecord = {
@@ -136,7 +139,7 @@ export class SandboxManager {
    * reconciles it with the local persistence database.
    */
   public async getStatus(sandboxId: string): Promise<SandboxStatus> {
-    const status = await this.rustClient.getSandboxStatus(sandboxId);
+    const status = await this.driver.getSandboxStatus(sandboxId);
     const current = await this.sandboxRepo.get(sandboxId);
 
     if (current) {
@@ -153,7 +156,7 @@ export class SandboxManager {
 
   public async pause(sandboxId: string): Promise<boolean> {
     console.log(`[SandboxManager] Requesting Rust to pause ${sandboxId}...`);
-    const success = await this.rustClient.pauseSandbox(sandboxId);
+    const success = await this.driver.pauseSandbox(sandboxId);
 
     if (success) {
       await this.sandboxRepo.updateState(sandboxId, 'PAUSED');
@@ -170,7 +173,7 @@ export class SandboxManager {
    */
   public async resume(sandboxId: string): Promise<boolean> {
     console.log(`[SandboxManager] Requesting Rust to resume ${sandboxId}...`);
-    const success = await this.rustClient.resumeSandbox(sandboxId);
+    const success = await this.driver.resumeSandbox(sandboxId);
 
     if (success) {
       await this.sandboxRepo.updateState(sandboxId, 'RUNNING');
@@ -202,7 +205,7 @@ export class SandboxManager {
     }
 
     console.log(`[SandboxManager] Requesting Rust to destroy ${sandboxId}...`);
-    const success = await this.rustClient.destroySandbox(sandboxId);
+    const success = await this.driver.destroySandbox(sandboxId);
 
     if (success) {
       await this.sandboxRepo.delete(sandboxId);
@@ -231,7 +234,7 @@ export class SandboxManager {
     sandboxId: string,
     request: SandboxExecRequest
   ): Promise<SandboxExecResult> {
-    return this.rustClient.execCommand(sandboxId, this.normalizeExecRequest(request));
+    return this.driver.execCommand(sandboxId, this.normalizeExecRequest(request));
   }
 
 
@@ -244,7 +247,7 @@ export class SandboxManager {
    * @returns A promise resolving to the connection info.
    */
   public async resolveExecConnection(sandboxId: string): Promise<ExecConnectionInfo> {
-    return this.rustClient.resolveExecConnection(sandboxId);
+    return this.driver.resolveExecConnection(sandboxId);
   }
 
 

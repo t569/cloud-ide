@@ -209,6 +209,52 @@ or the registry.
 
 ---
 
+## Design Notes — Session Lifecycle & Boot
+
+Decisions behind how the editor is booted and how it connects to the rest of the app
+(env-manager, routing). These are the "why", not the "how" — see `REFACTOR.md` for the
+build log and `../../../ARCHITECTURE.md` (Phase 3) for the roadmap.
+
+* **The editor is a thin shell booted from a `WorkspaceSession`.**
+  `EditorWorkspace` takes one prop: `session { sandboxId, workspaceName?, envConfig?,
+  snapshot?, plugins? }` (`types/editor.d.ts`). `sandboxId` is the only requirement; the
+  rest are optional seams a host fills in. This is the single hand-off point into the
+  editor — nothing else reaches in.
+
+* **Env-manager stays decoupled from routing *and* provisioning.** It emits
+  `onLaunch(env)` and nothing more. The **page** (`pages/Environments.tsx`) owns the
+  side effects: provision a sandbox from the built image (`api/sandbox.ts`) and
+  `navigate('/editor/:sandboxId')`. Same philosophy as the dumb components — a feature
+  module never learns about sandboxes or URLs.
+
+* **Native router, zero deps.** `pages/router.tsx` exposes `useLocation()` +
+  `navigate()` over the History API (React 19 `useSyncExternalStore`). A flat route
+  table (`/environments`, `/editor/:sandboxId`) doesn't justify a dependency. Upgrade to
+  `react-router` only when routes nest or need loaders.
+
+* **The URL carries only `sandboxId`; a warm boot bridges the rest.** A full
+  `envConfig` is too big for a query string, so the launch stashes the session in
+  `pages/sessionStore.ts` (in-memory) before navigating; `AppShell` reads it. A **cold
+  deep-link** (refresh, shared URL) finds nothing and falls back to `{ sandboxId }` — the
+  editor refetches env details from the backend. Warm path is rich, cold path still works.
+
+* **Environment variables are applied at container boot, not per-exec.**
+  `envConfig.env` flows once through `SandboxSpec.envVars` at provision time, so the
+  container process carries them and every terminal exec inherits them. We deliberately
+  do **not** inject env per command — that's the wrong layer (and the terminal transport
+  is still a mock).
+
+* **Launch waits for `RUNNING`.** `bootSandbox` may return `PROVISIONING`; the VFS needs
+  a live workspace to hydrate, so `Environments.handleLaunch` gates on the sandbox
+  reaching `RUNNING` (`api/sandbox.ts:waitForRunning`) before entering the editor.
+
+* **UI surfaces (menus, activity items) come from a contribution registry.**
+  `core/ContributionRegistry` is seeded by the built-in `contrib/coreContributions`
+  plugin; extra plugins layer on via `session.plugins`. Adding a panel or menu is a
+  plugin, not an edit to `EditorWorkspace`.
+
+---
+
 # 🗺️ Roadmap & TODO
 
 ### ✅ Phase 1: Core Shell (Completed)

@@ -16,7 +16,13 @@ const BuildLogModal = lazy(() =>
   import('./BuildLogModal').then((m) => ({ default: m.BuildLogModal })),
 );
 
-export const EnvManager = () => {
+interface EnvManagerProps {
+  /** Launch a built environment into the editor. The host (page) provisions a
+   *  sandbox and navigates; env-manager stays router- and sandbox-agnostic. */
+  onLaunch?: (env: SavedEnvironment) => void;
+}
+
+export const EnvManager = ({ onLaunch }: EnvManagerProps = {}) => {
   const { environments, isLoading, error, refresh, remove } = useEnvironments();
   const [buildTarget, setBuildTarget] = useState<SavedEnvironment | null>(null);
   const [historyTarget, setHistoryTarget] = useState<SavedEnvironment | null>(null);
@@ -51,6 +57,7 @@ export const EnvManager = () => {
           selectedId={currentEnvId}
           onOpen={loadEnvironment}
           onBuild={setBuildTarget}
+          onLaunch={onLaunch ?? (() => {})}
           onHistory={setHistoryTarget}
           onDelete={handleDelete}
           onCreateNew={resetToNew}

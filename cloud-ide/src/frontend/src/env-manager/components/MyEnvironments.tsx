@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { VscSearch, VscTrash, VscAdd, VscRefresh, VscServerEnvironment, VscPlay, VscLoading, VscHistory } from 'react-icons/vsc';
+import { VscSearch, VscTrash, VscAdd, VscRefresh, VscServerEnvironment, VscPlay, VscLoading, VscHistory, VscRocket } from 'react-icons/vsc';
 import { BaseImageIcon } from './icons/BaseImageIcon';
 import { SavedEnvironment, BuildState } from '../services/api/environmentApi';
 import { useBuildStatuses } from '../hooks/useBuildStatuses';
@@ -12,6 +12,7 @@ interface MyEnvironmentsProps {
   selectedId: string | null;
   onOpen: (env: SavedEnvironment) => void;
   onBuild: (env: SavedEnvironment) => void;
+  onLaunch: (env: SavedEnvironment) => void;
   onHistory: (env: SavedEnvironment) => void;
   onDelete: (id: string) => void;
   onCreateNew: () => void;
@@ -57,6 +58,7 @@ const EnvCard = ({
   selected,
   onOpen,
   onBuild,
+  onLaunch,
   onHistory,
   onDelete,
 }: {
@@ -65,11 +67,14 @@ const EnvCard = ({
   selected: boolean;
   onOpen: () => void;
   onBuild: () => void;
+  onLaunch: () => void;
   onHistory: () => void;
   onDelete: () => void;
 }) => {
   const cfg = env.builderConfig;
   const stepCount = cfg?.buildSteps?.length ?? 0;
+  // Launch needs a built image; live-succeeded also counts before the list refetches.
+  const built = !!env.imageName || live?.status === 'succeeded';
   return (
     <button
       type="button"
@@ -105,6 +110,25 @@ const EnvCard = ({
       <div className="mt-3 flex items-center gap-2">
         <span className="flex-1 text-center text-[11px] font-sans font-medium text-[#5a9cf8] bg-[#3574d4]/10 border border-[#3574d4]/20 rounded-md py-1.5 group-hover:bg-[#3574d4]/20 transition-colors">
           Open in Architect
+        </span>
+        <span
+          role="button"
+          tabIndex={built ? 0 : -1}
+          aria-label={built ? `Launch ${env.id} in editor` : `Build ${env.id} before launching`}
+          aria-disabled={!built}
+          title={built ? 'Launch in editor' : 'Build this environment first'}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (built) onLaunch();
+          }}
+          className={`flex items-center gap-1 text-[11px] font-sans font-medium rounded-md px-2.5 py-1.5 transition-colors ${
+            built
+              ? 'text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 cursor-pointer'
+              : 'text-gray-600 bg-white/[0.02] border border-white/[0.06] cursor-not-allowed'
+          }`}
+        >
+          <VscRocket size={12} />
+          Launch
         </span>
         <span
           role="button"
@@ -155,6 +179,7 @@ export const MyEnvironments = ({
   selectedId,
   onOpen,
   onBuild,
+  onLaunch,
   onHistory,
   onDelete,
   onCreateNew,
@@ -228,6 +253,7 @@ export const MyEnvironments = ({
               selected={env.id === selectedId}
               onOpen={() => onOpen(env)}
               onBuild={() => onBuild(env)}
+              onLaunch={() => onLaunch(env)}
               onHistory={() => onHistory(env)}
               onDelete={() => onDelete(env.id)}
             />

@@ -24,6 +24,24 @@ export function parseCsrfToken(cookieString: string): string {
 }
 
 /**
+ * Guarantees a `csrf-token` cookie exists before a mutating request needs it.
+ *
+ * The backend mints the cookie on any request, so this normally no-ops — the SPA
+ * happens to GET before it POSTs. But a cold load that goes straight to a mutating
+ * call (a restored session, a deep link into the editor) has no token yet, and the
+ * server rejects it with 403. `GET /api/csrf` exists purely to prime the cookies;
+ * nothing was calling it.
+ */
+async function ensureCsrfToken(): Promise<string> {
+  const existing = parseCsrfToken(document.cookie);
+  if (existing) return existing;
+
+  // 204, sets `csrf-token` (readable) and `uid` (httpOnly).
+  await fetch(`${API_BASE_URL}/csrf`, { credentials: 'include' }).catch(() => {});
+  return parseCsrfToken(document.cookie);
+}
+
+/**
  * POST that hands back the raw streaming Response (SSE, chunked build logs).
  *
  * `apiClient.post()` can't be used for these: it consumes the body as JSON. But a
@@ -34,11 +52,11 @@ export function parseCsrfToken(cookieString: string): string {
  *
  * `url` is absolute — callers already build it from API_BASE_URL.
  */
-export function postStream(
+export async function postStream(
   url: string,
   opts: { body?: unknown; signal?: AbortSignal } = {},
 ): Promise<Response> {
-  const headers: Record<string, string> = { 'X-CSRF-Token': parseCsrfToken(document.cookie) };
+  const headers: Record<string, string> = { 'X-CSRF-Token': await ensureCsrfToken() };
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
 
   return fetch(url, {
@@ -61,9 +79,10 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     ...(options.headers as Record<string, string>),
   };
 
-  // CSRF: attach the double-submit token on state-changing requests only.
+  // CSRF: attach the double-submit token on state-changing requests only,
+  // priming the cookie first if this is the app's very first call.
   if (MUTATING_METHODS.has(method)) {
-    headers['X-CSRF-Token'] = parseCsrfToken(document.cookie);
+    headers['X-CSRF-Token'] = await ensureCsrfToken();
   }
 
   const config: RequestInit = {

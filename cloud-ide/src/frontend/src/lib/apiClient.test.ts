@@ -19,12 +19,39 @@ describe('parseCsrfToken', () => {
 describe('postStream', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  function stubFetch() {
+  function stubFetch(cookie = 'csrf-token=tok123') {
     const fetchMock = vi.fn(async () => new Response('ok'));
     vi.stubGlobal('fetch', fetchMock);
-    vi.stubGlobal('document', { cookie: 'csrf-token=tok123' });
+    vi.stubGlobal('document', { cookie });
     return fetchMock;
   }
+
+  // A cold load that POSTs before ever issuing a GET has no csrf-token cookie, and
+  // the backend 403s it. GET /api/csrf exists to prime the cookies; nothing called it.
+  it('primes the csrf cookie when the app has never talked to the API', async () => {
+    const doc = { cookie: '' };
+    const fetchMock = vi.fn(async (url: any) => {
+      if (String(url).endsWith('/csrf')) doc.cookie = 'csrf-token=minted';
+      return new Response('ok');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('document', doc);
+
+    await postStream('http://api/x/exec', { body: { a: 1 } });
+
+    const [primeUrl, primeInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(primeUrl).toMatch(/\/csrf$/);
+    expect(primeInit.credentials).toBe('include');
+
+    const [, init] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+    expect((init.headers as Record<string, string>)['X-CSRF-Token']).toBe('minted');
+  });
+
+  it('does not re-prime when a token already exists', async () => {
+    const fetchMock = stubFetch();
+    await postStream('http://api/x/exec', { body: { a: 1 } });
+    expect(fetchMock).toHaveBeenCalledTimes(1); // no /csrf round trip
+  });
 
   // Both are required or the backend 403s every mutating request: the CSRF
   // middleware compares the header against the cookie, and without

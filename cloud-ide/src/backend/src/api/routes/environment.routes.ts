@@ -217,8 +217,13 @@ export function createEnvironmentRouter(
       res.end(`\r\n\x1b[1;31m[System Error]\x1b[0m ${message}\r\n`);
     });
 
-    // If the client disconnects mid-build, stop the build.
-    req.on('close', () => proc?.cancel());
+    // If the client disconnects mid-build, stop the build. Watch `res`, not `req`:
+    // req 'close' fires once the request body is read (Node >= 16), which would
+    // cancel instantly for any POST carrying a body. This one sends none today —
+    // that is the only reason `req` worked here. See SandboxController.execCommand.
+    res.on('close', () => {
+      if (!res.writableFinished) proc?.cancel();
+    });
   });
 
   // ==========================================================================

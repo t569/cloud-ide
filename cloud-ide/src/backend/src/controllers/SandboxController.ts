@@ -80,7 +80,14 @@ export class SandboxController {
     }
 
     const abortController = new AbortController();
-    req.on('close', () => abortController.abort());
+    // NOT `req.on('close')`. Since Node 16 IncomingMessage emits 'close' when the
+    // REQUEST has been fully read — and express.json() drains the body before this
+    // handler runs — so that fires immediately and aborted every exec ("The
+    // operation was aborted"). `res` closes when the client actually goes away;
+    // writableFinished distinguishes that from our own normal end().
+    res.on('close', () => {
+      if (!res.writableFinished) abortController.abort();
+    });
 
     try {
       // WAKE-ON-DEMAND ARCHITECTURE

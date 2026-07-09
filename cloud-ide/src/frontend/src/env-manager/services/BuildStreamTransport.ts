@@ -3,7 +3,7 @@
 // plugs straight into the existing terminal machinery.
 import { ITransportStream } from '@frontend/terminal/types/terminal';
 import { API_BASE_URL } from '@frontend/config/env';
-import { parseCsrfToken } from '@frontend/lib/apiClient';
+import { postStream } from '@frontend/lib/apiClient';
 
 export class BuildStreamTransport implements ITransportStream {
   private dataListeners: ((data: string) => void)[] = [];
@@ -57,10 +57,7 @@ export class BuildStreamTransport implements ITransportStream {
     this.emit(`\x1b[1;36m[Cloud IDE]\x1b[0m Requesting build for "${envId}"...\n`);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/environment/${encodeURIComponent(envId)}/build`, {
-        method: 'POST',
-        headers: { 'X-CSRF-Token': parseCsrfToken(document.cookie) },
-        credentials: 'include',
+      const res = await postStream(`${API_BASE_URL}/environment/${encodeURIComponent(envId)}/build`, {
         signal: this.controller.signal,
       });
 

@@ -23,6 +23,33 @@ export function parseCsrfToken(cookieString: string): string {
   return match ? decodeURIComponent(match[1]) : '';
 }
 
+/**
+ * POST that hands back the raw streaming Response (SSE, chunked build logs).
+ *
+ * `apiClient.post()` can't be used for these: it consumes the body as JSON. But a
+ * raw `fetch` silently drops both `credentials: 'include'` and the CSRF header,
+ * which the backend rejects with 403 on every mutating method — so the stream
+ * callers kept hand-rolling (and forgetting) the auth bits. This is the one place
+ * that knows how to authenticate a request; use it, don't re-roll it.
+ *
+ * `url` is absolute — callers already build it from API_BASE_URL.
+ */
+export function postStream(
+  url: string,
+  opts: { body?: unknown; signal?: AbortSignal } = {},
+): Promise<Response> {
+  const headers: Record<string, string> = { 'X-CSRF-Token': parseCsrfToken(document.cookie) };
+  if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
+
+  return fetch(url, {
+    method: 'POST',
+    headers,
+    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    credentials: 'include', // sends the httpOnly `sid` and readable `csrf-token` cookies
+    signal: opts.signal,
+  });
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   // endpoint will now look like "/environment/export"
   // API_BASE_URL already contains "/api"

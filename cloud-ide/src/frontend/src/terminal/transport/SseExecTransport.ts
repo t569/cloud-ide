@@ -11,6 +11,7 @@
 // Upgrade path: a WebSocket PTY bridge on the gateway when execd grows
 // interactive session support.
 import { API_BASE_URL } from '../../config/env';
+import { postStream } from '../../lib/apiClient';
 import { ITransportStream } from '../types/terminal';
 
 const PROMPT = '/workspace $ ';
@@ -98,10 +99,8 @@ export class SseExecTransport implements ITransportStream {
     this.abortController = new AbortController();
 
     try {
-      const response = await fetch(`${API_BASE_URL}/v1/sandboxes/${this.sandboxId}/exec`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: ['/bin/sh', '-c', command], cwd: '/workspace' }),
+      const response = await postStream(`${API_BASE_URL}/v1/sandboxes/${this.sandboxId}/exec`, {
+        body: { command: ['/bin/sh', '-c', command], cwd: '/workspace' },
         signal: this.abortController.signal,
       });
 

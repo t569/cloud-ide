@@ -104,13 +104,17 @@ export class SandboxManager {
       sandboxId: rustStatus.sandboxId,     // The OpenSandbox ID (e.g., sbx-1234)
       userId: ownerId,                     // Owner — the basis of every later access check
       worktreeId: worktreeId,              // The Host SSD folder ID (e.g., uuid)
-      environmentId: spec.imageTag,
+      // The env id, not the image tag: warm-sandbox reuse looks this up by env, and
+      // a content-tagged rebuild changes the tag. Falls back to the tag for the raw
+      // POST /v1/sandboxes verb, which is launched from no environment.
+      environmentId: spec.environmentId ?? spec.imageTag,
       state: rustStatus.state,
       execdPort: rustStatus.execdPort,
       desiredVolumes: finalSpec.volumes || [],
       workspaceMountPath: DEFAULT_WORKSPACE_MOUNT_PATH,
       requiresReprovision: false,
       createdAt: Date.now(),
+      lastActiveAt: Date.now(),
     };
 
     await this.sandboxRepo.save(record);
@@ -119,6 +123,20 @@ export class SandboxManager {
 
   public async getRecord(sandboxId: string): Promise<SandboxRecord | null> {
     return this.sandboxRepo.get(sandboxId);
+  }
+
+  /**
+   * Every sandbox this user owns (Step 12a). Legacy records with no `userId` are
+   * adopted, matching `userOwnsSandbox` — delete that branch when login lands.
+   *
+   * ponytail: returns stored state, not a live poll of the engine. A list of N
+   * sandboxes would be N FFI round-trips, and the state can only be stale in the
+   * harmless direction — opening one routes through startSession, which resumes it.
+   * IdleSweeper reconciles drift on its own schedule.
+   */
+  public async listForOwner(ownerId: string): Promise<SandboxRecord[]> {
+    const all = await this.sandboxRepo.list();
+    return all.filter((sbx) => !sbx.userId || sbx.userId === ownerId);
   }
 
   /** What the active provider can do — read by the terminal layer to choose an
@@ -200,7 +218,15 @@ export class SandboxManager {
     const success = await this.driver.resumeSandbox(sandboxId);
 
     if (success) {
-      await this.sandboxRepo.updateState(sandboxId, 'RUNNING');
+      // Stamp lastActiveAt with the state, so IdleSweeper's grace period keeps its
+      // hands off a sandbox we just woke — otherwise the next sweep can re-pause it
+      // before the editor's SSE stream attaches, and waitForRunning hangs on PAUSED.
+      const record = await this.sandboxRepo.get(sandboxId);
+      if (record) {
+        await this.sandboxRepo.save({ ...record, state: 'RUNNING', lastActiveAt: Date.now() });
+      } else {
+        await this.sandboxRepo.updateState(sandboxId, 'RUNNING');
+      }
     }
 
     return success;

@@ -5,7 +5,6 @@ import { EventEmitter } from 'events';
 import { ISessionRepository, ISandboxRepository, IEnvironmentRepository } from '../database/interfaces';
 import { SandboxManager } from '../services/sandbox/SandboxManager';
 import { SessionRecord } from '../database/models';
-import { toImageName } from '@cloud-ide/shared';
 import { config } from '../config/env';
 import { SID_COOKIE, SESSION_COOKIE_OPTIONS } from '../api/middleware/security';
 import { currentUser } from '../api/middleware/auth';
@@ -99,20 +98,25 @@ export class SessionController {
         console.log(`[SessionController] Found warm sandbox: ${availableSandbox.sandboxId}`);
         targetSandboxId = availableSandbox.sandboxId;
 
-        // If it was paused by the idle timeout, wake it up!
+        // Idle-paused by the sweeper — wake it before handing the id back, or the
+        // caller polls a sandbox that never reaches RUNNING and times out.
         if (availableSandbox.state === 'PAUSED') {
-           // Assume you add a wake() method to SandboxManager that calls the Rust FFI
-           // await this.sandboxManager.wake(targetSandboxId); 
+          await this.sandboxManager.resume(targetSandboxId);
         }
       } else {
         console.log(`[SessionController] No warm sandbox found. Delegating to Rust...`);
         // 4. No sandbox exists. Provision one from the environment's BUILT image.
-        // toImageName maps the env id to the ':latest' tag the build applies (and
-        // that rollback retags) — not the bare env id, which the daemon 400s on
-        // because it isn't a real image reference.
+        // Use the *stored* tag, not toImageName(id): a build may tag by content
+        // (contentTag(config)), so the ':latest' toImageName derives need not exist.
+        // imageName is gated non-empty above and is retagged on rollback.
         const newSandbox = await this.sandboxManager.provision(
           {
-            imageTag: toImageName(environmentId),
+            imageTag: environment.imageName,
+            // Stamped onto the record; this is what getSandboxesByEnvId matches next
+            // time, so it must be the env id and not the (rebuild-unstable) tag.
+            environmentId,
+            // Applied at container boot, so the terminal/exec inherits them (Step 9c).
+            envVars: environment.builderConfig?.env,
             // If repoUrl was provided, pass it down so Rust can map the volume
           },
           userId,

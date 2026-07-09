@@ -104,8 +104,8 @@ Editor" button. Phase 3 turns that seam into the real product flow:
 * **Decision (done):** a **minimal native History-API router** — `pages/router.tsx` exposes
   `useLocation()` (via React 19 `useSyncExternalStore`) + `navigate()`, **zero deps**. Upgrade to
   `react-router` only when routes nest or need loaders. ponytail: no dependency for a flat table.
-* **Routes:** `/environments` (default) · `/editor/:sandboxId` (booted editor). `/sandboxes`
-  (Step 12) and `/setup` are reserved for their steps.
+* **Routes:** `/environments` (default) · `/editor/:sandboxId` (booted editor) · `/sandboxes`
+  (Step 12). `/setup` is reserved for its step.
 * **Files:** `pages/router.tsx` (primitives), `pages/AppShell.tsx` (route→page matcher),
   `pages/Environments.tsx` (env-manager + temp dev boot → `navigate('/editor/dev-sandbox')`).
   * [x] **8a.** Native router: `useLocation()` + `navigate()`, `popstate` + synthetic
@@ -120,22 +120,48 @@ Editor" button. Phase 3 turns that seam into the real product flow:
 * **Status: ✅ Complete**
 * **Goal:** replace the dev "Boot Editor" button — env-manager launches a built environment, which
   provisions a sandbox and navigates to `/editor/:sandboxId` with the full `WorkspaceSession`.
-* **Files:** `api/sandbox.ts` (`POST /api/v1/sandboxes` → `SandboxRecord`), `pages/sessionStore.ts`
-  (warm-boot session bridge), `pages/Environments.tsx` (provision + `navigate`),
+* **Files:** `api/sandbox.ts` (`POST /api/v1/sessions` → `{ sessionId, sandboxId }`), `pages/sessionStore.ts`
+  (warm-boot session bridge), `pages/Environments.tsx` (launch + `navigate`),
   `env-manager/components/{EnvManager,MyEnvironments}.tsx` (router-agnostic `onLaunch`),
-  `pages/AppShell.tsx` (`getSession`).
-  * [x] **9a.** `createSandbox({ imageTag: env.imageName, envVars })` → `SandboxManager.provision`
-    returns the `sandboxId`. Launch is disabled until the env has a built image.
+  `pages/AppShell.tsx` (`getSession`), `backend/controllers/SessionController.ts` (smart routing).
+  * [x] **9a.** `startSession(env.id)` → `POST /api/v1/sessions` → `SessionController.startSession`
+    returns the `sandboxId`. Launch is disabled until the env has a built image (and the backend
+    409s on an unbuilt env regardless).
   * [x] **9b.** `Environments.handleLaunch` stashes the session and `navigate('/editor/:sandboxId')`.
     EnvManager exposes `onLaunch?` only — it stays decoupled from routing + provisioning.
   * [x] **9c.** Session carries `envConfig` + `workspaceName`; the editor surfaces the env name in
     the top bar (`SET_WORKSPACE_NAME`). **Env vars** are applied at container boot via
-    `SandboxSpec.envVars` (passed in 9a) — the correct layer; the terminal/exec inherits them, so no
-    per-exec injection. (Showing `baseImage` in the status bar is cosmetic and rides with the wider
-    StatusBar wiring, still mock.)
+    `SandboxSpec.envVars` — the correct layer; the terminal/exec inherits them, so no per-exec
+    injection. `SessionController` reads them off the env record (`builderConfig.env`) at provision
+    time; the client no longer passes them. (Showing `baseImage` in the status bar is cosmetic and
+    rides with the wider StatusBar wiring, still mock.)
   * [x] **9d.** Provisioning gate: `waitForRunning` (`api/sandbox.ts`) polls `GET /api/v1/sandboxes/:id`
     until `RUNNING` before entering the editor; a sticky toast covers the wait, errors/timeouts abort
-    with a toast. See `editor/README.md` → Design Notes.
+    with a toast. Cheap on a warm reuse — returns on the first poll. See `editor/README.md` → Design Notes.
+  * [x] **9e.** **Launch goes through the session layer, never `POST /v1/sandboxes` directly.**
+    `POST /v1/sandboxes` is the raw *create compute* verb: `SandboxManager.provision` unconditionally
+    cuts a new worktree and boots a new container. Launching through it meant leaving the editor and
+    clicking Launch again ran a **second container for the same environment**. `SessionController`
+    is the layer that prevents this — `getSandboxesByEnvId` → reuse a warm (`RUNNING`|`PAUSED`)
+    sandbox **owned by the caller**, resuming it if paused, and cold-boot only when there is none.
+    It was written, mounted (`server.ts`), and then never called. The frontend `createSandbox()`
+    wrapper is **deleted** so the footgun cannot be picked up again.
+    Three latent bugs on that path, fixed with the switch:
+    1. The `PAUSED` branch was a commented-out `// wake()` no-op — a reused paused sandbox never
+       reached `RUNNING`, so `waitForRunning` timed out.
+    2. The image was resolved as `toImageName(envId)` → `:latest`, which need not exist: builds may
+       tag by content (`toImageName(id, contentTag(config))`). It now uses the stored
+       `environment.imageName`, which is what a rollback retags.
+    3. **The reuse key never matched.** `provision()` stamped `SandboxRecord.environmentId =
+       spec.imageTag`, but `getSandboxesByEnvId` queries by *env id*. No record ever matched, so
+       reuse silently never fired and 9e would not actually have fixed anything. `SandboxSpec` now
+       carries an explicit `environmentId` (falling back to the tag for the raw `POST /v1/sandboxes`
+       verb, which has no environment, and which strips a body-supplied one so a caller cannot graft
+       an arbitrary image into an env's reuse group). The tag could never have been the key anyway:
+       it changes on every content-tagged rebuild.
+    Self-checks: `backend/__tests__/session-controller.test.ts` (reuse / resume / no cross-user
+    adoption / 409 unbuilt / stored id == queried id) and `sandbox-manager.test.ts` (env id is the
+    reuse key, tag fallback).
 
 ### Step 10: Backend FS Watcher → Live Tree (chokidar)  — paired with `editor/README.md` Phase 5
 * **Status: ✅ Complete** (10a–d done). The Tier-1 dirty-preserving refresh shipped as **10d** below:
@@ -201,23 +227,101 @@ Editor" button. Phase 3 turns that seam into the real product flow:
   * [ ] **11d.** TTL/expiry (`WorkspaceSnapshot.expiresAt`) + GC of expired snapshot refs.
 
 ### Step 12: Sandboxes Page — Resume Live/Paused
-* **Status: ❌ Not Started**
+* **Status: ✅ Complete**
 * **Goal:** a `/sandboxes` page listing the user's live + PAUSED sandboxes; clicking one navigates to
   `/editor/:sandboxId`, resuming it. Reuses the **Wake-on-Demand** resume already built for the proxy
   (Step 3c) — a paused sandbox is resumed on first traffic.
-* **Files:** new `pages/Sandboxes.tsx`; backend list endpoint over `SandboxManager` records; env-manager
-  links here.
-  * [ ] **12a.** `GET /api/sandboxes` (id, name, status, lastActive) from the `SandboxManager` DB.
-  * [ ] **12b.** `pages/Sandboxes.tsx` grid (status pills: live / paused / stopped) → `navigate('/editor/:id')`.
-  * [ ] **12c.** Resume on open (reuse Wake-on-Demand); show a "resuming…" state until ready.
-  * [ ] **12d.** Link env-manager ↔ sandboxes ↔ editor in the top-level nav.
+* **Note:** this page is a *navigation surface*, not the duplicate-container fix. Reaching an existing
+  sandbox from a list is a detour around double-provisioning; **9e** is what actually prevents it, on
+  the Launch path itself.
+* **Files:** `pages/Sandboxes.tsx`, `pages/launch.ts` (shared launch flow), `pages/AppShell.tsx` (route),
+  `api/sandbox.ts` (`listSandboxes`), `backend/controllers/SandboxController.ts` (`listSandboxes`),
+  `backend/services/sandbox/SandboxManager.ts` (`listForOwner`).
+  * [x] **12a.** `GET /api/v1/sandboxes` → `{ sandboxId, environmentId, state, createdAt, lastActiveAt }[]`,
+    scoped to the caller via `SandboxManager.listForOwner` (reuses the existing `ISandboxRepository.list()`).
+    No `ownsSandbox` guard: it has no `:sandboxId` to own and filters by identity instead. Returns stored
+    state, not a live engine poll — N sandboxes would be N FFI round-trips, and staleness is harmless
+    because opening one routes through `startSession`, which resumes it.
+  * [x] **12b.** `pages/Sandboxes.tsx` grid (status pills: live / starting / paused / stopped / error) →
+    `launchEnvironment(sbx.environmentId)`. **Opening a sandbox is expressed as "connect me to its
+    environment"**, so the page cannot bypass warm-reuse/resume — there is one way into the editor.
+  * [x] **12c.** Resume on open — **done via 9e**: `SessionController.startSession` resumes a `PAUSED`
+    sandbox before returning it, and `waitForRunning` covers the "resuming…" wait with a toast.
+    Wake-on-Demand (3c) still covers proxy traffic.
+  * [x] **12d.** `EnvManager` gains an `onViewSandboxes?` prop (same router-agnostic seam as `onLaunch`);
+    `Sandboxes` links back to `/environments`. **Editor → back is the browser's own back button** — the
+    router is History-API based (Step 8), so a bespoke nav control would duplicate a native affordance.
 
-**Suggested order:** 8 (routing) → 9 (env→editor) → 10 (FS events) → 12 (resume page) → 11 (snapshots,
-largest). Routing unblocks 9/12; snapshots lean on the worktree engine and are the heaviest lift.
+**Order taken:** 8 (routing) → 9 (env→editor) → 10 (FS events) → 12 (resume page). **Step 11 (snapshots)
+is all that remains** of Phase 3 — the heaviest lift, and it leans on the worktree engine.
 
 ---
 
 ## ⚠️ Known Debt
+
+### IdleSweeper liveness — ✅ FIXED (was wrong in both directions)
+`IdleSweeper` used to ask `SessionRepository` whether a sandbox had active sessions. `ACTIVE →
+DISCONNECTED` is only written by the `session:disconnected` event, emitted solely by
+`DELETE /api/v1/sessions/:sessionId` — **which nothing calls.** So the predicate was never meaningful:
+
+* **Before 9e:** the frontend never called `POST /v1/sessions`, so `sessionRepo` was empty, every sandbox
+  matched `activeSessions.length === 0`, and the sweeper paused *everything* — including the workspace you
+  were actively typing in. Wake-on-Demand (3c) papered over it for proxy traffic.
+* **After 9e:** every launch persisted an `ACTIVE` `SessionRecord` that was never cleared, so `isIdle` was
+  never true and **nothing was ever paused.** Scale-to-Zero silently died.
+
+**Fix — reuse the ref-count that already exists, don't hand-roll a heartbeat.** Liveness is "does a browser
+currently hold this workspace open", and `WorkspaceWatchers` already ref-counts exactly that: one SSE
+subscriber per open `GET /api/fs/:id/events` (Step 10c), acquired on connect, released on last disconnect —
+tab close and crash included, because the socket dies with them. `WorkspaceWatchers.isViewed(sandboxId)` is
+now the sweeper's only liveness input; `sessionRepo` is out of its constructor entirely, and
+`SessionRecord.state` is no longer load-bearing for the compute lifecycle.
+
+**Plus a grace period.** `SandboxRecord.lastActiveAt` is stamped on `provision()` and `resume()`, and the
+sweeper skips anything younger than `IDLE_GRACE_MS` (default 2 min). Without it, a sweep landing between
+`resume()` returning and the editor's SSE attaching re-pauses the sandbox — and `waitForRunning` spins on
+`PAUSED` (not a terminal state) until it times out, so the launch the user is waiting on fails.
+Records predating the field fall back to `createdAt`.
+
+Self-check: `backend/__tests__/idle-sweeper.test.ts` (viewed / unviewed / grace / legacy record).
+**Single-node assumption:** the ref-count is in-process, like `FsEventHub`'s pub/sub. If the gateway ever
+fans out across nodes, both move to shared state together.
+
+### Authorization is on the hot path — keep `sandboxRepo.get()` O(1)
+`userOwnsSandbox` → `sandboxRepo.get()` runs on **every guarded request**: each `/api/fs/:id/*` call,
+and each proxied asset through `/preview/:id/:port`. `JsonSandboxRepository` used to `fs.readFile` +
+`JSON.parse` the entire database per call — **~1.07 ms of synchronous, event-loop-blocking work** at
+200 sandboxes, scaling with total DB size rather than with the caller. One preview page pulling 50
+assets stalled the loop for ~53 ms on ownership checks alone.
+
+The file is now read once at boot and the in-memory map is authoritative; every mutation writes through
+`writeJsonAtomic` (temp + rename) on a serialized promise chain. **1532× faster per check** (1.07 ms →
+0.0007 ms), and two bugs fell out with it: the old plain `fs.writeFile` could truncate `sandboxes.json`
+on a crash mid-write (losing every record, and with it the only index from containers to worktrees), and
+two concurrent read-modify-write cycles could silently drop an update. `get()`/`list()` return shallow
+copies, preserving the "a caller cannot mutate the store" property that fresh-parse-per-read gave for
+free. A corrupt file is quarantined to `sandboxes.json.corrupt-<ts>`, never overwritten.
+
+**This is why the repository interface exists.** The fix belongs behind `ISandboxRepository`, not in the
+security layer — swap in Redis/Postgres for a second node and no guard changes. The single-node
+assumption is the same one `FsEventHub`, `WorkspaceWatchers` and the on-disk worktrees already make.
+Self-check: `backend/__tests__/json-sandbox-repository.test.ts` (no disk reads after boot, copy-on-read,
+concurrent writes, corrupt-file quarantine).
+
+`JsonSessionRepository` still reads per call. It is not on the auth path (one write per launch), so it is
+left alone — fix it when it shows up in a profile, not before.
+
+### `DELETE /api/v1/sessions/:sessionId` is unauthenticated — ⛔ owed
+It doesn't verify the session belongs to the caller. Impact dropped now that the sweeper ignores session
+state (it can no longer be used to force-pause someone's workspace), but it still emits a disconnect event
+for any guessed id. Owner-gate it. See `editor/SECURITY.md`.
+
+### One sandbox per (user, environment) — deliberate ceiling
+`SessionController` keys warm reuse on `getSandboxesByEnvId` + `userId`, so a user cannot run two
+concurrent sandboxes from the same environment; the second launch returns the first. That is the
+intended behaviour (it *is* the double-provision fix). If parallel sandboxes per env are ever wanted,
+they need an explicit "new sandbox" action that calls `POST /v1/sandboxes` directly — not a change to
+the launch path.
 
 ### State model — git IS our Merkle tree + WAL (read this before proposing one)
 Each sandbox is a **git worktree** on host disk (`WorktreeEngine.ts`, branch `sbx-<id>`). That is not

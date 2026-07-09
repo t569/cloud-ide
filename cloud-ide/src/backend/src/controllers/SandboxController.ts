@@ -29,8 +29,30 @@ export class SandboxController {
     try {
       // The caller becomes the owner. Taken from the identity seam, not the body:
       // whoever provisions it is the only one who may later reach it.
-      const sandbox = await this.sandboxManager.provision(spec, currentUser(req, res));
+      // `environmentId` is stripped: it is the key warm-sandbox reuse matches on, and
+      // this raw verb is launched from no environment. A body-supplied one would let a
+      // caller graft a sandbox of any image onto an environment's reuse group.
+      const { environmentId: _ignored, ...safeSpec } = spec;
+      const sandbox = await this.sandboxManager.provision(safeSpec, currentUser(req, res));
       res.status(201).json(sandbox);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  /** GET /api/v1/sandboxes — this user's sandboxes, for the /sandboxes page (12a). */
+  public listSandboxes = async (req: Request, res: Response): Promise<void> => {
+    try {
+      const records = await this.sandboxManager.listForOwner(currentUser(req, res));
+      res.json(
+        records.map((sbx) => ({
+          sandboxId: sbx.sandboxId,
+          environmentId: sbx.environmentId,
+          state: sbx.state,
+          createdAt: sbx.createdAt,
+          lastActiveAt: sbx.lastActiveAt ?? sbx.createdAt,
+        })),
+      );
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

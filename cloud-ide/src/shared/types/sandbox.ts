@@ -21,6 +21,14 @@ export interface VolumeMount {
 // Notice there is NO mention of OpenSandbox here. It is pure infrastructure abstraction.
 export interface SandboxSpec {
   imageTag: string;                // e.g., 'cloud-ide-zkp-noir-env:latest'
+  /**
+   * The stable environment this sandbox was launched from, e.g. 'zkp-noir-env'.
+   * Persisted as `SandboxRecord.environmentId` and the key warm-sandbox reuse
+   * matches on. Must NOT default to imageTag: a build may tag by content, so the
+   * tag changes on every rebuild while the environment id does not.
+   * Omitted by the raw `POST /v1/sandboxes` verb, which has no environment.
+   */
+  environmentId?: string;
   envVars?: Record<string, string>; // e.g., { "WORKDIR": "/workspace" }
   volumes?: VolumeMount[];
   resourceLimits?: {
@@ -97,6 +105,12 @@ export interface SandboxRecord {
   workspaceMountPath: string;
   requiresReprovision: boolean;
   createdAt: number;
+  /**
+   * Last time this sandbox was booted or resumed. IdleSweeper's grace period reads
+   * it so a freshly-woken sandbox isn't paused again before its editor has attached.
+   * Optional: records written before this field existed have none (treated as old).
+   */
+  lastActiveAt?: number;
 }
 
 

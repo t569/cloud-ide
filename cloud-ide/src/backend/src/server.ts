@@ -22,7 +22,8 @@ import { AdminController } from './controllers/AdminController';
 import { SessionController } from './controllers/SessionController';
 
 // Security middleware (CSRF + IDOR ownership) — SECURITY finding #2
-import { csrfProtection, requireSandboxOwnership, requireAdmin, securityHeaders } from './api/middleware/security';
+import { csrfProtection, requireAdmin, securityHeaders } from './api/middleware/security';
+import { createSandboxRouter } from './api/SandboxRoutes';
 import { attachUser } from './api/middleware/auth';
 
 
@@ -96,9 +97,15 @@ const systemEvents = new EventEmitter();
 const persistenceLayer = new PersistenceLayer(systemEvents, sessionRepo, sandboxRepo);
 const sandboxManager = new SandboxManager(sandboxRepo, createSandboxDriver());
 
-// The IdleSweeper implements our Scale-to-Zero architecture, freezing inactive 
+// fsEventHub carries chokidar (Step 10c) change events out over SSE; the watchers'
+// per-sandbox SSE ref-count doubles as the "is anyone using this?" signal the
+// IdleSweeper reads, so both are constructed before it.
+const fsEventHub = new FsEventHub();
+const workspaceWatchers = new WorkspaceWatchers(sandboxManager, fsEventHub);
+
+// The IdleSweeper implements our Scale-to-Zero architecture, freezing inactive
 // containers to save compute. Must run alongside the Wake-on-Demand Gateway logic.
-const idleSweeper = new IdleSweeper(sessionRepo, sandboxRepo, sandboxManager);
+const idleSweeper = new IdleSweeper(sandboxRepo, sandboxManager, workspaceWatchers);
 
 // Initialize Controllers
 const sandboxController = new SandboxController(sandboxManager);
@@ -107,20 +114,10 @@ const sessionController = new SessionController(systemEvents, sessionRepo, sandb
 
 // Mount Control Plane (HTTP API Routes)
 //
-// IDOR: every :sandboxId route is owner-gated. CSRF alone does not cover these —
-// it stops another SITE forging a request from this browser, not this browser
-// asking for a sandbox it does not own. POST /sandboxes has no :sandboxId: it
-// CREATES the ownership rather than checking it.
-const ownsSandbox = requireSandboxOwnership(sandboxRepo);
-
-app.post('/api/v1/sandboxes', sandboxController.createSandbox);
-app.get('/api/v1/sandboxes/:sandboxId', ownsSandbox, sandboxController.getSandboxStatus);
-app.post('/api/v1/sandboxes/:sandboxId/exec', ownsSandbox, sandboxController.execCommand);
-app.post('/api/v1/sandboxes/:sandboxId/pause', ownsSandbox, sandboxController.pauseSandbox);
-app.post('/api/v1/sandboxes/:sandboxId/resume', ownsSandbox, sandboxController.resumeSandbox);
-app.delete('/api/v1/sandboxes/:sandboxId', ownsSandbox, sandboxController.destroySandbox);
-app.post('/api/v1/sandboxes/:sandboxId/volumes', ownsSandbox, sandboxController.attachVolume);
-app.delete('/api/v1/sandboxes/:sandboxId/volumes/:volumeName', ownsSandbox, sandboxController.detachVolume);
+// The IDOR guard lives INSIDE each router (`router.use('/:sandboxId', ...)`), not on
+// individual routes here — so a route added later is owner-gated by construction
+// rather than by memory. See api/SandboxRoutes.ts.
+app.use('/api/v1/sandboxes', createSandboxRouter(sandboxController, sandboxRepo));
 
 // God-mode: force-destroy skips the dirty-worktree pre-flight and deletes the
 // user's worktree with it. Gated behind a static ADMIN_TOKEN header, and DISABLED
@@ -153,10 +150,8 @@ GarbageCollector.init();
 
 // NEW: Mount the Virtual File System routes (host-direct against the worktrees).
 // sandboxRepo is injected so the router can enforce sandbox ownership (IDOR).
-// fsEventHub carries chokidar (Step 10c) change events out over SSE.
+// fsEventHub / workspaceWatchers are constructed above (the IdleSweeper needs them).
 const fileSystemManager = new FileSystemManager(sandboxManager);
-const fsEventHub = new FsEventHub();
-const workspaceWatchers = new WorkspaceWatchers(sandboxManager, fsEventHub);
 const sessionStore = new SessionStore();
 app.use('/api/fs', createFileSystemRouter(fileSystemManager, sandboxRepo, fsEventHub, workspaceWatchers, sessionStore));
 

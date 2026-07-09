@@ -1,5 +1,6 @@
 // src/components/env-manager/EnvManager.tsx
 import React, { Suspense, lazy, useState } from 'react';
+import { VscServerProcess } from 'react-icons/vsc';
 import { useEnvManager } from '../hooks/useEnvManager';
 import { useEnvironments } from '../hooks/useEnvironments';
 import { SavedEnvironment } from '../services/api/environmentApi';
@@ -20,9 +21,12 @@ interface EnvManagerProps {
   /** Launch a built environment into the editor. The host (page) provisions a
    *  sandbox and navigates; env-manager stays router- and sandbox-agnostic. */
   onLaunch?: (env: SavedEnvironment) => void;
+  /** Navigate to the sandboxes list. Same seam as onLaunch — the host owns routing.
+   *  Omitted ⇒ the link is not rendered. */
+  onViewSandboxes?: () => void;
 }
 
-export const EnvManager = ({ onLaunch }: EnvManagerProps = {}) => {
+export const EnvManager = ({ onLaunch, onViewSandboxes }: EnvManagerProps = {}) => {
   const { environments, isLoading, error, refresh, remove } = useEnvironments();
   const [buildTarget, setBuildTarget] = useState<SavedEnvironment | null>(null);
   const [historyTarget, setHistoryTarget] = useState<SavedEnvironment | null>(null);
@@ -67,9 +71,20 @@ export const EnvManager = ({ onLaunch }: EnvManagerProps = {}) => {
         <form onSubmit={handleExport} className="flex-1 flex gap-6 items-start">
           {/* Middle: Construction Area */}
           <div className="flex-1 flex flex-col gap-6 animate-fade-up">
-            <div className="mb-1">
-              <h1 className="text-2xl font-bold tracking-tight text-gray-50">Environment Architect</h1>
-              <p className="text-gray-500 text-sm mt-0.5">Configure packages and dependencies</p>
+            <div className="mb-1 flex items-start justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-gray-50">Environment Architect</h1>
+                <p className="text-gray-500 text-sm mt-0.5">Configure packages and dependencies</p>
+              </div>
+              {onViewSandboxes && (
+                <button
+                  type="button"
+                  onClick={onViewSandboxes}
+                  className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-gray-700 text-gray-300 hover:border-gray-500 whitespace-nowrap"
+                >
+                  <VscServerProcess /> My Sandboxes
+                </button>
+              )}
             </div>
 
             <GeneralSettings register={register} setValue={setValue} baseImage={baseImage} environmentId={currentEnvId} />

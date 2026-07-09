@@ -239,14 +239,25 @@ build log and `../../../ARCHITECTURE.md` (Phase 3) for the roadmap.
   editor refetches env details from the backend. Warm path is rich, cold path still works.
 
 * **Environment variables are applied at container boot, not per-exec.**
-  `envConfig.env` flows once through `SandboxSpec.envVars` at provision time, so the
+  `builderConfig.env` flows once through `SandboxSpec.envVars` at provision time, so the
   container process carries them and every terminal exec inherits them. We deliberately
-  do **not** inject env per command — that's the wrong layer (and the terminal transport
-  is still a mock).
+  do **not** inject env per command — that's the wrong layer. `SessionController` reads
+  them off the env record server-side; the client does not send them.
+
+* **There is one way into the editor: `pages/launch.ts:launchEnvironment()`.**
+  Both `/environments` (launch a built env) and `/sandboxes` (reopen an existing one) call it,
+  so no caller can bypass warm reuse. It goes through `startSession()` → `POST /v1/sessions`,
+  which reuses this user's warm (`RUNNING`|`PAUSED`) sandbox for the env — resuming it if
+  paused — and only cold-boots when there is none. `POST /v1/sandboxes` is the raw *create
+  compute* verb and **always** boots a new container; calling it from the launch button meant a
+  second visit to `/environments` ran a second container for the same env. The `createSandbox()`
+  wrapper was deleted so it can't be reached for. Note the framing: *opening a sandbox* is
+  expressed as *connecting to its environment*. See ARCHITECTURE.md → Step 9e / 12.
 
 * **Launch waits for `RUNNING`.** `bootSandbox` may return `PROVISIONING`; the VFS needs
   a live workspace to hydrate, so `Environments.handleLaunch` gates on the sandbox
-  reaching `RUNNING` (`api/sandbox.ts:waitForRunning`) before entering the editor.
+  reaching `RUNNING` (`api/sandbox.ts:waitForRunning`) before entering the editor. On a
+  warm reuse this returns on the first poll, so the fast path stays fast.
 
 * **UI surfaces (menus, activity items) come from a contribution registry.**
   `core/ContributionRegistry` is seeded by the built-in `contrib/coreContributions`

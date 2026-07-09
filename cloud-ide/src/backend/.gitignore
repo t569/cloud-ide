@@ -1,10 +1,5 @@
 data/
-__tests__/
 builds/
-src/core/__tests__/
-src/database/__tests__/
-src/workspace/__tests__/
-src/transport/__tests__/
 .env
 
 *.node

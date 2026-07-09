@@ -96,6 +96,16 @@ export class WorkspaceWatchers {
     this.entries.set(sandboxId, entry);
   }
 
+  /**
+   * Is any browser currently holding this workspace open? An entry exists exactly
+   * while >=1 SSE client is subscribed, and `release` runs on tab close, navigation
+   * and socket death — so this is the liveness signal IdleSweeper wants. It needs no
+   * heartbeat and cannot go stale: a crashed client's socket closes.
+   */
+  isViewed(sandboxId: string): boolean {
+    return this.entries.has(sandboxId);
+  }
+
   /** Drop a reference; when the last subscriber leaves, stop the watcher. */
   release(sandboxId: string): void {
     const entry = this.entries.get(sandboxId);

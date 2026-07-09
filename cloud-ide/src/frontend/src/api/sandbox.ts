@@ -1,15 +1,43 @@
 // Frontend proxy to the backend sandbox API (/api/v1/sandboxes). apiClient's
 // base already ends in /api, so the path is /v1/sandboxes.
-import type { SandboxSpec, SandboxRecord, SandboxStatus } from '@cloud-ide/shared/types/sandbox';
+import type { SandboxState, SandboxStatus } from '@cloud-ide/shared/types/sandbox';
 import { apiClient } from '@frontend/lib/apiClient';
 
-/** Provision a sandbox from a built image tag; returns the record (incl. sandboxId). */
-export const createSandbox = (spec: SandboxSpec) =>
-  apiClient.post<SandboxRecord>('/v1/sandboxes', spec);
+// ponytail: no createSandbox() wrapper. POST /v1/sandboxes is the raw "create
+// compute" verb and always boots a NEW container — calling it to launch an env is
+// what double-provisioned. Everything launches through startSession(). Re-add a
+// direct wrapper only if something legitimately needs a second sandbox per env.
+
+export interface SessionResponse {
+  sessionId: string;
+  sandboxId: string;
+  websocketUrl: string;
+}
+
+/**
+ * Connect to an environment. The backend reuses a warm (RUNNING|PAUSED) sandbox
+ * owned by the caller for this env — resuming it if paused — and only cold-boots
+ * when there is none. This is the entry point for launching: going through
+ * createSandbox instead double-provisions on every click. Also issues the
+ * httpOnly `sid` cookie that the /api/fs ownership guard reads.
+ */
+export const startSession = (environmentId: string) =>
+  apiClient.post<SessionResponse>('/v1/sessions', { environmentId });
 
 /** Current state of a sandbox (reconciled with the Rust engine). */
 export const getSandboxStatus = (sandboxId: string) =>
   apiClient.get<SandboxStatus>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}`);
+
+export interface SandboxSummary {
+  sandboxId: string;
+  environmentId: string;
+  state: SandboxState;
+  createdAt: number;
+  lastActiveAt: number;
+}
+
+/** Every sandbox this user owns (Step 12a). State is the stored value, not a live poll. */
+export const listSandboxes = () => apiClient.get<SandboxSummary[]>('/v1/sandboxes');
 
 /**
  * Poll until the sandbox is RUNNING. Provisioning is async (bootSandbox may

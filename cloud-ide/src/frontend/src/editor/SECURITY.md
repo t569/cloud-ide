@@ -70,20 +70,38 @@ credentials handling.
   then `attachUser` run globally; a `GET /api/csrf` primes the cookies.
 - **IDOR closed, then closed properly.** The first fix keyed ownership off the
   `sid` session cookie and `session.sandboxId === :sandboxId`. That never worked:
-  the only issuer of `sid` is `POST /api/v1/sessions`, which the frontend never
-  called — so `/api/fs/*` 404'd for everyone, and a session links to exactly one
-  sandbox anyway. Ownership now lives on the record: `provision()` stamps
+  the only issuer of `sid` is `POST /api/v1/sessions`, which at the time the
+  frontend never called — so `/api/fs/*` 404'd for everyone, and a session links to
+  exactly one sandbox anyway. Ownership now lives on the record: `provision()` stamps
   `SandboxRecord.userId` from the identity seam (never from the request body), and
   `userOwnsSandbox` compares it to the caller. Returns **404**, not 403, so ids
   cannot be enumerated. One user may own many sandboxes.
-- **Guard coverage widened.** `/api/fs/:sandboxId/*` was the only guarded surface.
-  Every `/api/v1/sandboxes/:sandboxId` route — `exec`, `pause`, `resume`,
-  `destroy`, `volumes`, status — was protected by CSRF alone, which stops another
-  *site* forging a request but does nothing to stop this browser asking for a
+  **Since ARCHITECTURE 9e the frontend *does* call `POST /api/v1/sessions`** (it is the
+  launch path — see below), so `sid` is now actually issued. Ownership deliberately
+  stayed on `SandboxRecord.userId`: `sid` is a *connection* id, `uid` is the identity,
+  and only `uid` is signed. **Do not reintroduce `sid` as an authorization input.**
+- **Guard coverage widened, then made structural.** `/api/fs/:sandboxId/*` was the
+  only guarded surface. Every `/api/v1/sandboxes/:sandboxId` route — `exec`, `pause`,
+  `resume`, `destroy`, `volumes`, status — was protected by CSRF alone, which stops
+  another *site* forging a request but does nothing to stop this browser asking for a
   sandbox it does not own. All are now owner-gated, as is the PTY WebSocket
   upgrade (`readUserId`, not `currentUser` — an upgrade has no response to mint on).
+  The first fix listed `ownsSandbox` on each route in `server.ts`, which is
+  **fail-open**: a route added later is unprotected until someone remembers. Sandbox
+  routes now live in `api/SandboxRoutes.ts` behind `router.use('/:sandboxId', …)`,
+  matching `createFileSystemRouter`/`createPreviewRouter` — the guard is inherited by
+  construction, and the collection routes (`POST /`, `GET /`) stay open because they
+  have no `:sandboxId` to own. Enforced by `__tests__/sandbox-routes.test.ts`, which
+  drives a real router over real HTTP; deleting the guard fails 14 of its cases.
+  Admin force-destroy is deliberately **outside** that router — it acts on other
+  users' sandboxes by design and must not inherit the ownership guard.
   `SessionController`'s warm-sandbox reuse is also scoped to the caller; it would
-  otherwise hand you someone else's running workspace.
+  otherwise hand you someone else's running workspace. **This is now a live path**
+  (`POST /v1/sessions` is how the editor launches), not dead code: the
+  `(!sbx.userId || sbx.userId === userId)` filter in `startSession` is a real
+  authorization boundary and is covered by `backend/__tests__/session-controller.test.ts`.
+  The `!sbx.userId` disjunct is the same legacy-adoption branch as `userOwnsSandbox`
+  and must be deleted at the same time as it.
 
 - **`uid` is HMAC-signed** (`<uuid>.<sig>`), so a caller cannot self-assert an
   identity by setting the cookie. A bad signature is *no* identity, never a valid
@@ -125,6 +143,11 @@ credentials handling.
   identity seam means anything. Environments need an ownerId exactly like sandboxes.
 - `DELETE /api/v1/sessions/:sessionId` does not verify the session belongs to the
   caller. Low impact (ids are `randomUUID`, and it only emits a disconnect event).
+  It briefly looked worse: that event marks a session `DISCONNECTED`, which
+  `IdleSweeper` once read to decide what to pause — a guessed id would have
+  force-paused someone's workspace. The sweeper now derives liveness from the SSE
+  subscriber ref-count and never reads session state, so that path is closed.
+  Owner-gate the route anyway; nothing should be able to write another user's session.
 - No rate limiting anywhere.
 
 **Remaining (ops):** set `AUTH_SECRET`, `ADMIN_TOKEN` (or leave unset to keep admin

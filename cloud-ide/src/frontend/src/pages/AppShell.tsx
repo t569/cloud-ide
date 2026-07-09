@@ -4,11 +4,13 @@
 //
 // Routes:
 //   /environments (and / )      → Environments (env-manager)
+//   /sandboxes                  → Sandboxes (resume live/paused workspaces)
 //   /editor/:sandboxId          → IDE workspace, booted for that sandbox
 import React from 'react';
 import { useLocation } from './router';
 import { getSession } from './sessionStore';
 import Environments from './Environments';
+import Sandboxes from './Sandboxes';
 import IDEWorkspace from './IDEWorkspace';
 
 const EDITOR_ROUTE = /^\/editor\/([^/]+)\/?$/;
@@ -25,6 +27,8 @@ export default function AppShell() {
     // ponytail: ?snapshot=<id> is consumed here once Step 11 (snapshot restore) lands.
     return <IDEWorkspace session={getSession(sandboxId)} />;
   }
+
+  if (path === '/sandboxes') return <Sandboxes />;
 
   // Default: the environment manager.
   return <Environments />;

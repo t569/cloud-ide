@@ -1,24 +1,41 @@
 // backend/src/services/sandbox/IdleSweeper.ts
-import { ISessionRepository, ISandboxRepository } from '../../database/interfaces';
+import { ISandboxRepository } from '../../database/interfaces';
 import { SandboxManager } from './SandboxManager';
+import { WorkspaceWatchers } from '../WorkspaceWatchers';
 
+/**
+ * How long after a boot/resume a sandbox is immune from pausing. Covers the gap
+ * between `provision`/`resume` returning and the editor's SSE stream attaching —
+ * without it, a sweep landing in that window pauses the sandbox the user is
+ * currently waiting on, and `waitForRunning` spins on PAUSED until it times out.
+ */
+const GRACE_MS = Number(process.env.IDLE_GRACE_MS) || 2 * 60 * 1000;
 
 /**
  * @class IdleSweeper
- * @description The automated resource optimizer (Scale-to-Zero Daemon). 
- * * It continuously monitors active infrastructure and freezes (pauses via cgroups) 
+ * @description The automated resource optimizer (Scale-to-Zero Daemon).
+ * * It continuously monitors active infrastructure and freezes (pauses via cgroups)
  * containers that have no active users. This prevents runaway cloud compute costs.
- * * NOTE: For this to work without disrupting users, the Gateway Controllers must 
- * implement a "Wake-on-Demand" pattern, catching requests to paused sandboxes 
+ * * NOTE: For this to work without disrupting users, the Gateway Controllers must
+ * implement a "Wake-on-Demand" pattern, catching requests to paused sandboxes
  * and resuming them prior to routing traffic.
+ *
+ * "No active users" is answered by `WorkspaceWatchers.isViewed` — an SSE subscriber
+ * is held for exactly as long as an editor has the workspace open, and the socket
+ * dies with the tab. We deliberately do NOT consult `SessionRepository`: a
+ * `SessionRecord` only leaves ACTIVE via `DELETE /api/v1/sessions/:id`, which no
+ * client calls, so every sandbox ever launched looked permanently busy and nothing
+ * was ever paused. ponytail: reuse the ref-count that already exists, don't add a
+ * heartbeat. If the gateway ever spans nodes, this count must go to shared state
+ * alongside FsEventHub's pub/sub.
  */
 export class IdleSweeper {
   private sweepInterval: NodeJS.Timeout;
 
   constructor(
-    private sessionRepo: ISessionRepository,
     private sandboxRepo: ISandboxRepository,
-    private sandboxManager: SandboxManager
+    private sandboxManager: SandboxManager,
+    private watchers: WorkspaceWatchers,
   ) {
     // Allows overriding via .env (e.g., SWEEP_INTERVAL_MS=3600000 for 1 hr in dev mode)
     // to prevent aggressive pausing while debugging locally. Defaults to 5 minutes.
@@ -69,18 +86,20 @@ export class IdleSweeper {
 
     const runningSandboxes = allSandboxes.filter(sbx => sbx.state === 'RUNNING');
 
-    for (const sandbox of runningSandboxes) {
-      // 2. Find all sessions connected to this sandbox
-      const activeSessions = await this.sessionRepo.getSessionsBySandboxId(sandbox.sandboxId);
-      
-      // 3. If there are NO active sessions, the sandbox is idle
-      const isIdle = activeSessions.length === 0 || activeSessions.every(s => s.state === 'DISCONNECTED');
+    const now = Date.now();
 
-      if (isIdle) {
-        console.log(`[IdleSweeper] Sandbox ${sandbox.sandboxId} is idle. Pausing to save compute...`);
-        // Tell Rust to freeze the container!
-        await this.sandboxManager.pause(sandbox.sandboxId);
-      }
+    for (const sandbox of runningSandboxes) {
+      // 2. Is an editor holding this workspace open right now?
+      if (this.watchers.isViewed(sandbox.sandboxId)) continue;
+
+      // 3. Freshly booted/resumed sandboxes get a grace period to attach.
+      //    A record predating lastActiveAt has none — fall back to createdAt.
+      const lastActive = sandbox.lastActiveAt ?? sandbox.createdAt;
+      if (now - lastActive < GRACE_MS) continue;
+
+      console.log(`[IdleSweeper] Sandbox ${sandbox.sandboxId} is idle. Pausing to save compute...`);
+      // Tell Rust to freeze the container!
+      await this.sandboxManager.pause(sandbox.sandboxId);
     }
   }
 

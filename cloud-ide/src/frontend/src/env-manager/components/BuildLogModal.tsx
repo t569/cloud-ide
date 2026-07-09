@@ -20,27 +20,49 @@ export const BuildLogModal = ({ env, onClose }: { env: SavedEnvironment; onClose
   const terminalRef = useRef<TerminalHandle>(null);
   const transport = useRef(new BuildStreamTransport()).current;
   const cancelledRef = useRef(false);
+  // Which env we've already POSTed a build for — survives StrictMode's remount so
+  // we don't fire a second /build that 409s against the first live reservation.
+  const startedForRef = useRef<string | null>(null);
+  const teardownTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [status, setStatus] = useState<Status>('building');
   const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
-    transport.onError(() => {
-      if (!cancelledRef.current) setStatus('error');
-    });
-    transport.startBuild(env.id).finally(async () => {
-      if (cancelledRef.current) {
-        setStatus('cancelled');
-        return;
-      }
-      // The stream is plain text; ask the backend for the authoritative outcome.
-      try {
-        const state = await getBuildStatus(env.id);
-        setStatus((s) => (s === 'error' ? s : state.status === 'failed' ? 'error' : 'done'));
-      } catch {
-        setStatus((s) => (s === 'error' ? s : 'done'));
-      }
-    });
-    return () => transport.disconnect();
+    // StrictMode does mount -> cleanup -> mount synchronously; a remount cancels the
+    // deferred teardown below so it can't abort the build we just started.
+    if (teardownTimer.current) {
+      clearTimeout(teardownTimer.current);
+      teardownTimer.current = null;
+    }
+
+    if (startedForRef.current !== env.id) {
+      startedForRef.current = env.id;
+      transport.onError(() => {
+        if (!cancelledRef.current) setStatus('error');
+      });
+      transport.startBuild(env.id).finally(async () => {
+        if (cancelledRef.current) {
+          setStatus('cancelled');
+          return;
+        }
+        // The stream is plain text; ask the backend for the authoritative outcome.
+        try {
+          const state = await getBuildStatus(env.id);
+          setStatus((s) => (s === 'error' ? s : state.status === 'failed' ? 'error' : 'done'));
+        } catch {
+          setStatus((s) => (s === 'error' ? s : 'done'));
+        }
+      });
+    }
+
+    return () => {
+      // Defer the real teardown one tick: a StrictMode remount clears it above,
+      // only a genuine unmount lets it run (abort the stream, allow a fresh build).
+      teardownTimer.current = setTimeout(() => {
+        transport.disconnect();
+        startedForRef.current = null;
+      }, 0);
+    };
   }, [transport, env.id]);
 
   // Esc to close

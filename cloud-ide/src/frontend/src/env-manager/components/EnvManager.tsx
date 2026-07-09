@@ -72,7 +72,7 @@ export const EnvManager = ({ onLaunch }: EnvManagerProps = {}) => {
               <p className="text-gray-500 text-sm mt-0.5">Configure packages and dependencies</p>
             </div>
 
-            <GeneralSettings register={register} baseImage={baseImage} environmentId={currentEnvId} />
+            <GeneralSettings register={register} setValue={setValue} baseImage={baseImage} environmentId={currentEnvId} />
 
             <BuildPipeline control={control} register={register} setValue={setValue} />
           </div>

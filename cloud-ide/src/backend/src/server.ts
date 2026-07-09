@@ -29,6 +29,7 @@ import { csrfProtection } from './api/middleware/security';
 import { createFileSystemRouter } from './api/FileSystemRoutes';
 import { createPreviewRouter } from './api/PreviewRoutes';
 import { createEnvironmentRouter } from './api/routes/environment.routes';
+import { createImageRouter } from './api/routes/images.routes';
 import { attachPtyGateway } from './api/PtyGateway';
 
 import { EventEmitter } from 'events';
@@ -119,6 +120,9 @@ const buildService = new BuildService(
 );
 
 app.use('/api/environment', createEnvironmentRouter(envRepo, sessionRepo, buildService));
+
+// Docker Hub image/tag search proxy (base-image picker in the env architect).
+app.use('/api/images', createImageRouter());
 
 // GARBAGE COLLECTION: RUNS IN THE BACKGROUND
 GarbageCollector.init();

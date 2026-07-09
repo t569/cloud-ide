@@ -8,6 +8,15 @@ import { BuilderRegistry } from './BuilderRegistry';
 import { IBuildStore, BuildState } from './BuildStore';
 import { IBuilder, BuildProcess, BuildOptions } from './IBuilder';
 
+/**
+ * Ceiling on any build that doesn't set its own `config.timeout`. Generous — a cold
+ * base image plus a heavy `apt-get` is minutes — but finite, so a wedged docker/
+ * BuildKit process always releases its concurrency slot and reports a failure the
+ * user can see, instead of streaming nothing forever.
+ * ponytail: one global default. Per-builder ceilings only if a builder needs longer.
+ */
+const DEFAULT_BUILD_TIMEOUT_MS = Number(process.env.BUILD_TIMEOUT_MS) || 30 * 60 * 1000;
+
 // Counting semaphore: caps how many builds run at once. release() hands the slot
 // straight to the next waiter (FIFO), so `active` stays balanced.
 class Semaphore {
@@ -195,7 +204,11 @@ export class BuildService {
       const relay = new RelayBuildProcess();
       this.wire(env.id, relay, versionedTag);
       // config.timeout is seconds; a hung build must not hold a queue slot forever.
-      const timeoutMs = config?.timeout ? config.timeout * 1000 : undefined;
+      // Unset used to mean *no* timeout, so a docker build that wedged (a BuildKit
+      // daemon left inconsistent by an unclean shutdown does exactly this) streamed
+      // nothing, never exited, and held its slot until the gateway restarted. With
+      // MAX_CONCURRENT_BUILDS=2, two such builds stall the pipeline permanently.
+      const timeoutMs = config?.timeout ? config.timeout * 1000 : DEFAULT_BUILD_TIMEOUT_MS;
       // v1: push the immutable versioned tag, and only when a registry qualified
       // it (unset => bare tag, stripRegistry is a no-op => skip push, zero change).
       const pushTag =

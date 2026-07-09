@@ -134,9 +134,10 @@ app.delete('/api/v1/sessions/:sessionId', sessionController.disconnectSession);
 // Build pipeline: Docker today, swappable via the registry. The build store is
 // config-driven ($BUILD_STORE: json (default) | memory | redis). To use Redis,
 // pass a client here: createBuildStore({ backend: 'redis', redis: myClient }).
+const buildStore = createBuildStore();
 const buildService = new BuildService(
   new BuilderRegistry([new DockerBuilder()]),
-  createBuildStore(),
+  buildStore,
   Number(process.env.MAX_CONCURRENT_BUILDS) || 2, // global build concurrency cap
 );
 
@@ -170,9 +171,22 @@ const server = http.createServer(app);
 attachPtyGateway(server, { sandboxManager, sandboxRepo });
 
 // 2. USE THE CONFIG OBJECT
-server.listen(config.PORT, () => {
-  console.log(`\x1b[1;32m[Gateway]\x1b[0m Node API Gateway initialized on port ${config.PORT}`);
-});
+//
+// Listen only once the build store has hydrated. `IBuildStore.begin()` is sync, so a
+// build POSTed during the load would be silently erased when hydrate() replaced the
+// in-memory mirror — the UI then showed the previous run's "Interrupted by a server
+// restart" while docker built in the background. Volatile stores expose no `ready`
+// and resolve immediately. The delay is one file read.
+(buildStore.ready ?? Promise.resolve())
+  .then(() => {
+    server.listen(config.PORT, () => {
+      console.log(`\x1b[1;32m[Gateway]\x1b[0m Node API Gateway initialized on port ${config.PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('[Gateway] build store failed to load; refusing to start:', err);
+    process.exit(1);
+  });
 
 
 // Set the global Gateway timeout (e.g., 130 seconds)

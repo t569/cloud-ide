@@ -169,7 +169,8 @@ export class VirtualFileSystem {
   /**
    * Retrieves file content instantly from memory.
    */
-  public async readFile(path: string): Promise<string> {
+  public async readFile(rawPath: string): Promise<string> {
+    const path = this.toWorkspacePath(rawPath);
     const node = this.fileMap.get(path);
     if (!node) throw new Error(`File not found in VFS: ${path}`);
     if (node.type !== 'file') return '';
@@ -190,7 +191,8 @@ export class VirtualFileSystem {
    * Updates file content in memory instantly (Optimistic Update) and queues it for the backend.
    * Called by the controller every time the user types a keystroke in Monaco.
    */
-  public updateFile(path: string, newContent: string) {
+  public updateFile(rawPath: string, newContent: string) {
+    const path = this.toWorkspacePath(rawPath);
     const node = this.fileMap.get(path);
     // Do not allow updates to files the user just deleted but haven't synced yet
     if (!node || node.markedForDeletion) return;
@@ -212,10 +214,16 @@ export class VirtualFileSystem {
     parts.pop(); // Remove the actual file name at the end
 
     let currentPath = '';
-    
+
     for (const part of parts) {
       currentPath += `/${part}`;
-      
+
+      // The workspace root is the tree's implicit container, not a node in it —
+      // hydrateWorkspace lists what's INSIDE /workspace and never maps /workspace
+      // itself. Materialising it here would wrap the whole explorer in a phantom
+      // "workspace" folder and queue a directory that is never written.
+      if (currentPath === WORKSPACE_ROOT) continue;
+
       // If this directory doesn't exist in our memory map, create it
       if (!this.fileMap.has(currentPath)) {
         console.log(`[VFS] Auto-creating missing directory: ${currentPath}`);
@@ -241,24 +249,42 @@ export class VirtualFileSystem {
   /**
    * Creates a new file or directory locally and queues the creation for the backend.
    */
-  public createFileOrDir(path: string, type: 'file' | 'directory') {
+  /**
+   * Root a UI-supplied path under the workspace. The tree is keyed on CONTAINER
+   * paths (`hydrateWorkspace` walks `/workspace`, and chokidar reports the same),
+   * but the "New File" prompt and the upload handler hand us `/new_file.txt`.
+   *
+   * Unrooted, the node was keyed `/new_file.txt` while the backend wrote it to the
+   * worktree root — which *is* `/workspace` — so the watcher then reported
+   * `/workspace/new_file.txt` and `applyPatch` inserted a SECOND node for the same
+   * file. Two entries, one file, and edits landing on whichever the tab held.
+   *
+   * Idempotent: `renameNode` feeds back already-rooted paths.
+   */
+  private toWorkspacePath(path: string): string {
+    if (path === WORKSPACE_ROOT || path.startsWith(`${WORKSPACE_ROOT}/`)) return path;
+    return `${WORKSPACE_ROOT}/${path.replace(/^\/+/, '')}`;
+  }
+
+  public createFileOrDir(rawPath: string, type: 'file' | 'directory') {
+    const path = this.toWorkspacePath(rawPath);
     if (this.fileMap.has(path)) throw new Error("Path already exists");
 
     // Force the creation of intermediate folders first
     this.ensureDirectoriesExist(path);
 
     this.fileMap.set(path, {
-      path, 
-      name: path.split('/').pop() || '', 
+      path,
+      name: path.split('/').pop() || '',
       type,
       content: type === 'file' ? '' : null,
       sha: null,
-      isDirty: true, 
-      markedForDeletion: false, 
-      lastModified: Date.now(), 
+      isDirty: true,
+      markedForDeletion: false,
+      lastModified: Date.now(),
       version: 1
     });
-    
+
     this.syncQueue.add(path);
   }
 
@@ -266,7 +292,8 @@ export class VirtualFileSystem {
    * Marks a file or directory (and recursively all its children) for deletion.
    * The UI hides it instantly, but it stays in memory until the backend confirms the delete.
    */
-  public deleteNode(targetPath: string) {
+  public deleteNode(rawTargetPath: string) {
+    const targetPath = this.toWorkspacePath(rawTargetPath);
     // Recursive deletion: Iterate through the flat map to find the node and all children
     for (const [path, node] of this.fileMap.entries()) {
       if (path === targetPath || path.startsWith(targetPath + '/')) {
@@ -281,7 +308,9 @@ export class VirtualFileSystem {
    * Renames a node. Handled gracefully as a "Create new -> Copy content -> Mark old for deletion"
    * to ensure no data is lost during transit.
    */
-  public renameNode(oldPath: string, newPath: string) {
+  public renameNode(rawOldPath: string, rawNewPath: string) {
+    const oldPath = this.toWorkspacePath(rawOldPath);
+    const newPath = this.toWorkspacePath(rawNewPath);
     for (const [path, node] of this.fileMap.entries()) {
       // Find the specific file, or any files nested inside the directory being renamed
       if (path === oldPath || path.startsWith(oldPath + '/')) {

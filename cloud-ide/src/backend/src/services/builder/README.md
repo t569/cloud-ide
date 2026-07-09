@@ -109,6 +109,15 @@ once a slot frees. Cache hits bypass the queue entirely.
 `IBuildStore` is the persistence seam. The in-memory mirror backs the
 **synchronous** reads and concurrency guard; durable stores add I/O on top.
 
+**Hydration is a boot barrier.** `begin()` is sync (the guard needs it to be) while a
+durable store's `load()` is not, so `server.ts` gates `listen()` on `store.ready`
+before accepting traffic. A build accepted mid-load used to be erased when
+`hydrate()` replaced the mirror: its status reverted to the *previous, crashed*
+run's `failed: Interrupted by a server restart`, its history entry vanished, and its
+per-env conflict lock went with it — while docker built on in the background, logs
+going nowhere. `hydrate()` now also carries live builds across, so an ordering
+mistake cannot corrupt state. `ready` is absent on volatile stores.
+
 | Store | Durability | Notes |
 |---|---|---|
 | `InMemoryBuildStore` | none | tests / ephemeral; base for the others |
@@ -182,6 +191,7 @@ Environment variables:
 |---|---|---|
 | `BUILD_STORE` | `json` | `json` \| `memory` \| `redis` |
 | `MAX_CONCURRENT_BUILDS` | `2` | global build concurrency cap |
+| `BUILD_TIMEOUT_MS` | `1800000` (30 min) | ceiling for a build that sets no `config.timeout`. A wedged docker/BuildKit process (an unclean shutdown leaves them) streams nothing and never exits — without a ceiling it holds its concurrency slot until the gateway restarts, and two of them stall the pipeline for good. |
 | `DOCKER_BUILDER` | _(unset)_ | name of a buildx builder to route builds through — the seam for BuildKit-native resource limits (see roadmap) |
 | `DOCKER_REGISTRY` | _(unset)_ | registry host to qualify tags with (`host[:port]`); unset ⇒ local-only, tags stay bare. Applied in `toImageName` (shared `qualify()`), so build/exists/deploy/history all agree. Auth is ops-provisioned (`docker login`). |
 

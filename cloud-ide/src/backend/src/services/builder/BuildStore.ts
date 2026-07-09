@@ -23,6 +23,13 @@ export interface BuildState {
 }
 
 export interface IBuildStore {
+  /**
+   * Resolves once persisted state has loaded. Absent on volatile stores, which are
+   * ready immediately. **Await this before serving traffic**: `begin()` is sync (the
+   * concurrency guard needs it to be), so a build accepted mid-hydration races the
+   * load. server.ts gates `listen()` on it.
+   */
+  readonly ready?: Promise<void>;
   /** Latest state for an env (undefined if it never built). */
   get(envId: string): BuildState | undefined;
   isBuilding(envId: string): boolean;
@@ -115,8 +122,21 @@ export class InMemoryBuildStore implements IBuildStore {
    * Load persisted records into the in-memory mirror, reconciling any build left
    * queued/building by a crash (→ failed). Returns true if anything changed, so
    * the caller can re-persist. Shared by JsonBuildStore + RedisBuildStore.
+   *
+   * Builds started BEFORE hydration finished are carried over, not overwritten.
+   * `load()` is async while `begin()` is sync, so a build accepted during boot
+   * exists only in memory — the file on disk predates it. Blindly replacing the
+   * mirror erased that live build: its status reverted to the *crashed* record
+   * (`failed: Interrupted by a server restart`), its history entry vanished, and
+   * the per-env conflict lock went with it. The server should not accept builds
+   * before hydration (see `ready` in server.ts), but this must hold regardless —
+   * an ordering bug should not corrupt state.
    */
   protected hydrate(records: BuildState[]): boolean {
+    const live = [...this.states.values()].filter(
+      (s) => s.status === 'queued' || s.status === 'building',
+    );
+
     let reconciled = false;
     for (const r of records) {
       if (r.status === 'building' || r.status === 'queued') {
@@ -126,10 +146,12 @@ export class InMemoryBuildStore implements IBuildStore {
         reconciled = true;
       }
     }
-    this.records = records.slice(0, MAX_HISTORY);
+
+    // Live builds are newer than anything on disk, so they lead the newest-first list.
+    this.records = [...live, ...records].slice(0, MAX_HISTORY);
     this.states.clear();
     for (const r of this.records) if (!this.states.has(r.envId)) this.states.set(r.envId, r); // newest-first wins
-    return reconciled;
+    return reconciled || live.length > 0;
   }
 
   /** Serialise the durable payload (history is the source; state is derived). */

@@ -5,6 +5,7 @@ import { EventEmitter } from 'events';
 import { ISessionRepository, ISandboxRepository } from '../database/interfaces';
 import { SandboxManager } from '../services/sandbox/SandboxManager';
 import { SessionRecord } from '../database/models';
+import { toImageName } from '@cloud-ide/shared';
 import { config } from '../config/env';
 import { SID_COOKIE, SESSION_COOKIE_OPTIONS } from '../api/middleware/security';
 
@@ -78,9 +79,12 @@ export class SessionController {
         }
       } else {
         console.log(`[SessionController] No warm sandbox found. Delegating to Rust...`);
-        // 4. No sandbox exists. Ask Rust to provision one natively.
+        // 4. No sandbox exists. Provision one from the environment's BUILT image.
+        // toImageName maps the env id to the ':latest' tag the build applies (and
+        // that rollback retags) — not the bare env id, which the daemon 400s on
+        // because it isn't a real image reference.
         const newSandbox = await this.sandboxManager.provision({
-          imageTag: environmentId,
+          imageTag: toImageName(environmentId),
           // If repoUrl was provided, pass it down so Rust can map the volume
         });
         targetSandboxId = newSandbox.sandboxId;

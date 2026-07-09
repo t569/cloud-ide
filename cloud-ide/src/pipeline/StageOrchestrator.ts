@@ -17,7 +17,11 @@ export class StageOrchestrator {
     const transfers: ArtifactTransfer[] = [];
 
     const builderImage = config.baseImage;
-    const runtimeImage = this.resolveRuntimeImage(config.baseImage);
+    // Runtime reuses the exact base the builder already pulled. We used to append
+    // "-slim" here, but that fabricated tags Docker Hub doesn't have (python:latest-slim,
+    // ubuntu:22.04-slim, python:slim), so the runtime FROM failed to pull. If a smaller
+    // runtime is wanted, set baseImage to a real slim/alpine tag explicitly.
+    const runtimeImage = config.baseImage;
 
     // 1. Step Routing
     for (const step of config.buildSteps) {
@@ -90,12 +94,5 @@ export class StageOrchestrator {
     if (heavyBuilders.includes(step.type) && step.isGlobal === false) return true;
     if (step.type === 'shell' && step.targetPath) return true;
     return false;
-  }
-
-  private static resolveRuntimeImage(baseImage: string): string {
-    if (baseImage.includes('-slim') || baseImage.includes('-alpine')) return baseImage;
-    const [name, tag] = baseImage.split(':');
-    if (!tag) return `${name}:slim`;
-    return `${name}:${tag}-slim`;
   }
 }

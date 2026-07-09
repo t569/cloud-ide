@@ -5,9 +5,9 @@
   "main": "dist/server.js",
   "scripts": {
     "build:rust": "node scripts/build-rust.mjs",
-    "build": "npm run build:rust && tsc",
+    "build": "tsc",
     "start": "node dist/server.js",
-    "dev": "npm run build:rust && ts-node src/server.ts",
+    "dev": "ts-node src/server.ts",
     "test": "jest",
     "start:engine": "node ../opensandbox/boot-engine.js"
   },

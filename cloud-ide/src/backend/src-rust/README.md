@@ -1,4 +1,14 @@
-# cloud-ide-engine (Rust napi engine)
+# cloud-ide-engine (Rust napi engine) — ⚠️ DEPRECATED
+
+> **This crate is no longer built or loaded.** The active engine is the TypeScript
+> port at `../src/services/sandbox/openSandboxEngine.ts`. The engine only ever did
+> I/O (HTTP to the OpenSandbox daemon + an in-memory IP map) — no CPU work — so the
+> napi/FFI boundary and the whole `Module did not self-register` toolchain problem
+> bought nothing. The port is behavior-for-behavior identical.
+>
+> This is kept as the reference implementation. Delete it (and `scripts/build-rust.mjs`,
+> the `@napi-rs/cli` devDep, and the `build:rust` script) once the TS engine has soaked
+> in production. The build instructions below apply only if you deliberately revive it.
 
 The compiled `index.node` that the backend loads over the N-API boundary
 (`src/services/sandbox/rustClient.ts`). Built as a `cdylib`, not an executable.

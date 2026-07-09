@@ -1,4 +1,10 @@
 // backend/src-rust/src/lib.rs
+//
+// DEPRECATED — no longer built or loaded. The active engine is the TypeScript port
+// at backend/src/services/sandbox/openSandboxEngine.ts. This crate did no CPU work
+// (it's an HTTP client to the OpenSandbox daemon), so the napi/FFI boundary bought
+// nothing. Kept as the behavioral reference; delete once the TS port has soaked in
+// production. See src-rust/README.md.
 
 #![deny(clippy::all)]
 

@@ -47,6 +47,25 @@ export class DockerBuilder implements IBuilder {
     return this.docker.succeeds(['image', 'inspect', imageTag]);
   }
 
+  /**
+   * Can this base image be pulled? Local first (works offline), else ask the
+   * registry via `docker manifest inspect` (metadata only, no pull). Fails OPEN:
+   * only a registry "unknown manifest/tag" returns false — spawn errors, auth,
+   * offline, or a disabled `manifest` subcommand return true so `docker build`
+   * stays the arbiter. Catches typo'd tags (e.g. python:22.04) before the build.
+   */
+  async resolvable(imageRef: string): Promise<boolean> {
+    if (await this.docker.succeeds(['image', 'inspect', imageRef])) return true;
+    try {
+      await this.docker.run(['manifest', 'inspect', imageRef]);
+      return true;
+    } catch (err) {
+      const msg = (err as Error).message.toLowerCase();
+      const unknown = /manifest unknown|manifest for .* not found|no such manifest|not found|does not exist|repository .* not found/.test(msg);
+      return !unknown; // unknown tag -> block; any other failure -> fail open
+    }
+  }
+
   /** `docker tag` — point target at source (move :latest onto a content tag). */
   async tag(source: string, target: string): Promise<void> {
     await this.docker.run(['tag', source, target]);

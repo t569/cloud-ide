@@ -32,6 +32,14 @@ export interface IBuilder {
   build(dockerfile: string, imageTags: string[], opts?: BuildOptions): BuildProcess;
   /** True if an image with this ref already exists locally (cache-hit skip). */
   exists?(imageTag: string): Promise<boolean>;
+  /**
+   * True if a base image ref can be used: present locally, or resolvable on its
+   * registry. MUST fail open — return true on transient/tooling errors (offline,
+   * auth, missing subcommand) and only false when the registry says the ref is
+   * unknown. Lets the build preflight reject a typo'd tag without blocking valid
+   * builds on a flaky check.
+   */
+  resolvable?(imageRef: string): Promise<boolean>;
   /** Point one ref at another (retag) — for :latest updates and rollback. */
   tag?(sourceRef: string, targetRef: string): Promise<void>;
   /**

@@ -40,3 +40,36 @@ describe('DockerBuilder push args', () => {
     expect(calls[0]).toEqual(['push', 'reg.example.com/cloud-ide-env-x:abc123']);
   });
 });
+
+describe('DockerBuilder.resolvable', () => {
+  // succeedsLocal: `image inspect` result; runReject: what `manifest inspect` throws.
+  function cli(succeedsLocal: boolean, runReject?: string) {
+    return {
+      succeeds: async () => succeedsLocal,
+      run: async () => {
+        if (runReject !== undefined) throw new Error(runReject);
+        return { stdout: '', stderr: '' };
+      },
+    } as unknown as DockerCli;
+  }
+
+  it('true when present locally (no registry call)', async () => {
+    expect(await new DockerBuilder(cli(true)).resolvable('python:22.04')).toBe(true);
+  });
+
+  it('true when the registry manifest resolves', async () => {
+    expect(await new DockerBuilder(cli(false)).resolvable('python:3.12')).toBe(true);
+  });
+
+  it('false ONLY when the registry says the tag is unknown', async () => {
+    const b = new DockerBuilder(cli(false, 'docker manifest inspect exited 1: no such manifest: docker.io/library/python:22.04'));
+    expect(await b.resolvable('python:22.04')).toBe(false);
+  });
+
+  it('fails open on non-"not found" errors (offline / docker missing / auth)', async () => {
+    const offline = new DockerBuilder(cli(false, 'spawn docker ENOENT'));
+    expect(await offline.resolvable('python:3.12')).toBe(true);
+    const authErr = new DockerBuilder(cli(false, 'error: denied: requested access to the resource is denied'));
+    expect(await authErr.resolvable('private/img:1')).toBe(true);
+  });
+});

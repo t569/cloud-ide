@@ -171,6 +171,23 @@ export class BuildService {
         return proc;
       }
 
+      // Preflight the base image so a typo'd/nonexistent ref (e.g. python:22.04)
+      // fails here with a readable message instead of a cryptic buildkit "failed to
+      // resolve source metadata" mid-build. resolvable() fails open, so a flaky
+      // check never blocks a valid build.
+      if (config?.baseImage && builder.resolvable && !(await builder.resolvable(config.baseImage))) {
+        const proc = new InstantBuildProcess(
+          [
+            `\x1b[1;31m[Base Image]\x1b[0m Could not resolve "${config.baseImage}" locally or on the registry.\n`,
+            `Check the image name and tag — e.g. "python" has no "22.04" tag; try "python:3.12" or "ubuntu:22.04".\n`,
+          ],
+          'failed',
+          `Base image "${config.baseImage}" not found on the registry`,
+        );
+        this.wire(env.id, proc, versionedTag);
+        return proc;
+      }
+
       // Generate now (validates config) so we fail fast before holding a slot.
       const dockerfile = DockerGeneratorService.generateDockerfile(JSON.stringify(config));
       const imageTags = config ? [versionedTag, latestTag] : [latestTag];

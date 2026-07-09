@@ -35,12 +35,16 @@ describe('OpenSandboxEngine', () => {
     global.fetch = realFetch;
   });
 
-  it('boot maps the daemon status with no IP anywhere in it', async () => {
-    global.fetch = mockFetch([
+  it('boots with Kubernetes-quantity resource limits the daemon actually reads', async () => {
+    const fetchMock = mockFetch([
       { method: 'POST', match: /\/v1\/sandboxes$/, res: { status: 202, json: async () => running('sbx-1') } },
-    ]) as any;
+    ]);
+    global.fetch = fetchMock as any;
 
-    const status = await new OpenSandboxEngine().bootSandbox({ imageTag: 'img:latest' });
+    const status = await new OpenSandboxEngine().bootSandbox({
+      imageTag: 'img:latest',
+      resourceLimits: { cpuCount: 2, memoryMb: 1024 },
+    });
 
     expect(status).toEqual({
       sandboxId: 'sbx-1',
@@ -48,6 +52,37 @@ describe('OpenSandboxEngine', () => {
       execdPort: 44772,
       message: 'OpenSandbox status resolved',
     });
+
+    const payload = fetchMock.calls[0].body;
+    // `cpu`/`memory`, not `cpuCount`/`memoryMb` — wrong keys are accepted by pydantic
+    // and then silently dropped, booting the container with no caps at all.
+    expect(payload.resourceLimits).toEqual({ cpu: '2', memory: '1024Mi' });
+    // A bare `memory` number means BYTES; the Mi suffix is what makes it megabytes.
+    expect(payload.resourceLimits.memory).toMatch(/Mi$/);
+    // Neither of these is a field on CreateSandboxRequest.
+    expect(payload.image).toEqual({ uri: 'img:latest' });
+    expect(payload).not.toHaveProperty('exposedPorts');
+  });
+
+  it('defaults limits rather than booting uncapped', async () => {
+    const fetchMock = mockFetch([
+      { method: 'POST', match: /\/v1\/sandboxes$/, res: { json: async () => running('sbx-1') } },
+    ]);
+    global.fetch = fetchMock as any;
+
+    await new OpenSandboxEngine().bootSandbox({ imageTag: 'img:latest' });
+    expect(fetchMock.calls[0].body.resourceLimits).toEqual({ cpu: '1', memory: '512Mi' });
+  });
+
+  it('sends no TTL — timeout is an absolute deadline, not an idle timer', async () => {
+    const fetchMock = mockFetch([
+      { method: 'POST', match: /\/v1\/sandboxes$/, res: { json: async () => running('sbx-1') } },
+    ]);
+    global.fetch = fetchMock as any;
+
+    await new OpenSandboxEngine().bootSandbox({ imageTag: 'img:latest' });
+    // A number here reaps active users' sandboxes at the deadline. IdleSweeper owns this.
+    expect(fetchMock.calls[0].body.timeout).toBeNull();
   });
 
   it('surfaces the daemon body on a rejected boot', async () => {

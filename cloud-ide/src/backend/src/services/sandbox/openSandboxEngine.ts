@@ -2,11 +2,11 @@
 //
 // Originally a napi Rust addon (src-rust), ported to TS because it was doing no CPU
 // work — just async HTTP and SSE, which Node does natively. It is NO LONGER a mirror
-// of that crate: the Rust was written against an imagined API (notably a `status.ip`
-// field the daemon has never had), and its tests mocked that same fiction, so they
-// passed while every real boot failed. The shapes below are taken from upstream
-// `server/opensandbox_server/api/schema.py`. See src/opensandbox/README.md for the
-// full audit before "restoring" anything here.
+// of that crate: the Rust was written against an imagined API (a `status.ip` field and
+// `cpuCount`/`memoryMb` limits that the daemon has never had), and its tests mocked
+// that same fiction, so they passed while every real boot failed. The shapes below are
+// taken from upstream `server/opensandbox_server/api/schema.py`. See
+// src/opensandbox/README.md for the full audit before "restoring" anything here.
 
 import {
   SandboxExecRequest,
@@ -58,17 +58,27 @@ export class OpenSandboxEngine implements RustEngineAPI {
   }
 
   async bootSandbox(spec: SandboxSpec): Promise<SandboxStatus> {
+    // The daemon reads resourceLimits as free-form Kubernetes quantity strings keyed
+    // `cpu` and `memory`. Any other key is accepted by pydantic, then silently dropped
+    // by the Docker runtime — which is how this booted uncapped for so long. Note
+    // `memory` without a unit means BYTES, so the Mi suffix is load-bearing.
     const cpu = spec.resourceLimits?.cpuCount ?? 1;
-    const mem = spec.resourceLimits?.memoryMb ?? 512;
+    const memoryMb = Math.round(spec.resourceLimits?.memoryMb ?? 512);
     const payload: Record<string, unknown> = {
-      image: { uri: spec.imageTag, pullPolicy: 'IfNotPresent' },
-      timeout: 3600,
-      resourceLimits: { cpuCount: String(cpu), memoryMb: String(mem) },
+      // ponytail: no `pullPolicy` and no top-level `exposedPorts` — neither is a field
+      // on CreateSandboxRequest. Ports are reached via resolveEndpoint(), not declared.
+      image: { uri: spec.imageTag },
+      // No TTL. `timeout` is an ABSOLUTE deadline from creation, not an idle timer, so
+      // the old 3600 killed sandboxes out from under active users at the 1h mark — and
+      // IdleSweeper then saw STOPPED and destroyed the record and its worktree.
+      // IdleSweeper owns the lifecycle: it pauses on idle and prunes ghosts. null
+      // disables auto-expiry (Docker runtime; a k8s provider may reject a null timeout).
+      timeout: null,
+      resourceLimits: { cpu: String(cpu), memory: `${memoryMb}Mi` },
       env: spec.envVars ?? {},
       volumes: (spec.volumes ?? []).map(mapVolumeMount),
       entrypoint: ['sleep', 'infinity'],
     };
-    if (spec.exposedPorts) payload.exposedPorts = spec.exposedPorts;
 
     const res = await this.request('POST', `${this.apiBaseUrl}/sandboxes`, payload);
     if (!res.ok) throw new Error(`Engine rejected boot: ${res.status} ${await res.text()}`);
@@ -151,7 +161,7 @@ export class OpenSandboxEngine implements RustEngineAPI {
   }
 }
 
-// ---- pure helpers (mirror opensandbox.rs free functions) ----
+// ---- pure helpers ----
 
 function normalizeLifecycleBaseUrl(url: string): string {
   const trimmed = url.replace(/\/+$/, '');

@@ -385,15 +385,24 @@ export class SandboxManager {
   }
 
   /**
-   * @description Normalizes a volume name by trimming whitespace and replacing invalid characters with hyphens.
-   * This ensures that volume names are consistent and safe to use as directory names on the host filesystem.
-   * @param name
-   * @returns
+   * @description Coerces a caller-supplied volume name (POST /sandboxes/:id/volumes, so
+   * untrusted) into a DNS label. The daemon enforces `^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+   * with a 63-char cap and 400s otherwise — uppercase and `_` used to slip through here
+   * and fail at the engine. Normalizing can collide two names onto one; the daemon
+   * rejects duplicates within a sandbox with an explicit DUPLICATE_VOLUME_NAME error.
    */
   private normalizeVolumeName(name: string): string {
-    const normalized = name.trim().replace(/[^a-zA-Z0-9_-]/g, '-');
+    const normalized = name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-{2,}/g, '-')
+      .replace(/^-+/, '')
+      .slice(0, 63)        // cap first: a 63-char cut can land on a hyphen...
+      .replace(/-+$/, ''); // ...so strip trailing hyphens after the cut, not before.
+
     if (!normalized) {
-      throw new Error('Volume name is required.');
+      throw new Error(`Volume name '${name}' contains no characters valid in a DNS label.`);
     }
 
     return normalized;

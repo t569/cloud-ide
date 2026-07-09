@@ -18,7 +18,7 @@ interface BuildStepCardProps {
 
 export const BuildStepCard = ({ index, control, register, setValue, onRemove }: BuildStepCardProps) => {
   // 1. Attach the form brains
-  const { stepType, packageList, handlePackagesChange } = useBuildStepForm(index, control, setValue);
+  const { stepType, packageList, handlePackagesChange } = useBuildStepForm(index, control, setValue, register);
 
   // 2. Pure UI Return
   return (

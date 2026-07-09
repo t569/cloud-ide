@@ -1,13 +1,22 @@
 // src/components/env-manager/hooks/useBuildStepForm.ts
 import { useEffect, useCallback, useRef } from 'react';
-import { useWatch, Control, UseFormSetValue } from 'react-hook-form';
+import { useWatch, Control, UseFormSetValue, UseFormRegister } from 'react-hook-form';
 import { EnvironmentConfig, InstallStepType } from '@cloud-ide/shared/types/env';
 
 export const useBuildStepForm = (
   index: number,
   control: Control<EnvironmentConfig>,
-  setValue: UseFormSetValue<EnvironmentConfig>
+  setValue: UseFormSetValue<EnvironmentConfig>,
+  register: UseFormRegister<EnvironmentConfig>
 ) => {
+  // 0. Register the packages field. It's driven by a custom widget (setValue),
+  // never bound to an <input>, so without this it's absent from the whole-form
+  // watch() the JSON preview + submit read — the badges showed (direct useWatch)
+  // while the JSON and the saved config silently dropped packages.
+  useEffect(() => {
+    register(`buildSteps.${index}.packages`);
+  }, [register, index]);
+
   // 1. Watch the form state
   const stepType = useWatch({
     control,

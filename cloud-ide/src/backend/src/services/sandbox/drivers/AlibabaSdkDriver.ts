@@ -93,7 +93,7 @@ export class AlibabaSdkDriver implements ISandboxDriver {
   destroySandbox(id: string): Promise<boolean> { return this.lifecycle.destroySandbox(id); }
   execCommand(id: string, p: SandboxExecRequest): Promise<SandboxExecResult> { return this.lifecycle.execCommand(id, p); }
   resolveExecConnection(id: string): Promise<ExecConnectionInfo> { return this.lifecycle.resolveExecConnection(id); }
-  getSandboxIp(id: string): string | null { return this.lifecycle.getSandboxIp(id); }
+  resolveEndpoint(id: string, port: number): Promise<string> { return this.lifecycle.resolveEndpoint(id, port); }
 
   capabilities(): DriverCapabilities {
     return { exec: this.lifecycle.capabilities().exec, pty: true };

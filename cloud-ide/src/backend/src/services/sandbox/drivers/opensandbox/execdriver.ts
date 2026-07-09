@@ -18,10 +18,9 @@ export interface OpenSandboxExecRunOptions {
  * easy consumption by higher-level modules.
  */
 export class OpenSandboxExecClient {
-  constructor(
-    private ipAddress: string,
-    private execdPort: number
-  ) {}
+  /** @param baseUrl execd's host-routable base URL, from `ISandboxDriver.resolveEndpoint(id, 44772)`.
+   *  Was previously (ipAddress, port) — the daemon never exposes a container IP. */
+  constructor(private baseUrl: string) {}
 
 
 
@@ -37,7 +36,7 @@ export class OpenSandboxExecClient {
 
     void (async () => {
       try {
-        const response = await fetch(`http://${this.ipAddress}:${this.execdPort}/command`, {
+        const response = await fetch(`${this.baseUrl.replace(/\/+$/, '')}/command`, {
           method: 'POST',
           headers: {
             Accept: 'text/event-stream',

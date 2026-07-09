@@ -101,7 +101,6 @@ export class SandboxManager {
       worktreeId: worktreeId,              // The Host SSD folder ID (e.g., uuid)
       environmentId: spec.imageTag,
       state: rustStatus.state,
-      ipAddress: rustStatus.ipAddress,
       execdPort: rustStatus.execdPort,
       desiredVolumes: finalSpec.volumes || [],
       workspaceMountPath: DEFAULT_WORKSPACE_MOUNT_PATH,
@@ -167,7 +166,6 @@ export class SandboxManager {
       await this.sandboxRepo.save({
         ...current,
         state: status.state,
-        ipAddress: status.ipAddress ?? current.ipAddress,
         execdPort: status.execdPort ?? current.execdPort,
       });
     }
@@ -269,6 +267,17 @@ export class SandboxManager {
    */
   public async resolveExecConnection(sandboxId: string): Promise<ExecConnectionInfo> {
     return this.driver.resolveExecConnection(sandboxId);
+  }
+
+
+  /**
+   * @description Resolves a host-routable base URL for a port inside the sandbox.
+   * Used by the preview ingress to proxy to a user's dev server. Providers never hand
+   * out container IPs (and on Docker Desktop those wouldn't be routable anyway), so
+   * this is the only way in. Rejects if nothing is listening on `port` yet.
+   */
+  public async resolveEndpoint(sandboxId: string, port: number): Promise<string> {
+    return this.driver.resolveEndpoint(sandboxId, port);
   }
 
 
@@ -378,8 +387,8 @@ export class SandboxManager {
   /**
    * @description Normalizes a volume name by trimming whitespace and replacing invalid characters with hyphens.
    * This ensures that volume names are consistent and safe to use as directory names on the host filesystem.
-   * @param name 
-   * @returns 
+   * @param name
+   * @returns
    */
   private normalizeVolumeName(name: string): string {
     const normalized = name.trim().replace(/[^a-zA-Z0-9_-]/g, '-');

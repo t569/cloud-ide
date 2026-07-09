@@ -1,10 +1,12 @@
-// TypeScript port of the Rust napi engine (src-rust). The engine was never doing
-// CPU work — it's an HTTP client to the OpenSandbox daemon plus an in-memory IP
-// table. Node does async HTTP + SSE natively, so this is the same behavior with no
-// FFI boundary, no toolchain, and no "Module did not self-register". The Rust crate
-// is kept, deprecated, as the reference for this logic (see src-rust/README).
+// HTTP client for the OpenSandbox lifecycle daemon + its in-container execd.
 //
-// Behavior is a 1:1 mirror of src-rust/src/{lib,engine/opensandbox}.rs.
+// Originally a napi Rust addon (src-rust), ported to TS because it was doing no CPU
+// work — just async HTTP and SSE, which Node does natively. It is NO LONGER a mirror
+// of that crate: the Rust was written against an imagined API (notably a `status.ip`
+// field the daemon has never had), and its tests mocked that same fiction, so they
+// passed while every real boot failed. The shapes below are taken from upstream
+// `server/opensandbox_server/api/schema.py`. See src/opensandbox/README.md for the
+// full audit before "restoring" anything here.
 
 import {
   SandboxExecRequest,
@@ -27,10 +29,6 @@ export class OpenSandboxEngine implements RustEngineAPI {
   private readonly apiKey?: string;
   private readonly execdAccessToken?: string;
   private readonly readTimeoutMs: number;
-
-  // sandboxId -> internal IP. Mirrors the Rust ACTIVE_SANDBOXES DashMap: avoids
-  // re-querying the daemon for the routing IP on every exec.
-  private readonly activeSandboxes = new Map<string, string>();
 
   constructor() {
     const engineType = process.env.ENGINE_TYPE ?? 'opensandbox';
@@ -73,20 +71,16 @@ export class OpenSandboxEngine implements RustEngineAPI {
     if (spec.exposedPorts) payload.exposedPorts = spec.exposedPorts;
 
     const res = await this.request('POST', `${this.apiBaseUrl}/sandboxes`, payload);
-    if (!res.ok) throw new Error(`Engine rejected boot: ${res.status}`);
+    if (!res.ok) throw new Error(`Engine rejected boot: ${res.status} ${await res.text()}`);
 
-    const status = mapStatus(await res.json(), undefined);
-    if (status.ipAddress) this.activeSandboxes.set(status.sandboxId, status.ipAddress);
-    return status;
+    return mapStatus(await res.json(), undefined);
   }
 
   async getSandboxStatus(sandboxId: string): Promise<SandboxStatus> {
     const res = await this.request('GET', `${this.apiBaseUrl}/sandboxes/${sandboxId}`);
     if (!res.ok) throw new Error(`Failed to fetch status: ${res.status}`);
 
-    const status = mapStatus(await res.json(), sandboxId);
-    if (status.ipAddress) this.activeSandboxes.set(status.sandboxId, status.ipAddress);
-    return status;
+    return mapStatus(await res.json(), sandboxId);
   }
 
   async pauseSandbox(sandboxId: string): Promise<boolean> {
@@ -101,17 +95,34 @@ export class OpenSandboxEngine implements RustEngineAPI {
 
   async destroySandbox(sandboxId: string): Promise<boolean> {
     const res = await this.request('DELETE', `${this.apiBaseUrl}/sandboxes/${sandboxId}`);
-    const success = res.ok || res.status === 404;
-    if (success) this.activeSandboxes.delete(sandboxId);
-    return success;
+    return res.ok || res.status === 404;
   }
 
-  getSandboxIp(sandboxId: string): string | null {
-    return this.activeSandboxes.get(sandboxId) ?? null;
+  /**
+   * The only way to reach a port inside a sandbox. The daemon returns a host-routable
+   * URL (on Docker Desktop, a loopback proxy like 127.0.0.1:45792/proxy/44772) — it
+   * never returns a container IP, so there is no fallback to route to. If the daemon
+   * can't resolve the port, nothing else can.
+   */
+  async resolveEndpoint(sandboxId: string, port: number): Promise<string> {
+    const res = await this.request(
+      'GET',
+      `${this.apiBaseUrl}/sandboxes/${sandboxId}/endpoints/${port}`,
+    );
+    if (!res.ok) {
+      throw new Error(
+        `No endpoint for port ${port} on sandbox ${sandboxId}: ${res.status} ${await res.text()}`,
+      );
+    }
+    const endpoint = (await res.json())?.endpoint;
+    if (typeof endpoint !== 'string' || !endpoint) {
+      throw new Error(`Daemon returned no endpoint for port ${port} on sandbox ${sandboxId}.`);
+    }
+    return normalizeEndpointUrl(endpoint, port);
   }
 
   async resolveExecConnection(sandboxId: string): Promise<ExecConnectionInfo> {
-    const baseUrl = await this.resolveExecEndpoint(sandboxId);
+    const baseUrl = await this.resolveEndpoint(sandboxId, EXECD_PORT);
     return { baseUrl, accessToken: this.execdAccessToken ?? null };
   }
 
@@ -138,21 +149,6 @@ export class OpenSandboxEngine implements RustEngineAPI {
     }
     return parseExecdStream(await res.text());
   }
-
-  private async resolveExecEndpoint(sandboxId: string): Promise<string> {
-    const res = await this.request(
-      'GET',
-      `${this.apiBaseUrl}/sandboxes/${sandboxId}/endpoints/${EXECD_PORT}`,
-    );
-    if (res.ok) {
-      const endpoint = extractEndpoint(await res.json());
-      if (endpoint) return normalizeExecdBaseUrl(endpoint);
-    }
-    // Fallback: fetch fresh status and route to its IP directly.
-    const status = await this.getSandboxStatus(sandboxId);
-    if (status.ipAddress) return `http://${status.ipAddress}:${EXECD_PORT}`;
-    throw new Error('Unable to resolve exec endpoint for sandbox');
-  }
 }
 
 // ---- pure helpers (mirror opensandbox.rs free functions) ----
@@ -163,20 +159,17 @@ function normalizeLifecycleBaseUrl(url: string): string {
 }
 
 /**
- * Docker-on-Windows can't route to container IPs (10.0.x.x); the daemon returns a
- * local proxy like 127.0.0.1:45792/proxy/44772. If the endpoint already carries a
- * port or a path it's fully qualified — leave it. Only a bare IP gets the port.
+ * The daemon's `endpoint` is often scheme-less (`endpoint.host/sandboxes/x/port/8080`)
+ * and, on Docker Desktop, a loopback proxy path (`127.0.0.1:45792/proxy/44772`). If it
+ * already carries a port or a path it is fully qualified — leave it. Only a bare host
+ * gets `port` appended.
  */
-function normalizeExecdBaseUrl(endpoint: string): string {
+export function normalizeEndpointUrl(endpoint: string, port: number): string {
   const trimmed = endpoint.replace(/\/+$/, '');
   const withScheme = /^https?:\/\//.test(trimmed) ? trimmed : `http://${trimmed}`;
   const withoutScheme = withScheme.replace(/^https?:\/\//, '');
   if (withoutScheme.includes(':') || withoutScheme.includes('/')) return withScheme;
-  return `${withScheme}:${EXECD_PORT}`;
-}
-
-function extractEndpoint(data: any): string | undefined {
-  return data?.endpoint ?? data?.url ?? data?.address ?? undefined;
+  return `${withScheme}:${port}`;
 }
 
 function mapVolumeMount(volume: VolumeMount): Record<string, unknown> {
@@ -190,28 +183,31 @@ function mapVolumeMount(volume: VolumeMount): Record<string, unknown> {
   return payload;
 }
 
+// The daemon's SandboxState, lowercased. The transitional states matter: `Resuming`
+// used to fall through to ERROR, which broke wake-on-demand, and `Terminated` did the
+// same, which broke IdleSweeper's reconciliation of vanished containers.
+const STATES: Record<string, SandboxStatus['state']> = {
+  pending: 'PROVISIONING',
+  provisioning: 'PROVISIONING',
+  resuming: 'PROVISIONING', // coming up; not yet resumable, so never report PAUSED
+  running: 'RUNNING',
+  pausing: 'PAUSED',
+  paused: 'PAUSED',
+  stopping: 'STOPPED',
+  stopped: 'STOPPED',
+  terminated: 'STOPPED',
+  failed: 'ERROR',
+};
+
 function mapStatus(data: any, fallbackId: string | undefined): SandboxStatus {
-  const raw = String(data?.status?.phase ?? data?.status?.state ?? 'UNKNOWN');
-  const STATES: Record<string, SandboxStatus['state']> = {
-    Running: 'RUNNING',
-    RUNNING: 'RUNNING',
-    Pending: 'PROVISIONING',
-    PENDING: 'PROVISIONING',
-    Provisioning: 'PROVISIONING',
-    PROVISIONING: 'PROVISIONING',
-    Paused: 'PAUSED',
-    PAUSED: 'PAUSED',
-    Stopped: 'STOPPED',
-    STOPPED: 'STOPPED',
-  };
-  const state = STATES[raw] ?? 'ERROR';
+  // `status.state` — there is no `status.phase`, and no `status.ip` at all.
+  const raw = String(data?.status?.state ?? '').toLowerCase();
 
   return {
     sandboxId: data?.id ?? fallbackId ?? '',
-    state,
-    ipAddress: data?.status?.ip ?? undefined,
+    state: STATES[raw] ?? 'ERROR',
     execdPort: EXECD_PORT,
-    message: data?.status?.message ?? 'OpenSandbox status resolved',
+    message: data?.status?.message ?? data?.status?.reason ?? 'OpenSandbox status resolved',
   };
 }
 

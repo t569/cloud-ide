@@ -13,8 +13,8 @@ export class PreFlightChecks {
    * Checks if the /workspace directory has uncommitted Git changes.
    * Returns true if safe to delete (clean), false if there are uncommitted changes (dirty).
    */
-  public static async isGitWorkspaceClean(ipAddress: string, execdPort: number): Promise<boolean> {
-    const execClient = new OpenSandboxExecClient(ipAddress, execdPort);
+  public static async isGitWorkspaceClean(execdBaseUrl: string): Promise<boolean> {
+    const execClient = new OpenSandboxExecClient(execdBaseUrl);
 
     return new Promise((resolve, reject) => {
       // --porcelain outputs nothing if the working tree is clean.

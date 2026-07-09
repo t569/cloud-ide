@@ -21,5 +21,5 @@ export interface RustEngineAPI {
   resumeSandbox(sandboxId: string): Promise<boolean>;
   destroySandbox(sandboxId: string): Promise<boolean>;
   resolveExecConnection(sandboxId: string): Promise<ExecConnectionInfo>;
-  getSandboxIp(sandboxId: string): string | null;
+  resolveEndpoint(sandboxId: string, port: number): Promise<string>;
 }

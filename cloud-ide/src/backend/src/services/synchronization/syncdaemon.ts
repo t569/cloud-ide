@@ -20,9 +20,9 @@ export class SyncDaemon extends EventEmitter implements IFileWatcher{
 
   // a field for keeping track of the folders we are watching
   private workspaces: string[] = [];
-  constructor(ipAdress: string, execdPort:number) {
+  constructor(execdBaseUrl: string) {
     super();
-    this.execClient = new OpenSandboxExecClient(ipAdress, execdPort);
+    this.execClient = new OpenSandboxExecClient(execdBaseUrl);
   }
 
   // we are in essence watching package manager files to see if they changed

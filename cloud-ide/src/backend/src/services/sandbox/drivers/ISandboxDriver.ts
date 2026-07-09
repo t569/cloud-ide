@@ -51,7 +51,11 @@ export interface ISandboxDriver {
   // --- exec (line-mode; wired today) ---
   execCommand(sandboxId: string, payload: SandboxExecRequest): Promise<SandboxExecResult>;
   resolveExecConnection(sandboxId: string): Promise<ExecConnectionInfo>;
-  getSandboxIp(sandboxId: string): string | null;
+
+  /** Base URL for a port inside the sandbox (e.g. a dev server on 3000, or execd on
+   *  44772). The only supported way to reach a sandbox — providers do not expose
+   *  container IPs. Rejects when nothing is listening on `port`. */
+  resolveEndpoint(sandboxId: string, port: number): Promise<string>;
 
   // --- capability probe ---
   capabilities(): DriverCapabilities;

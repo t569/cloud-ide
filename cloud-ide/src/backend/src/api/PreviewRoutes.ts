@@ -3,7 +3,7 @@
 // The Ingress Router (Step 3): exposes HTTP services running inside a sandbox
 // (e.g. a Vite dev server on :3000) to the browser via the Gateway.
 //
-//   GET /preview/:sandboxId/:port/*  ->  http://{container-ip}:{port}/*
+//   GET /preview/:sandboxId/:port/*  ->  {daemon-resolved endpoint for :port}/*
 //
 // ponytail: path-based routing instead of wildcard subdomains (*.cloudide.com).
 // Same proxy core; switch to a `router` keyed on req.headers.host once real DNS exists.
@@ -42,8 +42,10 @@ export function createPreviewRouter(sandboxManager: SandboxManager): Router {
   };
 
   /**
-   * One proxy instance for all sandboxes (3a/3b). The `router` callback
-   * resolves the internal container IP per-request from the sandbox record.
+   * One proxy instance for all sandboxes (3a/3b). The `router` callback asks the
+   * daemon per-request for a host-routable endpoint for that port — sandboxes have no
+   * IP we can reach directly. Resolution fails until something is actually listening
+   * on `port` inside the container, which surfaces below as a 502.
    * ponytail: HTTP only — WebSocket upgrade (HMR) needs server.on('upgrade')
    * wiring in server.ts; add when a preview actually needs live reload.
    */
@@ -52,11 +54,7 @@ export function createPreviewRouter(sandboxManager: SandboxManager): Router {
     changeOrigin: true,
     router: async (req) => {
       const { sandboxId, port } = (req as Request).params as { sandboxId: string; port: string };
-      const record = await sandboxManager.getRecord(sandboxId);
-      if (!record?.ipAddress) {
-        throw new Error(`No route to sandbox ${sandboxId}: missing container IP.`);
-      }
-      return `http://${record.ipAddress}:${port}`;
+      return sandboxManager.resolveEndpoint(sandboxId, Number(port));
     },
     on: {
       error: (err, _req, res) => {

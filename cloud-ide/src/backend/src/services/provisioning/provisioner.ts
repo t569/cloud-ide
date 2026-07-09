@@ -27,12 +27,15 @@ export class WorkspaceProvisioner {
   /**
    * Executes necessary commands inside the sandbox after it is running.
    */
-  public async runPostBoot(ipAddress: string, execdPort: number): Promise<void> {
+  // ponytail: unwired — nothing calls runPostBoot (WorktreeStrategy's post-boot is a
+  // no-op because the worktree is bind-mounted, already populated, at boot).
+  // `execdBaseUrl` comes from SandboxManager.resolveEndpoint(id, 44772).
+  public async runPostBoot(execdBaseUrl: string): Promise<void> {
     if (!this.strategy) return;
 
     // Connect to the newly booted sandbox
-    const execClient = new OpenSandboxExecClient(ipAddress, execdPort);
-    
+    const execClient = new OpenSandboxExecClient(execdBaseUrl);
+
     await this.strategy.executePostBoot(execClient);
   }
 }

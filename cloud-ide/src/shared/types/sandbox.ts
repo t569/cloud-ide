@@ -32,11 +32,15 @@ export interface SandboxSpec {
   exposedPorts?: number[]; // e.g. [3000, 8000] at boot time
 }
 
-// The standardized response from ANY sandbox provider
+// The standardized response from ANY sandbox provider.
+//
+// There is deliberately no `ipAddress` here: OpenSandbox never discloses a container
+// IP (its SandboxStatus is {state, reason, message, lastTransitionAt}), and on Docker
+// for Windows/macOS a container IP isn't host-routable anyway. Reach a port through
+// the provider's endpoint resolver instead — ISandboxDriver.resolveEndpoint().
 export interface SandboxStatus {
   sandboxId: string;
   state: SandboxState;
-  ipAddress?: string;     // Needed later for the execd TCP connection
   execdPort?: number;     // Usually 44772 for OpenSandbox
   message?: string;
    previewUrls?: Record<number, string>; // e.g., { 3000: "http://3000-sbx123.our-domain.com" }
@@ -82,7 +86,6 @@ export interface SandboxRecord {
   environmentId: string;   // Maps to the base image (e.g., 'zkp-noir-env')
   worktreeId: string;      // The unique ID for the Git worktree (e.g., 'sbx-8f72a9b1')
   state: SandboxState;     // PROVISIONING, RUNNING, PAUSED, etc.
-  ipAddress?: string;      // Internal IP for the Rust proxy to route to
   execdPort?: number;
   desiredVolumes: VolumeMount[];
   workspaceMountPath: string;

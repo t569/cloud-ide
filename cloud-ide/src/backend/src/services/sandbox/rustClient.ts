@@ -67,7 +67,7 @@ export class RustEngineClient implements ISandboxDriver {
     return this.engine.resolveExecConnection(sandboxId);
   }
 
-  public getSandboxIp(sandboxId: string): string | null {
-    return this.engine.getSandboxIp(sandboxId);
+  public resolveEndpoint(sandboxId: string, port: number): Promise<string> {
+    return this.engine.resolveEndpoint(sandboxId, port);
   }
 }

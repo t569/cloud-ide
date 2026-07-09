@@ -1,9 +1,20 @@
 import { OpenSandboxEngine } from './openSandboxEngine';
 
-// Route a fake fetch by method+path. Mirrors the Rust wiremock suite it replaces.
-function mockFetch(routes: Array<{ method: string; match: RegExp; res: Partial<Response> & { json?: () => any; text?: () => any } }>) {
-  return jest.fn(async (url: string, init?: RequestInit) => {
+// Every response body here is the shape upstream actually returns
+// (server/opensandbox_server/api/schema.py). The previous suite mocked a
+// `status.ip` / `status.phase` daemon that has never existed, which is exactly why
+// it stayed green while every real boot 400'd. Do not reintroduce those fields.
+function mockFetch(
+  routes: Array<{
+    method: string;
+    match: RegExp;
+    res: Partial<Response> & { json?: () => any; text?: () => any };
+  }>,
+) {
+  const calls: Array<{ method: string; url: string; body?: any }> = [];
+  const fn = jest.fn(async (url: string, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
+    calls.push({ method, url, body: init?.body ? JSON.parse(init.body as string) : undefined });
     const hit = routes.find((r) => r.method === method && r.match.test(url));
     if (!hit) throw new Error(`no mock for ${method} ${url}`);
     return {
@@ -13,7 +24,10 @@ function mockFetch(routes: Array<{ method: string; match: RegExp; res: Partial<R
       text: hit.res.text ?? (async () => ''),
     } as unknown as Response;
   });
+  return Object.assign(fn, { calls });
 }
+
+const running = (id: string) => ({ id, status: { state: 'Running' } });
 
 describe('OpenSandboxEngine', () => {
   const realFetch = global.fetch;
@@ -21,20 +35,88 @@ describe('OpenSandboxEngine', () => {
     global.fetch = realFetch;
   });
 
-  it('boot maps RUNNING and caches the IP for routing', async () => {
+  it('boot maps the daemon status with no IP anywhere in it', async () => {
     global.fetch = mockFetch([
-      { method: 'POST', match: /\/v1\/sandboxes$/, res: { status: 201, json: async () => ({ id: 'sbx-1', status: { ip: '10.0.0.25', phase: 'Running' } }) } },
+      { method: 'POST', match: /\/v1\/sandboxes$/, res: { status: 202, json: async () => running('sbx-1') } },
     ]) as any;
 
-    const engine = new OpenSandboxEngine();
-    const status = await engine.bootSandbox({ imageTag: 'img:latest' });
+    const status = await new OpenSandboxEngine().bootSandbox({ imageTag: 'img:latest' });
 
-    expect(status.sandboxId).toBe('sbx-1');
-    expect(status.state).toBe('RUNNING');
-    expect(engine.getSandboxIp('sbx-1')).toBe('10.0.0.25');
+    expect(status).toEqual({
+      sandboxId: 'sbx-1',
+      state: 'RUNNING',
+      execdPort: 44772,
+      message: 'OpenSandbox status resolved',
+    });
   });
 
-  it('exec resolves the endpoint then parses the SSE stream', async () => {
+  it('surfaces the daemon body on a rejected boot', async () => {
+    global.fetch = mockFetch([
+      {
+        method: 'POST',
+        match: /\/v1\/sandboxes$/,
+        res: { ok: false, status: 400, text: async () => '{"code":"HOST_PATH_NOT_ALLOWED"}' },
+      },
+    ]) as any;
+
+    await expect(new OpenSandboxEngine().bootSandbox({ imageTag: 'img:latest' })).rejects.toThrow(
+      /400 .*HOST_PATH_NOT_ALLOWED/,
+    );
+  });
+
+  const stateCases: Array<[string, string]> = [
+    ['Pending', 'PROVISIONING'],
+    ['Resuming', 'PROVISIONING'], // was ERROR: broke wake-on-demand
+    ['Running', 'RUNNING'],
+    ['Pausing', 'PAUSED'],
+    ['Paused', 'PAUSED'],
+    ['Stopping', 'STOPPED'],
+    ['Terminated', 'STOPPED'], // was ERROR: broke IdleSweeper reconciliation
+    ['Failed', 'ERROR'],
+    ['SomethingNew', 'ERROR'],
+  ];
+
+  it.each(stateCases)('maps daemon state %s -> %s', async (daemonState: string, expected: string) => {
+    global.fetch = mockFetch([
+      { method: 'GET', match: /\/v1\/sandboxes\/sbx-1$/, res: { json: async () => ({ id: 'sbx-1', status: { state: daemonState } }) } },
+    ]) as any;
+
+    const status = await new OpenSandboxEngine().getSandboxStatus('sbx-1');
+    expect(status.state).toBe(expected);
+  });
+
+  it('resolves an endpoint per port and leaves a proxy path intact', async () => {
+    global.fetch = mockFetch([
+      { method: 'GET', match: /\/endpoints\/3000$/, res: { json: async () => ({ endpoint: '127.0.0.1:45792/proxy/3000' }) } },
+    ]) as any;
+
+    // Scheme added, port/path preserved — appending :3000 here would break the proxy.
+    expect(await new OpenSandboxEngine().resolveEndpoint('sbx-1', 3000)).toBe(
+      'http://127.0.0.1:45792/proxy/3000',
+    );
+  });
+
+  it('appends the port only to a bare host', async () => {
+    global.fetch = mockFetch([
+      { method: 'GET', match: /\/endpoints\/44772$/, res: { json: async () => ({ endpoint: 'sandbox.internal' }) } },
+    ]) as any;
+
+    expect(await new OpenSandboxEngine().resolveEndpoint('sbx-1', 44772)).toBe(
+      'http://sandbox.internal:44772',
+    );
+  });
+
+  it('fails loudly when a port has no endpoint — there is no IP to fall back to', async () => {
+    global.fetch = mockFetch([
+      { method: 'GET', match: /\/endpoints\/3000$/, res: { ok: false, status: 404, text: async () => 'not listening' } },
+    ]) as any;
+
+    await expect(new OpenSandboxEngine().resolveEndpoint('sbx-1', 3000)).rejects.toThrow(
+      /No endpoint for port 3000/,
+    );
+  });
+
+  it('exec resolves execd then parses the SSE stream', async () => {
     const sse = [
       'data: {"type":"stdout","text":"hello "}',
       'data: {"type":"stderr","text":"warn"}',
@@ -47,25 +129,18 @@ describe('OpenSandboxEngine', () => {
       { method: 'POST', match: /\/command$/, res: { text: async () => sse } },
     ]) as any;
 
-    const engine = new OpenSandboxEngine();
-    const result = await engine.execCommand('sbx-1', { command: ['/bin/sh', '-c', 'echo hi'] });
+    const result = await new OpenSandboxEngine().execCommand('sbx-1', {
+      command: ['/bin/sh', '-c', 'echo hi'],
+    });
 
-    expect(result.stdout).toBe('hello world');
-    expect(result.stderr).toBe('warn');
-    expect(result.exitCode).toBe(0);
+    expect(result).toEqual({ stdout: 'hello world', stderr: 'warn', exitCode: 0 });
   });
 
-  it('destroy treats 404 as success and drops the cached IP', async () => {
+  it('destroy treats 404 as success', async () => {
     global.fetch = mockFetch([
-      { method: 'POST', match: /\/v1\/sandboxes$/, res: { json: async () => ({ id: 'sbx-2', status: { ip: '10.0.0.9', phase: 'Running' } }) } },
       { method: 'DELETE', match: /\/v1\/sandboxes\/sbx-2$/, res: { ok: false, status: 404 } },
     ]) as any;
 
-    const engine = new OpenSandboxEngine();
-    await engine.bootSandbox({ imageTag: 'img:latest' });
-    expect(engine.getSandboxIp('sbx-2')).toBe('10.0.0.9');
-
-    expect(await engine.destroySandbox('sbx-2')).toBe(true);
-    expect(engine.getSandboxIp('sbx-2')).toBeNull();
+    expect(await new OpenSandboxEngine().destroySandbox('sbx-2')).toBe(true);
   });
 });

@@ -17,6 +17,7 @@ import { ISandboxRepository } from '../database/interfaces';
 import { ISandboxSession } from '../services/sandbox/drivers/ISandboxDriver';
 import { userOwnsSandbox } from './middleware/security';
 import { readUserId } from './middleware/auth';
+import { config } from '../config/env';
 
 const PTY_PATH = /^\/api\/v1\/sandboxes\/([a-zA-Z0-9_-]+)\/pty$/;
 
@@ -85,6 +86,18 @@ export function attachPtyGateway(server: http.Server, deps: PtyGatewayDeps): voi
       socket.destroy();
       return;
     }
+
+    // Cross-Site WebSocket Hijacking: the upgrade handshake is NOT covered by CORS
+    // and carries cookies, so any origin could otherwise open a shell in a
+    // logged-in user's sandbox. SameSite=Lax on `uid` mostly blocks this; check the
+    // Origin anyway (defense in depth, and non-browser clients ignore SameSite).
+    const origin = req.headers.origin;
+    if (origin !== config.FRONTEND_ORIGIN) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
     const sandboxId = match[1];
 
     // readUserId, not currentUser: an upgrade has no Response to set a cookie on,

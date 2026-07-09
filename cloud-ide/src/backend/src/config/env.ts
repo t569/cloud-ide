@@ -36,4 +36,18 @@ export const config = {
   // requests. MUST be an explicit origin — a wildcard is incompatible with
   // `credentials: true`. Local dev is the Vite dev server on :5173.
   FRONTEND_ORIGIN: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
+
+  NODE_ENV: process.env.NODE_ENV || 'development',
+
+  // HMAC key for the `uid` identity cookie. Unset in dev => a random key is
+  // generated and persisted (see api/middleware/auth). Unset in production =>
+  // the server refuses to boot rather than issue forgeable identities.
+  AUTH_SECRET: process.env.AUTH_SECRET || '',
+
+  // Bearer for the god-mode admin routes. UNSET => those routes are disabled
+  // (404), which is the safe default: an unauthenticated force-destroy endpoint
+  // is worse than no admin endpoint.
+  ADMIN_TOKEN: process.env.ADMIN_TOKEN || '',
 };
+
+export const IS_PRODUCTION = config.NODE_ENV === 'production';

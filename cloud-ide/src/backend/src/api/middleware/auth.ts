@@ -14,17 +14,76 @@
 // request in, stable user id out — does not change, so no caller changes either.
 // Also delete the legacy-adoption fallback in security.ts (see userOwnsSandbox).
 //
+// The cookie is HMAC-signed (`<uuid>.<sig>`), so a caller cannot mint or guess a
+// rival identity by setting their own `uid` — a forged value fails verification
+// and is treated as no identity at all. httpOnly keeps XSS from lifting it.
+//
 // LIMITS OF THE STUB, stated plainly:
 //   - Clearing cookies orphans that browser's sandboxes (IdleSweeper reaps them).
-//   - The id is a bearer token with no expiry and no revocation.
-//   - It is httpOnly, so XSS can't read it, but it is not signed: anyone who can
-//     set their own `uid` cookie can impersonate a known id. Signing (or real
-//     auth) is required before this is exposed to untrusted users.
+//   - The id is still a bearer token: no expiry, no revocation. Anyone who steals
+//     the cookie value is that user until the signing key rotates.
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'node:crypto';
-import { parseCookies, USER_COOKIE_OPTIONS } from './security';
+import fs from 'node:fs';
+import path from 'node:path';
+import { parseCookies, USER_COOKIE_OPTIONS, timingSafeEqual } from './security';
+import { config, IS_PRODUCTION } from '../../config/env';
 
 export const UID_COOKIE = 'uid';
+
+/**
+ * The HMAC key for identity cookies.
+ *
+ * Production must supply AUTH_SECRET — we refuse to boot otherwise rather than
+ * silently issue identities anyone can forge. In dev we generate one and persist
+ * it under data/, so a restart doesn't invalidate every developer's sandboxes.
+ */
+function loadAuthSecret(): Buffer {
+  if (config.AUTH_SECRET) return Buffer.from(config.AUTH_SECRET, 'utf8');
+
+  if (IS_PRODUCTION) {
+    throw new Error(
+      'AUTH_SECRET is required in production: without it the `uid` identity cookie is unsigned and forgeable.',
+    );
+  }
+
+  // ponytail: a file, not a key manager. Swap when there is more than one node —
+  // two servers with different dev secrets would reject each other's cookies.
+  const keyPath = path.resolve(process.cwd(), 'data', '.auth-secret');
+  try {
+    return Buffer.from(fs.readFileSync(keyPath, 'utf8').trim(), 'hex');
+  } catch {
+    const generated = crypto.randomBytes(32);
+    fs.mkdirSync(path.dirname(keyPath), { recursive: true });
+    fs.writeFileSync(keyPath, generated.toString('hex'), { mode: 0o600 });
+    console.warn('[auth] AUTH_SECRET unset — generated a development key at data/.auth-secret');
+    return generated;
+  }
+}
+
+const AUTH_SECRET = loadAuthSecret();
+
+const sign = (value: string): string =>
+  crypto.createHmac('sha256', AUTH_SECRET).update(value).digest('base64url');
+
+/** `<uuid>.<sig>` — the wire form of an identity. */
+export function signUserId(userId: string): string {
+  return `${userId}.${sign(userId)}`;
+}
+
+/**
+ * Recovers the user id from a signed cookie, or undefined if the signature does
+ * not verify. Fails closed: a tampered cookie is *no* identity, never a valid one.
+ */
+export function verifyUserId(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const dot = raw.lastIndexOf('.');
+  if (dot <= 0) return undefined;
+
+  const value = raw.slice(0, dot);
+  const provided = raw.slice(dot + 1);
+  return timingSafeEqual(provided, sign(value)) ? value : undefined;
+}
 
 // Augment Express's own Request, not the global namespace: a `declare global`
 // here leaks into every file's global scope and clobbers ambient test types.
@@ -42,7 +101,7 @@ declare module 'express-serve-static-core' {
  */
 export function readUserId(cookieHeader: string | string[] | undefined): string | undefined {
   const header = Array.isArray(cookieHeader) ? cookieHeader.join('; ') : cookieHeader;
-  return parseCookies(header)[UID_COOKIE] || undefined;
+  return verifyUserId(parseCookies(header)[UID_COOKIE]);
 }
 
 /**
@@ -62,7 +121,7 @@ export function currentUser(req: Request, res: Response): string {
   }
 
   const uid = crypto.randomUUID();
-  res.cookie(UID_COOKIE, uid, USER_COOKIE_OPTIONS);
+  res.cookie(UID_COOKIE, signUserId(uid), USER_COOKIE_OPTIONS);
   // Populate immediately: later middleware on THIS request must see the new id,
   // and the cookie we just set won't come back until the next one.
   req.userId = uid;

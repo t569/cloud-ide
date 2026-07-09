@@ -85,17 +85,51 @@ credentials handling.
   `SessionController`'s warm-sandbox reuse is also scoped to the caller; it would
   otherwise hand you someone else's running workspace.
 
+- **`uid` is HMAC-signed** (`<uuid>.<sig>`), so a caller cannot self-assert an
+  identity by setting the cookie. A bad signature is *no* identity, never a valid
+  one. `AUTH_SECRET` is required in production — the server refuses to boot without
+  it rather than issue forgeable identities; dev generates and persists a key at
+  `data/.auth-secret` (gitignored).
+- **Admin routes fail closed.** `DELETE /api/v1/admin/sandboxes/:id` (god-mode
+  force-destroy, which skips the dirty-worktree pre-flight and deletes the
+  worktree) was mounted with **no authentication of any kind** — any HTTP client
+  could destroy any sandbox and its uncommitted work. CSRF never covered it; that
+  constrains browsers, not `curl`. Now behind `requireAdmin` (`X-Admin-Token`),
+  and 404 whenever `ADMIN_TOKEN` is unset, which is the default.
+- **`/preview/:sandboxId/:port` is owner-gated.** It proxies HTTP straight into a
+  sandbox's ports and had no check at all: anyone knowing an id could reach another
+  user's dev server, and `wakeOnDemand` would resume their paused container. The
+  guard runs *before* wake, so an unauthorized caller cannot even force a resume.
+- **CSRF compare is constant-time** (`timingSafeEqual`), and a missing header is
+  always a rejection — never "skip the check when unset".
+- **Baseline headers** on every response: `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, and
+  HSTS when actually serving TLS. No CSP here — this server emits no HTML; the
+  SPA's CSP belongs where the SPA is served.
+- **PTY WebSocket upgrade checks `Origin`.** The handshake is not covered by CORS
+  and carries cookies (Cross-Site WebSocket Hijacking). `SameSite=Lax` mostly
+  blocks it; the explicit check is defense in depth and covers non-browser clients.
+- **The SPA primes its cookies.** `ensureCsrfToken()` calls `GET /api/csrf` when no
+  token exists, so a cold load that POSTs first (restored session, deep link) no
+  longer 403s.
+
 **Known holes in the stub (must close when login lands):**
-- The `uid` cookie is httpOnly but **unsigned**. XSS can't read it, but anyone who
-  can set their own `uid` can impersonate a known id. Not safe for untrusted users.
+- The `uid` cookie is a **bearer token**: no expiry, no revocation. Whoever holds
+  the value is that user until `AUTH_SECRET` rotates. Signing stops forgery, not theft.
 - `userOwnsSandbox` **adopts** records with no `userId` (provisioned before the
   seam existed) so running workspaces survived the upgrade. Delete that branch.
-- No expiry, no revocation; clearing cookies orphans that browser's sandboxes.
+- Clearing cookies orphans that browser's sandboxes (IdleSweeper reaps them).
+- `/api/environment/*` has **no ownership model at all** — every environment is
+  global, so any user can edit, build, roll back or delete any environment. This is
+  intentional for a single-tenant dev tool and becomes a real hole the moment the
+  identity seam means anything. Environments need an ownerId exactly like sandboxes.
+- `DELETE /api/v1/sessions/:sessionId` does not verify the session belongs to the
+  caller. Low impact (ids are `randomUUID`, and it only emits a disconnect event).
+- No rate limiting anywhere.
 
-**Remaining (ops):** set `Strict-Transport-Security` at the edge (HSTS is
-header-only), and set `FRONTEND_ORIGIN` in the backend `.env` for production.
-The SPA still never calls `GET /api/csrf`; it works only because it happens to
-issue a GET before its first mutating call.
+**Remaining (ops):** set `AUTH_SECRET`, `ADMIN_TOKEN` (or leave unset to keep admin
+disabled) and `FRONTEND_ORIGIN` in the production `.env`; terminate TLS at the edge
+so the `Secure` cookie flag and HSTS engage.
 
 ---
 

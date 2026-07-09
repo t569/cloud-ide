@@ -10,6 +10,10 @@ dist/
 opensandbox/sandbox-env/
 opensandbox/__pycache__/
 opensandbox/.sandbox.resolved.toml
+
+# Dev-only HMAC key for the `uid` identity cookie. Generated on first boot when
+# AUTH_SECRET is unset; production must supply AUTH_SECRET instead. Never commit.
+**/.auth-secret
 *.pyc
 
 .env.local

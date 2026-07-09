@@ -16,7 +16,7 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'node:crypto';
 import { ISandboxRepository } from '../../database/interfaces';
-import { config } from '../../config/env';
+import { config, IS_PRODUCTION } from '../../config/env';
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 export const CSRF_COOKIE = 'csrf-token'; // readable by JS (double-submit)
@@ -35,6 +35,53 @@ export const SESSION_COOKIE_OPTIONS = {
 
 /** Same shape as the session cookie: the `uid` bearer must not be JS-readable. */
 export const USER_COOKIE_OPTIONS = SESSION_COOKIE_OPTIONS;
+
+/**
+ * Compares two secrets without leaking their contents through timing. Length is
+ * not secret here (tokens are fixed-width), but the bytes are — a naive `!==`
+ * short-circuits on the first differing byte and can be walked one byte at a time.
+ */
+export function timingSafeEqual(a: string, b: string): boolean {
+  const left = Buffer.from(a, 'utf8');
+  const right = Buffer.from(b, 'utf8');
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+}
+
+/**
+ * Baseline response headers. This API serves JSON and proxied sandbox output, so
+ * the browser must never sniff a content type or frame us.
+ *
+ * ponytail: no CSP here — this server emits no HTML of its own. The SPA's CSP
+ * belongs wherever the SPA is served from (Vite in dev, the CDN/edge in prod).
+ */
+export function securityHeaders(_req: Request, res: Response, next: NextFunction) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  // HSTS is meaningless (and ignored) over plain http, so only assert it on TLS.
+  if (IS_PRODUCTION && COOKIE_SECURE) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+}
+
+/**
+ * Gate for the god-mode admin routes (force-destroy bypasses the dirty-worktree
+ * pre-flight and deletes a user's worktree).
+ *
+ * Fails CLOSED: with no ADMIN_TOKEN configured the routes 404 as though they do
+ * not exist. An unauthenticated force-destroy is strictly worse than no endpoint,
+ * and 404 (not 403) keeps the admin surface from being discoverable.
+ */
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const expected = config.ADMIN_TOKEN;
+  const provided = req.get('x-admin-token') ?? '';
+  if (!expected || !timingSafeEqual(provided, expected)) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  next();
+}
 
 /**
  * Parses a raw Cookie header into a name->value map. Returns {} when absent.
@@ -74,7 +121,8 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
 
   if (MUTATING_METHODS.has(req.method)) {
     const header = req.get('x-csrf-token');
-    if (!header || header !== token) {
+    // Absent header is always a rejection — never "skip the check when unset".
+    if (!header || !timingSafeEqual(header, token)) {
       return res.status(403).json({ error: 'CSRF token missing or invalid' });
     }
   }

@@ -22,7 +22,7 @@ import { AdminController } from './controllers/AdminController';
 import { SessionController } from './controllers/SessionController';
 
 // Security middleware (CSRF + IDOR ownership) — SECURITY finding #2
-import { csrfProtection, requireSandboxOwnership } from './api/middleware/security';
+import { csrfProtection, requireSandboxOwnership, requireAdmin, securityHeaders } from './api/middleware/security';
 import { attachUser } from './api/middleware/auth';
 
 
@@ -61,7 +61,13 @@ const app = express();
 // CORS: explicit origin + credentials so the browser sends the session cookie.
 // A wildcard origin is INCOMPATIBLE with credentials, so this must be specific.
 app.use(cors({ origin: config.FRONTEND_ORIGIN, credentials: true }));
-app.use(express.json());
+
+// Baseline hardening headers on every response (nosniff / no framing / referrer).
+app.use(securityHeaders);
+
+// Explicit body cap. express.json() defaults to 100kb; state it so a future bump
+// is a deliberate decision rather than an accident, and so the limit is greppable.
+app.use(express.json({ limit: '100kb' }));
 
 // CSRF double-submit protection on every route. Safe (GET/HEAD) requests just
 // receive the token cookie; state-changing requests must echo it back in the
@@ -116,8 +122,12 @@ app.delete('/api/v1/sandboxes/:sandboxId', ownsSandbox, sandboxController.destro
 app.post('/api/v1/sandboxes/:sandboxId/volumes', ownsSandbox, sandboxController.attachVolume);
 app.delete('/api/v1/sandboxes/:sandboxId/volumes/:volumeName', ownsSandbox, sandboxController.detachVolume);
 
+// God-mode: force-destroy skips the dirty-worktree pre-flight and deletes the
+// user's worktree with it. Gated behind a static ADMIN_TOKEN header, and DISABLED
+// (404) whenever ADMIN_TOKEN is unset — which is the default. It was previously
+// mounted with no authentication whatsoever.
 // TODO: make the admin page more fleshed out. build the admin system
-app.delete('/api/v1/admin/sandboxes/:sandboxId', adminController.forceDestroySandbox);
+app.delete('/api/v1/admin/sandboxes/:sandboxId', requireAdmin, adminController.forceDestroySandbox);
 
 // Session control plane — issues the httpOnly `sid` cookie that /api/fs uses to
 // prove sandbox ownership. (Previously defined but never mounted.)
@@ -142,7 +152,7 @@ app.use('/api/images', createImageRouter());
 GarbageCollector.init();
 
 // NEW: Mount the Virtual File System routes (host-direct against the worktrees).
-// sessionRepo is injected so the router can enforce sandbox ownership (IDOR).
+// sandboxRepo is injected so the router can enforce sandbox ownership (IDOR).
 // fsEventHub carries chokidar (Step 10c) change events out over SSE.
 const fileSystemManager = new FileSystemManager(sandboxManager);
 const fsEventHub = new FsEventHub();
@@ -151,7 +161,7 @@ const sessionStore = new SessionStore();
 app.use('/api/fs', createFileSystemRouter(fileSystemManager, sandboxRepo, fsEventHub, workspaceWatchers, sessionStore));
 
 // NEW: Mount the Ingress Router (Step 3) — proxies browser traffic into sandbox services
-app.use('/preview', createPreviewRouter(sandboxManager));
+app.use('/preview', createPreviewRouter(sandboxManager, sandboxRepo));
 
 /**
  * 🌟 The Gateway HTTP Server

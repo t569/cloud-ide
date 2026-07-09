@@ -10,22 +10,33 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { SandboxManager } from '../services/sandbox/SandboxManager';
+import { ISandboxRepository } from '../database/interfaces';
+import { requireSandboxOwnership } from './middleware/security';
 
-export function createPreviewRouter(sandboxManager: SandboxManager): Router {
+export function createPreviewRouter(
+  sandboxManager: SandboxManager,
+  sandboxRepo: ISandboxRepository,
+): Router {
   const router = Router();
+
+  /** Reject malformed ids/ports before they reach the repository or the proxy. */
+  const validateParams = (req: Request, res: Response, next: NextFunction) => {
+    const { sandboxId, port } = req.params as { sandboxId: string; port: string };
+    if (!/^[a-zA-Z0-9_-]+$/.test(sandboxId) || !/^\d{2,5}$/.test(port)) {
+      res.status(400).json({ error: 'Invalid sandboxId or port.' });
+      return;
+    }
+    next();
+  };
 
   /**
    * Wake-on-Demand (3c): if the target sandbox is PAUSED (frozen by the
    * IdleSweeper), thaw it before letting the proxy touch it — mirrors the
    * interception pattern used by the exec stream in SandboxController.
+   * Runs only for a verified owner (see the mount below).
    */
   const wakeOnDemand = async (req: Request, res: Response, next: NextFunction) => {
-    const { sandboxId, port } = req.params as { sandboxId: string; port: string };
-
-    if (!/^[a-zA-Z0-9_-]+$/.test(sandboxId) || !/^\d{2,5}$/.test(port)) {
-      res.status(400).json({ error: 'Invalid sandboxId or port.' });
-      return;
-    }
+    const { sandboxId } = req.params as { sandboxId: string; port: string };
 
     try {
       const status = await sandboxManager.getStatus(sandboxId);
@@ -67,6 +78,11 @@ export function createPreviewRouter(sandboxManager: SandboxManager): Router {
     },
   });
 
-  router.use('/:sandboxId/:port', wakeOnDemand, proxy);
+  // IDOR: previews were reachable by anyone who knew a sandboxId — they proxy HTTP
+  // straight into another user's dev server, and wakeOnDemand would even resume
+  // their paused container. Ownership is checked BEFORE wakeOnDemand so an
+  // unauthorized caller cannot even cause a resume. Validation runs first so a
+  // malformed id 400s rather than hitting the repo.
+  router.use('/:sandboxId/:port', validateParams, requireSandboxOwnership(sandboxRepo), wakeOnDemand, proxy);
   return router;
 }

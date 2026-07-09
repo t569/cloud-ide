@@ -4,8 +4,7 @@
   "description": "Backend engine for the Cloud IDE",
   "main": "dist/server.js",
   "scripts": {
-    "clean:rust": "node -e \"const fs=require('fs'); if(fs.existsSync('index.node')) fs.unlinkSync('index.node');\"",
-    "build:rust": "npm run clean:rust && napi build --cwd src-rust --output-dir ..",
+    "build:rust": "node scripts/build-rust.mjs",
     "build": "npm run build:rust && tsc",
     "start": "node dist/server.js",
     "dev": "npm run build:rust && ts-node src/server.ts",

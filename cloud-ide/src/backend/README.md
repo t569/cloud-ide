@@ -90,7 +90,8 @@ Full plan + contracts: **[TERMINAL_BACKEND.md](./TERMINAL_BACKEND.md)**.
 # From /backend — unified script that avoids "ghost binary" caching.
 npm run dev
 ```
-Runs `clean:rust` (delete stale `index.node`) → `napi build` (recompile the engine) →
+Runs `build:rust` (`scripts/build-rust.mjs`: pick the Rust target matching this Node's
+ABI, clean stale `index.node`, `napi build`, then require the result to prove it loads) →
 `ts-node src/server.ts` (start the gateway). **Nothing works without the OpenSandbox server
 running** (`OPENSANDBOX_API_URL`) — the Rust engine talks to it for every sandbox operation.
 

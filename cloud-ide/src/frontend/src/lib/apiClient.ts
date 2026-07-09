@@ -57,8 +57,12 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
         console.error("Unauthorized: Redirecting to login...");
       }
 
+      // Surface the server's `details` (the actual reason) — routes return
+      // { error: '<generic wrapper>', details: '<why>' }, and showing only
+      // `error` is why failures looked reasonless.
+      const base = errorData?.error || `Request failed with status ${response.status}`;
       throw new ApiError(
-        errorData?.error || `Request failed with status ${response.status}`,
+        errorData?.details ? `${base}: ${errorData.details}` : base,
         response.status,
         errorData
       );

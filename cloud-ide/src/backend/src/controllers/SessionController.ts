@@ -2,7 +2,7 @@
 
 import { Request, Response } from 'express';
 import { EventEmitter } from 'events';
-import { ISessionRepository, ISandboxRepository } from '../database/interfaces';
+import { ISessionRepository, ISandboxRepository, IEnvironmentRepository } from '../database/interfaces';
 import { SandboxManager } from '../services/sandbox/SandboxManager';
 import { SessionRecord } from '../database/models';
 import { toImageName } from '@cloud-ide/shared';
@@ -22,7 +22,8 @@ export class SessionController {
     private systemEvents: EventEmitter,
     private sessionRepo: ISessionRepository,
     private sandboxRepo: ISandboxRepository,
-    private sandboxManager: SandboxManager
+    private sandboxManager: SandboxManager,
+    private envRepo: IEnvironmentRepository
   ) {}
 
   /**
@@ -36,6 +37,21 @@ export class SessionController {
 
     if (!environmentId) {
       res.status(400).json({ error: 'Missing required field: environmentId' });
+      return;
+    }
+
+    // Gate: the environment must exist AND have a built image. imageName is '' until
+    // a build succeeds; launching before then would 400 at the daemon with an opaque
+    // "engine rejected boot". Fail here with an actionable message instead.
+    const environment = await this.envRepo.get(environmentId);
+    if (!environment) {
+      res.status(404).json({ error: `Environment '${environmentId}' not found.` });
+      return;
+    }
+    if (!environment.imageName) {
+      res.status(409).json({
+        error: `Environment '${environmentId}' has not been built yet. Build it before launching.`,
+      });
       return;
     }
 

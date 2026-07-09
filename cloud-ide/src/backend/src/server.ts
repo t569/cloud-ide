@@ -90,7 +90,7 @@ const idleSweeper = new IdleSweeper(sessionRepo, sandboxRepo, sandboxManager);
 // Initialize Controllers
 const sandboxController = new SandboxController(sandboxManager);
 const adminController = new AdminController(sandboxManager);
-const sessionController = new SessionController(systemEvents, sessionRepo, sandboxRepo, sandboxManager);
+const sessionController = new SessionController(systemEvents, sessionRepo, sandboxRepo, sandboxManager, envRepo);
 
 // Mount Control Plane (HTTP API Routes)
 app.post('/api/v1/sandboxes', sandboxController.createSandbox);

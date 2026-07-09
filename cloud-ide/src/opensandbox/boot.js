@@ -53,9 +53,13 @@ if (!fs.existsSync(envDir)) {
 
 // 4. Boot the Server
 console.log('🚀 [OpenSandbox] Booting Daemon...');
-const server = spawn(serverCmd, ['--config', '.sandbox.toml'], { 
-  stdio: 'inherit', 
-  cwd: sandboxDir 
+// .sandbox.toml binds 127.0.0.1 with no api_key => OpenSandbox flags it "insecure"
+// and won't auto-start when spawned without a TTY to confirm at (issue #750).
+// This is a local-dev daemon on loopback; acknowledge and proceed non-interactively.
+const server = spawn(serverCmd, ['--config', '.sandbox.toml'], {
+  stdio: 'inherit',
+  cwd: sandboxDir,
+  env: { ...process.env, OPENSANDBOX_INSECURE_SERVER: 'yes' }
 });
 
 server.on('error', (err) => {

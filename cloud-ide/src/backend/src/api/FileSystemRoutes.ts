@@ -4,19 +4,20 @@ import { FileSystemManager } from '../services/FileSystemManager';
 import { FsEventHub } from '../services/FsEventHub';
 import { WorkspaceWatchers } from '../services/WorkspaceWatchers';
 import { SessionStore } from '../services/SessionStore';
-import { ISessionRepository } from '../database/interfaces';
+import { ISandboxRepository } from '../database/interfaces';
 import { requireSandboxOwnership } from './middleware/security';
 
 // The router is pure transport: it depends on the FileSystemManager it is
 // given and knows nothing about how or where files are actually stored.
-// sessionRepo is injected so the router can enforce sandbox ownership (IDOR).
+// sandboxRepo is injected so the router can enforce sandbox ownership (IDOR):
+// the record names its owner, and the caller must be that owner.
 // fsEventHub feeds the SSE change stream; watchers start/stop the chokidar
 // watcher per SSE subscriber (GET /:id/events). sessionStore persists terminal
 // scrollback for crash/reconnect recovery (Gap B) — sandbox-scoped, so it rides
 // the same ownership guard as the file routes.
 export function createFileSystemRouter(
   fsManager: FileSystemManager,
-  sessionRepo: ISessionRepository,
+  sandboxRepo: ISandboxRepository,
   fsEventHub: FsEventHub,
   watchers: WorkspaceWatchers,
   sessionStore: SessionStore,
@@ -47,9 +48,9 @@ export function createFileSystemRouter(
     next();
   });
 
-  // IDOR: every sandbox-scoped route requires a session cookie linked to this
-  // sandbox. Runs after the param validation above, before any handler.
-  router.use('/:sandboxId', requireSandboxOwnership(sessionRepo));
+  // IDOR: every sandbox-scoped route requires that the caller own this sandbox.
+  // Runs after the param validation above, before any handler.
+  router.use('/:sandboxId', requireSandboxOwnership(sandboxRepo));
 
   /**
    * GET /api/fs/:sandboxId/ls?path=/workspace

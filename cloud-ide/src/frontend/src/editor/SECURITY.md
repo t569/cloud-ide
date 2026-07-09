@@ -58,27 +58,44 @@ credentials handling.
   default instead of hand-rolling an unprotected `fetch()`.
 
 **Server half — FIXED (backend):**
-- `backend/src/api/middleware/security.ts` (new) provides `csrfProtection`
+- `backend/src/api/middleware/security.ts` provides `csrfProtection`
   (double-submit: mints the `csrf-token` cookie, rejects mutating requests whose
   `X-CSRF-Token` header is absent/mismatched with 403) and
-  `requireSandboxOwnership(sessionRepo)` (the IDOR guard).
+  `requireSandboxOwnership(sandboxRepo)` (the IDOR guard).
+- `backend/src/api/middleware/auth.ts` (new) is the **identity seam**. There is no
+  login yet: it mints a per-browser anonymous `uid` (httpOnly, `crypto.randomUUID()`)
+  on first contact and answers "who is this request". Everything else asks it.
 - `backend/src/server.ts`: `cors()` was wildcard-open with no credentials — now
   `cors({ origin: config.FRONTEND_ORIGIN, credentials: true })`; `csrfProtection`
-  runs globally; a `GET /api/csrf` primes the token cookie.
-- **IDOR closed:** `/api/fs/:sandboxId/*` had **zero** ownership check (anyone
-  who knew a sandboxId could read/write/delete its files). Now every fs route
-  runs `requireSandboxOwnership`, which loads the session from the httpOnly `sid`
-  cookie and confirms `session.sandboxId === :sandboxId`, returning **404** (not
-  403) on mismatch so ids can't be enumerated. The session id is a `crypto.randomUUID()`
-  (unguessable). `SessionController.startSession` now issues the `sid` cookie
-  (`httpOnly; SameSite=Lax; Secure in prod`), and the session routes — defined
-  but previously **never mounted** — are now wired in `server.ts`.
+  then `attachUser` run globally; a `GET /api/csrf` primes the cookies.
+- **IDOR closed, then closed properly.** The first fix keyed ownership off the
+  `sid` session cookie and `session.sandboxId === :sandboxId`. That never worked:
+  the only issuer of `sid` is `POST /api/v1/sessions`, which the frontend never
+  called — so `/api/fs/*` 404'd for everyone, and a session links to exactly one
+  sandbox anyway. Ownership now lives on the record: `provision()` stamps
+  `SandboxRecord.userId` from the identity seam (never from the request body), and
+  `userOwnsSandbox` compares it to the caller. Returns **404**, not 403, so ids
+  cannot be enumerated. One user may own many sandboxes.
+- **Guard coverage widened.** `/api/fs/:sandboxId/*` was the only guarded surface.
+  Every `/api/v1/sandboxes/:sandboxId` route — `exec`, `pause`, `resume`,
+  `destroy`, `volumes`, status — was protected by CSRF alone, which stops another
+  *site* forging a request but does nothing to stop this browser asking for a
+  sandbox it does not own. All are now owner-gated, as is the PTY WebSocket
+  upgrade (`readUserId`, not `currentUser` — an upgrade has no response to mint on).
+  `SessionController`'s warm-sandbox reuse is also scoped to the caller; it would
+  otherwise hand you someone else's running workspace.
+
+**Known holes in the stub (must close when login lands):**
+- The `uid` cookie is httpOnly but **unsigned**. XSS can't read it, but anyone who
+  can set their own `uid` can impersonate a known id. Not safe for untrusted users.
+- `userOwnsSandbox` **adopts** records with no `userId` (provisioned before the
+  seam existed) so running workspaces survived the upgrade. Delete that branch.
+- No expiry, no revocation; clearing cookies orphans that browser's sandboxes.
 
 **Remaining (ops):** set `Strict-Transport-Security` at the edge (HSTS is
 header-only), and set `FRONTEND_ORIGIN` in the backend `.env` for production.
-The frontend must adopt the session-start flow (call `POST /api/v1/sessions` to
-obtain the `sid` cookie) before hitting `/api/fs` — today's mocked VFS doesn't
-yet.
+The SPA still never calls `GET /api/csrf`; it works only because it happens to
+issue a GET before its first mutating call.
 
 ---
 

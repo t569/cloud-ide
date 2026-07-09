@@ -23,7 +23,7 @@ async function runSanityCheck() {
   try {
     // --- TEST A: PROVISIONING ---
     console.log('\n[Test A] Provisioning Sandbox...');
-    const record = await sandboxManager.provision(spec);
+    const record = await sandboxManager.provision(spec, 'script-owner');
     console.log(`✅ Sandbox provisioned with ID: ${record.sandboxId}`);
     console.log(`✅ Worktree assigned: ${record.worktreeId}`);
 

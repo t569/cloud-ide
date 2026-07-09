@@ -8,6 +8,7 @@ import { SessionRecord } from '../database/models';
 import { toImageName } from '@cloud-ide/shared';
 import { config } from '../config/env';
 import { SID_COOKIE, SESSION_COOKIE_OPTIONS } from '../api/middleware/security';
+import { currentUser } from '../api/middleware/auth';
 
 /**
  * @class SessionController
@@ -33,7 +34,10 @@ export class SessionController {
    * If no sandbox exists, it delegates a cold boot to the Rust engine.
    */
   public startSession = async (req: Request, res: Response): Promise<void> => {
-    const { environmentId, userId, repoUrl } = req.body;
+    const { environmentId, repoUrl } = req.body;
+    // Identity comes from the seam, never the body — a caller that names its own
+    // userId can claim any other user's warm sandboxes below.
+    const userId = currentUser(req, res);
 
     if (!environmentId) {
       res.status(400).json({ error: 'Missing required field: environmentId' });
@@ -71,7 +75,7 @@ export class SessionController {
       // 2. Log the connection attempt
       const newSession: SessionRecord = {
         sessionId,
-        userId: userId || 'anonymous',
+        userId,
         sandboxId: '', // Will be linked shortly
         state: 'CONNECTING',
         connectedAt: Date.now(),
@@ -80,9 +84,16 @@ export class SessionController {
       this.systemEvents.emit('session:connecting', newSession);
 
       // 3. THE SMART ROUTER: Do we already have a warm sandbox for this repo/user?
+      // Scoped to the caller: reusing another user's warm sandbox for the same
+      // environment would hand them someone else's workspace, files and all.
+      // Legacy records carry no userId; adopt them, matching userOwnsSandbox.
       let targetSandboxId: string;
       const existingSandboxes = await this.sandboxRepo.getSandboxesByEnvId(environmentId);
-      const availableSandbox = existingSandboxes.find(sbx => sbx.state === 'RUNNING' || sbx.state === 'PAUSED');
+      const availableSandbox = existingSandboxes.find(
+        (sbx) =>
+          (!sbx.userId || sbx.userId === userId) &&
+          (sbx.state === 'RUNNING' || sbx.state === 'PAUSED'),
+      );
 
       if (availableSandbox) {
         console.log(`[SessionController] Found warm sandbox: ${availableSandbox.sandboxId}`);
@@ -99,10 +110,13 @@ export class SessionController {
         // toImageName maps the env id to the ':latest' tag the build applies (and
         // that rollback retags) — not the bare env id, which the daemon 400s on
         // because it isn't a real image reference.
-        const newSandbox = await this.sandboxManager.provision({
-          imageTag: toImageName(environmentId),
-          // If repoUrl was provided, pass it down so Rust can map the volume
-        });
+        const newSandbox = await this.sandboxManager.provision(
+          {
+            imageTag: toImageName(environmentId),
+            // If repoUrl was provided, pass it down so Rust can map the volume
+          },
+          userId,
+        );
         targetSandboxId = newSandbox.sandboxId;
       }
 

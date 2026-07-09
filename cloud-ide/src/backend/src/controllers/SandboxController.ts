@@ -6,6 +6,7 @@ import {
   VolumeMount,
 } from '@cloud-ide/shared/types/sandbox';
 import { DirtyWorktreeError, SandboxManager } from '../services/sandbox/SandboxManager';
+import { currentUser } from '../api/middleware/auth';
 
 
 /**
@@ -26,7 +27,9 @@ export class SandboxController {
     }
 
     try {
-      const sandbox = await this.sandboxManager.provision(spec);
+      // The caller becomes the owner. Taken from the identity seam, not the body:
+      // whoever provisions it is the only one who may later reach it.
+      const sandbox = await this.sandboxManager.provision(spec, currentUser(req, res));
       res.status(201).json(sandbox);
     } catch (error: any) {
       res.status(500).json({ error: error.message });

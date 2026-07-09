@@ -65,11 +65,15 @@ export class SandboxManager {
 
   /**
    * @description Initiates the container provisioning sequence.
-   * It dynamically generates a unique host directory for the `/workspace` 
-   * bind mount, appends it to the spec, and delegates the raw boot command 
+   * It dynamically generates a unique host directory for the `/workspace`
+   * bind mount, appends it to the spec, and delegates the raw boot command
    * to the Rust engine.
+   *
+   * `ownerId` is stamped onto the record and is the only thing the IDOR guard
+   * consults later. It must come from the identity seam (api/middleware/auth),
+   * never from the request body — a client-supplied owner is not an owner.
    */
-  public async provision(spec: SandboxSpec): Promise<SandboxRecord> {
+  public async provision(spec: SandboxSpec, ownerId: string): Promise<SandboxRecord> {
     // 0. Ensure the central bare repo exists (memoized — runs once per process;
     // a failure resets the memo so a transient error doesn't brick provisioning)
     this.baseRepoReady ??= this.worktreeEngine.initializeBaseRepo().catch((err) => {
@@ -98,6 +102,7 @@ export class SandboxManager {
     // 6. Save the record, explicitly linking the Rust ID to the Worktree ID
     const record: SandboxRecord = {
       sandboxId: rustStatus.sandboxId,     // The OpenSandbox ID (e.g., sbx-1234)
+      userId: ownerId,                     // Owner — the basis of every later access check
       worktreeId: worktreeId,              // The Host SSD folder ID (e.g., uuid)
       environmentId: spec.imageTag,
       state: rustStatus.state,

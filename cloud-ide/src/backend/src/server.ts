@@ -22,7 +22,8 @@ import { AdminController } from './controllers/AdminController';
 import { SessionController } from './controllers/SessionController';
 
 // Security middleware (CSRF + IDOR ownership) — SECURITY finding #2
-import { csrfProtection } from './api/middleware/security';
+import { csrfProtection, requireSandboxOwnership } from './api/middleware/security';
+import { attachUser } from './api/middleware/auth';
 
 
 // File Routers
@@ -67,7 +68,13 @@ app.use(express.json());
 // X-CSRF-Token header. The frontend apiClient does this automatically.
 app.use(csrfProtection);
 
-// Lets the SPA prime its csrf-token cookie before its first mutating call.
+// Identity seam: resolves (and on first contact mints) the caller's `uid`.
+// MUST come before any route that consults req.userId — i.e. every ownership
+// guard below. Replace the body of api/middleware/auth when login lands.
+app.use(attachUser);
+
+// Lets the SPA prime its csrf-token AND uid cookies before its first mutating
+// call — a cold load that POSTs before ever issuing a GET would otherwise 403.
 app.get('/api/csrf', (_req, res) => res.status(204).end());
 
 
@@ -93,14 +100,21 @@ const adminController = new AdminController(sandboxManager);
 const sessionController = new SessionController(systemEvents, sessionRepo, sandboxRepo, sandboxManager, envRepo);
 
 // Mount Control Plane (HTTP API Routes)
+//
+// IDOR: every :sandboxId route is owner-gated. CSRF alone does not cover these —
+// it stops another SITE forging a request from this browser, not this browser
+// asking for a sandbox it does not own. POST /sandboxes has no :sandboxId: it
+// CREATES the ownership rather than checking it.
+const ownsSandbox = requireSandboxOwnership(sandboxRepo);
+
 app.post('/api/v1/sandboxes', sandboxController.createSandbox);
-app.get('/api/v1/sandboxes/:sandboxId', sandboxController.getSandboxStatus);
-app.post('/api/v1/sandboxes/:sandboxId/exec', sandboxController.execCommand);
-app.post('/api/v1/sandboxes/:sandboxId/pause', sandboxController.pauseSandbox);
-app.post('/api/v1/sandboxes/:sandboxId/resume', sandboxController.resumeSandbox);
-app.delete('/api/v1/sandboxes/:sandboxId', sandboxController.destroySandbox);
-app.post('/api/v1/sandboxes/:sandboxId/volumes', sandboxController.attachVolume);
-app.delete('/api/v1/sandboxes/:sandboxId/volumes/:volumeName', sandboxController.detachVolume);
+app.get('/api/v1/sandboxes/:sandboxId', ownsSandbox, sandboxController.getSandboxStatus);
+app.post('/api/v1/sandboxes/:sandboxId/exec', ownsSandbox, sandboxController.execCommand);
+app.post('/api/v1/sandboxes/:sandboxId/pause', ownsSandbox, sandboxController.pauseSandbox);
+app.post('/api/v1/sandboxes/:sandboxId/resume', ownsSandbox, sandboxController.resumeSandbox);
+app.delete('/api/v1/sandboxes/:sandboxId', ownsSandbox, sandboxController.destroySandbox);
+app.post('/api/v1/sandboxes/:sandboxId/volumes', ownsSandbox, sandboxController.attachVolume);
+app.delete('/api/v1/sandboxes/:sandboxId/volumes/:volumeName', ownsSandbox, sandboxController.detachVolume);
 
 // TODO: make the admin page more fleshed out. build the admin system
 app.delete('/api/v1/admin/sandboxes/:sandboxId', adminController.forceDestroySandbox);
@@ -134,7 +148,7 @@ const fileSystemManager = new FileSystemManager(sandboxManager);
 const fsEventHub = new FsEventHub();
 const workspaceWatchers = new WorkspaceWatchers(sandboxManager, fsEventHub);
 const sessionStore = new SessionStore();
-app.use('/api/fs', createFileSystemRouter(fileSystemManager, sessionRepo, fsEventHub, workspaceWatchers, sessionStore));
+app.use('/api/fs', createFileSystemRouter(fileSystemManager, sandboxRepo, fsEventHub, workspaceWatchers, sessionStore));
 
 // NEW: Mount the Ingress Router (Step 3) — proxies browser traffic into sandbox services
 app.use('/preview', createPreviewRouter(sandboxManager));
@@ -148,7 +162,7 @@ const server = http.createServer(app);
 
 // Interactive terminal: bridge WS /api/v1/sandboxes/:id/pty → a driver PTY session
 // (provider-agnostic; inert until a pty-capable driver is active). See PtyGateway.
-attachPtyGateway(server, { sandboxManager, sessionRepo });
+attachPtyGateway(server, { sandboxManager, sandboxRepo });
 
 // 2. USE THE CONFIG OBJECT
 server.listen(config.PORT, () => {

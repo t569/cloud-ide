@@ -13,9 +13,10 @@
 import type http from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { SandboxManager } from '../services/sandbox/SandboxManager';
-import { ISessionRepository } from '../database/interfaces';
+import { ISandboxRepository } from '../database/interfaces';
 import { ISandboxSession } from '../services/sandbox/drivers/ISandboxDriver';
-import { verifySandboxOwnership } from './middleware/security';
+import { userOwnsSandbox } from './middleware/security';
+import { readUserId } from './middleware/auth';
 
 const PTY_PATH = /^\/api\/v1\/sandboxes\/([a-zA-Z0-9_-]+)\/pty$/;
 
@@ -63,7 +64,7 @@ export function bridgeSession(ws: PtySocket, session: ISandboxSession): void {
 
 interface PtyGatewayDeps {
   sandboxManager: SandboxManager;
-  sessionRepo: ISessionRepository;
+  sandboxRepo: ISandboxRepository;
 }
 
 /**
@@ -72,7 +73,7 @@ interface PtyGatewayDeps {
  * handshake, then hands the socket to a driver session.
  */
 export function attachPtyGateway(server: http.Server, deps: PtyGatewayDeps): void {
-  const { sandboxManager, sessionRepo } = deps;
+  const { sandboxManager, sandboxRepo } = deps;
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (req, socket, head) => {
@@ -86,9 +87,11 @@ export function attachPtyGateway(server: http.Server, deps: PtyGatewayDeps): voi
     }
     const sandboxId = match[1];
 
-    void verifySandboxOwnership(sessionRepo, req.headers.cookie, sandboxId)
-      .then((session) => {
-        if (!session) {
+    // readUserId, not currentUser: an upgrade has no Response to set a cookie on,
+    // and a caller with no identity must be refused, not handed a fresh one.
+    void userOwnsSandbox(sandboxRepo, readUserId(req.headers.cookie), sandboxId)
+      .then((owns) => {
+        if (!owns) {
           socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
           socket.destroy();
           return;

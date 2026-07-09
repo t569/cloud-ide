@@ -2,8 +2,12 @@
 //
 // Server-side half of the auth/CSRF hardening (SECURITY finding #2):
 //   - csrfProtection:          double-submit cookie CSRF defense
-//   - requireSandboxOwnership: IDOR guard for /api/fs/:sandboxId/*
+//   - requireSandboxOwnership: IDOR guard for every :sandboxId route
 //   - SESSION_COOKIE_OPTIONS:  httpOnly session cookie settings
+//
+// WHO the caller is lives in ./auth (the identity seam). This file only decides
+// WHAT that caller may touch. Do not import auth from here — auth imports
+// parseCookies from this file, and the dependency must stay one-directional.
 //
 // Cookies are parsed by hand (parseCookies) rather than adding the cookie-parser
 // dependency for ~8 lines. res.cookie() is built into Express, so no dep needed
@@ -11,7 +15,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'node:crypto';
-import { ISessionRepository } from '../../database/interfaces';
+import { ISandboxRepository } from '../../database/interfaces';
 import { config } from '../../config/env';
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -28,6 +32,9 @@ export const SESSION_COOKIE_OPTIONS = {
   secure: COOKIE_SECURE,
   path: '/',
 };
+
+/** Same shape as the session cookie: the `uid` bearer must not be JS-readable. */
+export const USER_COOKIE_OPTIONS = SESSION_COOKIE_OPTIONS;
 
 /**
  * Parses a raw Cookie header into a name->value map. Returns {} when absent.
@@ -74,50 +81,53 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
   next();
 }
 
-type OwnedSession = Awaited<ReturnType<ISessionRepository['get']>>;
-
 /**
  * The IDOR check itself, decoupled from Express so both the HTTP middleware and
  * the WebSocket upgrade handshake (PtyGateway) enforce the SAME rule from one
- * place. Returns the verified session, or null on any failure (bad/missing sid,
- * no link, lookup error). Callers map null to 404 so IDs can't be enumerated.
+ * place. Ownership is read from the sandbox record — never inferred from the
+ * sandboxId in the URL, which the caller controls.
+ *
+ * Callers map `false` to 404 (not 403) so sandbox IDs cannot be enumerated.
  */
-export async function verifySandboxOwnership(
-  sessionRepo: ISessionRepository,
-  cookieHeader: string | string[] | undefined,
+export async function userOwnsSandbox(
+  sandboxRepo: ISandboxRepository,
+  userId: string | undefined,
   sandboxId: string | undefined,
-): Promise<OwnedSession> {
-  const header = Array.isArray(cookieHeader) ? cookieHeader.join('; ') : cookieHeader;
-  const sid = parseCookies(header)[SID_COOKIE];
-  if (!sid || !sandboxId) return null;
+): Promise<boolean> {
+  if (!userId || !sandboxId) return false;
   try {
-    const session = await sessionRepo.get(sid);
-    if (!session || session.sandboxId !== sandboxId) return null;
-    return session;
+    const record = await sandboxRepo.get(sandboxId);
+    if (!record) return false;
+
+    // ponytail: sandboxes provisioned before the identity seam existed carry no
+    // owner, so they are readable by anyone who knows the id. Adopting them keeps
+    // running workspaces reachable across this upgrade.
+    // DELETE THIS BRANCH when login lands — until then it is a standing hole.
+    if (!record.userId) return true;
+
+    return record.userId === userId;
   } catch (err: any) {
     console.error('[Ownership] lookup failed:', err.message);
-    return null;
+    return false;
   }
 }
 
 /**
- * IDOR guard for sandbox-scoped routes. Confirms the caller holds a session
- * (httpOnly `sid` cookie) that is linked to the :sandboxId being accessed.
- * Returns 404 (not 403) on any failure so sandbox IDs cannot be enumerated.
+ * IDOR guard for sandbox-scoped routes. Confirms the sandbox at :sandboxId is
+ * owned by the caller (see ./auth for who that is). Mount AFTER `attachUser`.
  *
- * Ownership is verified at the data layer (the session->sandbox link), never
- * trusting the sandboxId in the URL on its own.
+ * Note this is orthogonal to csrfProtection: CSRF stops another site forging a
+ * request from this browser; it does nothing to stop this browser asking for a
+ * sandbox that belongs to someone else. That is what this guard is for.
  */
-export function requireSandboxOwnership(sessionRepo: ISessionRepository) {
+export function requireSandboxOwnership(sandboxRepo: ISandboxRepository) {
   return async (req: Request, res: Response, next: NextFunction) => {
     if (req.method === 'OPTIONS') return next();
 
     const sandboxId = typeof req.params.sandboxId === 'string' ? req.params.sandboxId : undefined;
-    const session = await verifySandboxOwnership(sessionRepo, req.headers.cookie, sandboxId);
-    if (!session) {
+    if (!(await userOwnsSandbox(sandboxRepo, req.userId, sandboxId))) {
       return res.status(404).json({ error: 'Not found' });
     }
-    (req as any).session = session; // hand the verified session downstream
     next();
   };
 }

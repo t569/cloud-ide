@@ -59,7 +59,8 @@ console.log('🚀 [OpenSandbox] Booting Daemon...');
 const server = spawn(serverCmd, ['--config', '.sandbox.toml'], {
   stdio: 'inherit',
   cwd: sandboxDir,
-  env: { ...process.env, OPENSANDBOX_INSECURE_SERVER: 'yes' }
+  // MUST be uppercase "YES" — OpenSandbox compares the value verbatim (case-sensitive).
+  env: { ...process.env, OPENSANDBOX_INSECURE_SERVER: 'YES' }
 });
 
 server.on('error', (err) => {

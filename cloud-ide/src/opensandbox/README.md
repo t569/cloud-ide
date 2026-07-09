@@ -19,8 +19,6 @@ When you run `npm run dev` at the project root, the `boot.js` script will:
 
 If you need to isolate the daemon for debugging or prefer not to run the full monorepo stack, you can boot the OpenSandbox server manually. We use `uv` for blazing-fast Python dependency management.
 
-### 🛠️ Manual Boot (Using `uv`)
-
 **Prerequisites:** If you only start the environment via the root `npm run dev` command, you **do not** need to install anything manually—our boot script will automatically provision a local copy of `uv` for you. 
 
 However, if you want to boot the sandbox manually or add new Python dependencies to the `requirements.txt`, you should install `uv` globally on your system for the best developer experience:
@@ -64,7 +62,7 @@ source sandbox-env/bin/activate
 Use `uv pip` to resolve and install the requirements instantly
 
 ```bash
-uv pip install -re requirements.txtx
+uv pip install -r requirements.txt
 ```
 
 **Start the Daemon:**

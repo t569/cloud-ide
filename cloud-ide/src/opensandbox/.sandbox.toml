@@ -40,8 +40,10 @@ image = "opensandbox/egress:v1.0.3"
 # Volume and storage configuration
 # -----------------------------------------------------------------
 # Allowlist of host path prefixes permitted for bind mounts.
-# If empty, all host paths are allowed (not recommended for production).
-# Example: allowed_host_paths = ["/data/opensandbox", "/tmp/sandbox"]
+# An EMPTY list rejects every bind mount (the upstream example's comment says the
+# opposite; the code in config.py/validators.py is authoritative). boot.js rewrites
+# this line with the resolved worktrees dir into .sandbox.resolved.toml — the daemon
+# is launched from that file, not this one.
 allowed_host_paths = []
 
 [docker]

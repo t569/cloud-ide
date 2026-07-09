@@ -9,6 +9,7 @@ dist/
 .vite/
 opensandbox/sandbox-env/
 opensandbox/__pycache__/
+opensandbox/.sandbox.resolved.toml
 *.pyc
 
 .env.local

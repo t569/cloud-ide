@@ -51,12 +51,31 @@ if (!fs.existsSync(envDir)) {
   console.log('⚡ [OpenSandbox] Environment already exists. Skipping installation.');
 }
 
-// 4. Boot the Server
+// 4. Resolve the host-path allowlist.
+// The daemon rejects every bind mount when `allowed_host_paths` is empty (config.py:
+// "If empty, host bind mounts are rejected") — the example toml's comment claims the
+// opposite. Every boot mounts a worktree, so an empty list 400s every boot. The path is
+// absolute and machine-specific, so resolve it here rather than committing one dev's D:\.
+// ponytail: string-replace one line, not a TOML parser — add one when a 2nd key needs it.
+const worktreesRoot = path.resolve(sandboxDir, '..', 'backend', 'data', 'worktrees');
+fs.mkdirSync(worktreesRoot, { recursive: true });
+
+const resolvedConfig = path.join(sandboxDir, '.sandbox.resolved.toml');
+const template = fs.readFileSync(path.join(sandboxDir, '.sandbox.toml'), 'utf8');
+const allowlist = `allowed_host_paths = [${JSON.stringify(worktreesRoot.replace(/\\/g, '/'))}]`;
+if (!/^allowed_host_paths\s*=/m.test(template)) {
+  console.error('\n❌ [OpenSandbox] .sandbox.toml has no `allowed_host_paths` key to resolve.');
+  process.exit(1);
+}
+fs.writeFileSync(resolvedConfig, template.replace(/^allowed_host_paths\s*=.*$/m, allowlist));
+console.log(`🔓 [OpenSandbox] Bind mounts allowed under ${worktreesRoot}`);
+
+// 5. Boot the Server
 console.log('🚀 [OpenSandbox] Booting Daemon...');
 // .sandbox.toml binds 127.0.0.1 with no api_key => OpenSandbox flags it "insecure"
 // and won't auto-start when spawned without a TTY to confirm at (issue #750).
 // This is a local-dev daemon on loopback; acknowledge and proceed non-interactively.
-const server = spawn(serverCmd, ['--config', '.sandbox.toml'], {
+const server = spawn(serverCmd, ['--config', path.basename(resolvedConfig)], {
   stdio: 'inherit',
   cwd: sandboxDir,
   // MUST be uppercase "YES" — OpenSandbox compares the value verbatim (case-sensitive).

@@ -2,7 +2,7 @@
 // one on click. Opening routes through the shared launch flow, so a PAUSED sandbox
 // is resumed by POST /v1/sessions rather than by anything special here.
 import React, { useEffect, useState } from 'react';
-import { VscRefresh, VscServerProcess, VscRocket } from 'react-icons/vsc';
+import { VscPulse, VscRefresh, VscServerProcess, VscRocket } from 'react-icons/vsc';
 import { listSandboxes, type SandboxSummary } from '../api/sandbox';
 import type { SandboxState } from '@cloud-ide/shared/types/sandbox';
 import { timeAgo } from '../env-manager/utils/timeAgo';
@@ -79,6 +79,12 @@ export default function Sandboxes() {
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-gray-800 hover:border-gray-600"
           >
             <VscRocket /> Environments
+          </button>
+          <button
+            onClick={() => navigate('/health')}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-gray-800 hover:border-gray-600"
+          >
+            <VscPulse /> Health
           </button>
         </div>
       </header>

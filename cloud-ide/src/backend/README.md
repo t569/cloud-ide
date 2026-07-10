@@ -25,6 +25,7 @@ Each subsystem is decoupled and has its own authoritative doc/header comments.
 | **Session recovery** | `src/services/SessionStore.ts` | Persists terminal scrollback (crash-safe, outside the worktree) for reconnect/restore. Unrelated to `SessionController` — **two different "sessions"**: a `SessionRecord` is a browser↔sandbox connection, a `SessionStore` entry is one terminal's scrollback. |
 | **Build pipeline** | `src/services/builder/` | Environment JSON → built/tagged Docker images with queueing, status, history, rollback. 👉 **[services/builder/README.md](./src/services/builder/README.md)**. |
 | **Storage** | `src/services/storage/WorktreeEngine.ts` | One git worktree per sandbox (branch `sbx-<id>`) — the durable, content-addressed source of truth (our Merkle tree + WAL; see ARCHITECTURE.md "Known Debt"). |
+| **Health** | `src/api/HealthRoutes.ts` | `GET /api/health` — probes every subsystem above in parallel (daemon, docker, build store, repos, worktrees + `git`, driver) and reports the worst as the overall status. 200 for `ok`/`degraded`, **503** for `down`. Rendered at `/health` in the SPA. 👉 **[HEALTH.md](./HEALTH.md)**. |
 
 ### The terminal in one picture
 

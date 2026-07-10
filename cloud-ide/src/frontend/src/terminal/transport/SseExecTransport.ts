@@ -128,16 +128,24 @@ export class SseExecTransport implements ITransportStream {
         pending = lines.pop() ?? ''; // keep the trailing partial line
 
         for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
+          // execd frames each event as a RAW JSON object on its own line, with a
+          // blank line between — NOT `data: `-prefixed SSE, despite the
+          // text/event-stream content-type. The gateway pipes it through untouched.
+          // Filtering on `data: ` (as this did) dropped every line → blank terminal.
+          // Tolerate an optional `data: ` prefix, skip the blank separators, parse rest.
+          const raw = line.startsWith('data: ') ? line.slice(6) : line;
+          if (!raw.trim()) continue;
+          let payload: any;
           try {
-            const payload = JSON.parse(line.slice(6));
-            if (payload.type === 'stdout' || payload.type === 'stderr') {
-              // Normalize bare \n to \r\n so xterm.js renders columns correctly
-              const text: string = payload.text || payload.data || '';
-              this.broadcast(text.replace(/(?<!\r)\n/g, '\r\n'));
-            }
+            payload = JSON.parse(raw);
           } catch {
-            // Ignore malformed partial chunks — same tolerance as the backend driver
+            continue; // incomplete chunk; the trailing `pending` buffer will complete it
+          }
+          if (payload.type === 'stdout' || payload.type === 'stderr') {
+            // execd emits one line per event with the trailing newline stripped, so
+            // terminate each line for xterm; also normalize any embedded \n.
+            const text: string = payload.text ?? payload.data ?? '';
+            this.broadcast(text.replace(/(?<!\r)\n/g, '\r\n') + '\r\n');
           }
         }
       }

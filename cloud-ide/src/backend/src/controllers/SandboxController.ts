@@ -121,28 +121,55 @@ export class SandboxController {
         await new Promise(resolve => setTimeout(resolve, 300));
       }
 
-      const connection = await this.sandboxManager.resolveExecConnection(sandboxId);
-      
-      // NEW: Diagnostic log to prove Rust gave us the right proxy URL
-      console.log(`\n🔗 [Gateway] Connecting to Proxy: ${connection.baseUrl}`);
-
-     const response = await fetch(`${connection.baseUrl.replace(/\/$/, '')}/command`, {
-        method: 'POST',
-        headers: {
-          Accept: 'text/event-stream',
-          'Content-Type': 'application/json',
-          ...(connection.accessToken
-            ? { 'X-EXECD-ACCESS-TOKEN': connection.accessToken }
-            : {}),
-        },
-        body: JSON.stringify({
-          command: payload.command.join(' '), 
-          cwd: payload.cwd || '/workspace',
-          env: payload.env || {},
-        }),
-        signal: abortController.signal, 
+      // A freshly-created sandbox reports RUNNING before execd finishes booting
+      // inside the container, so the very FIRST exec can hit a proxy that refuses the
+      // connection (ECONNREFUSED) or a not-yet-ready 5xx/404 — the "first command in a
+      // new terminal returns nothing" race. Retry the connect for a few seconds; execd
+      // comes up quickly. Only the CONNECT is retried (no bytes streamed yet), so the
+      // command can never run twice.
+      const execBody = JSON.stringify({
+        command: payload.command.join(' '),
+        cwd: payload.cwd || '/workspace',
+        env: payload.env || {},
       });
 
+      let response: globalThis.Response | undefined;
+      let lastErr: unknown;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        if (abortController.signal.aborted) return;
+        try {
+          const connection = await this.sandboxManager.resolveExecConnection(sandboxId);
+          if (attempt === 0) console.log(`\n🔗 [Gateway] Connecting to Proxy: ${connection.baseUrl}`);
+          response = await fetch(`${connection.baseUrl.replace(/\/$/, '')}/command`, {
+            method: 'POST',
+            headers: {
+              Accept: 'text/event-stream',
+              'Content-Type': 'application/json',
+              ...(connection.accessToken ? { 'X-EXECD-ACCESS-TOKEN': connection.accessToken } : {}),
+            },
+            body: execBody,
+            signal: abortController.signal,
+          });
+          if (response.ok) break;
+          // Proxy/execd still booting → back off and retry. A real 4xx falls through.
+          if (response.status >= 500 || response.status === 404) {
+            lastErr = new Error(`execd not ready: ${response.status}`);
+            response = undefined;
+            await new Promise((r) => setTimeout(r, 400));
+            continue;
+          }
+          break;
+        } catch (err: any) {
+          if (err?.name === 'AbortError') return; // client disconnected mid-retry
+          lastErr = err; // ECONNREFUSED while execd is still coming up
+          await new Promise((r) => setTimeout(r, 400));
+        }
+      }
+
+      if (!response) {
+        res.status(503).json({ error: `Sandbox exec endpoint not ready: ${(lastErr as Error)?.message ?? 'unknown'}` });
+        return;
+      }
       if (!response.ok) {
         const errorText = await response.text();
         res.status(response.status).json({ error: errorText || response.statusText });

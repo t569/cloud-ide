@@ -43,11 +43,20 @@ describe('SseExecTransport.execute', () => {
     expect(body.command).not.toContain('/bin/sh');
   });
 
-  it('streams stdout/stderr events from the SSE body into the terminal', async () => {
-    const { out } = await run('echo hi', [
-      'data: {"type":"stdout","text":"hi"}',
-      'data: {"type":"execution_complete"}',
+  // execd frames events as raw JSON lines (blank line between), NOT `data: ` SSE —
+  // the old parser filtered on `data: ` and rendered nothing. Feed the real framing.
+  it('renders raw-JSON stdout/stderr lines (no data: prefix) with a line break each', async () => {
+    const { out } = await run('ls', [
+      '{"type":"init","text":"abc"}',
+      '',
+      '{"type":"stdout","text":"file-a"}',
+      '',
+      '{"type":"stdout","text":"file-b"}',
+      '',
+      '{"type":"execution_complete"}',
     ]);
-    expect(out.join('')).toContain('hi');
+    // Both lines rendered, each terminated so xterm doesn't concatenate them.
+    expect(out.join('')).toContain('file-a\r\n');
+    expect(out.join('')).toContain('file-b\r\n');
   });
 });

@@ -99,8 +99,14 @@ export class SseExecTransport implements ITransportStream {
     this.abortController = new AbortController();
 
     try {
+      // Send the raw command as a single element — do NOT wrap it in
+      // ['/bin/sh','-c', command]. execd already runs the command through a shell
+      // (`bash -c <string>`), and the gateway flattens this array with join(' ')
+      // before handing it over. Wrapping produced `bash -c "/bin/sh -c <command>"`,
+      // a triple-shell that syntax-errored on anything with a loop/pipe/quote and
+      // streamed nothing back — the "terminal shows no output" bug.
       const response = await postStream(`${API_BASE_URL}/v1/sandboxes/${this.sandboxId}/exec`, {
-        body: { command: ['/bin/sh', '-c', command], cwd: '/workspace' },
+        body: { command: [command], cwd: '/workspace' },
         signal: this.abortController.signal,
       });
 

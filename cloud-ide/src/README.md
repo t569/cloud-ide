@@ -3,14 +3,18 @@
 ## 🛠️ System Prerequisites
 Before installing, ensure your development environment meets the strict architectural requirements for the Native FFI (Foreign Function Interface) engine:
 
-*   **Node.js (v24.x 64-bit):** You must be running the x64 architecture of Node.js. 32-bit (ia32) will fail to bind to the Rust binaries. Verify with:
+*   **Node.js (v24.x 64-bit):** Run the x64 build. Verify with:
     ```bash
     node -p "process.arch"
     ```
-*   **Rust Toolchain:** Install Rust via [rustup](https://rustup.rs).
-*   **Microsoft C++ Build Tools (Windows Only):** The Rust compiler must use the MSVC toolchain to successfully inject the N-API Node.js handshake.
-    *   **Run:** `rustup default stable-x86_64-pc-windows-msvc`
-*   **Docker Desktop:** Required for the local OpenSandbox daemon.
+*   **Docker Desktop (or native `dockerd` in WSL):** Required for the local OpenSandbox daemon.
+
+> [!NOTE]
+> **No Rust toolchain is needed to run the stack.** The gateway talks to the
+> OpenSandbox daemon directly over HTTP; the `src-rust` napi engine is legacy and
+> is no longer wired into the runtime (`dev`/`dev:backend` never build it). Only
+> install rustup — plus the MSVC toolchain on Windows — if you are actively working
+> on `src-rust` itself (`npm run build:rust -w backend`).
 
 ## 🚀 Installation
 
@@ -24,7 +28,7 @@ npm install
 **What this does:** NPM will parse all three `package.json` files, download all dependencies, hoist shared libraries to the root `node_modules` to save space, and automatically symlink the `@cloud-ide/shared` package into both the frontend and backend.
 
 ## 🏃‍♂️ Running the Stack
-You can boot the entire infrastructure (compiling the Rust engine, starting the Express Gateway, and launching the Vite frontend) with a single command:
+You can boot the entire infrastructure (the OpenSandbox daemon, the Express Gateway, and the Vite frontend) with a single command:
 
 ```bash
 # From the root directory
@@ -34,7 +38,7 @@ npm run dev
 ### Alternative Individual Commands:
 
 *   `npm run dev:frontend` — Starts only the React UI.
-*   `npm run dev:backend` — Cleans, rebuilds the Rust engine, and starts the API Gateway.
+*   `npm run dev:backend` — Starts the API Gateway (Express, via `ts-node`). No Rust build; the gateway reaches the OpenSandbox daemon over HTTP.
 
 ## 🐧 If Docker lives inside WSL (not Docker Desktop)
 

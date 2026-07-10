@@ -15,6 +15,7 @@ import {
 } from '../api/sandbox';
 import type { SandboxState } from '@cloud-ide/shared/types/sandbox';
 import { timeAgo } from '../env-manager/utils/timeAgo';
+import { getEnvironment, type SavedEnvironment } from '../env-manager/services/api/environmentApi';
 import { launchEnvironment } from './launch';
 import { navigate } from './router';
 
@@ -144,19 +145,28 @@ function SandboxDrawer({
   const [busy, setBusy] = useState<null | string>(null);
   const [confirming, setConfirming] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [tab, setTab] = useState<'ov' | 'set'>('ov');
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
+  // null = loading, 'none' = no linked environment (raw sandbox), else the config.
+  const [env, setEnv] = useState<SavedEnvironment | null | 'none'>(null);
 
-  // Load this sandbox's session history whenever the drawer targets a new one.
+  // Load session history + linked environment whenever the drawer targets a new
+  // sandbox. Reset the tab so a fresh sandbox opens on Overview.
   useEffect(() => {
     let live = true;
+    setTab('ov');
     setSessions(null);
+    setEnv(null);
     listSandboxSessions(sbx.sandboxId)
       .then((s) => live && setSessions(s))
       .catch(() => live && setSessions([]));
+    getEnvironment(sbx.environmentId)
+      .then((e) => live && setEnv(e))
+      .catch(() => live && setEnv('none'));
     return () => {
       live = false;
     };
-  }, [sbx.sandboxId]);
+  }, [sbx.sandboxId, sbx.environmentId]);
 
   // Escape closes the drawer.
   useEffect(() => {
@@ -222,10 +232,28 @@ function SandboxDrawer({
               <VscClose />
             </button>
           </div>
+
+          {/* tabs */}
+          <div className="flex gap-1 mt-4">
+            {(['ov', 'set'] as const).map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`relative px-3 py-2.5 text-[13px] ${
+                  tab === t ? 'text-gray-100' : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {t === 'ov' ? 'Overview' : 'Settings'}
+                {tab === t && <span className="absolute left-2 right-2 -bottom-px h-0.5 rounded bg-[#5ec8d8]" />}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* overview */}
+        {/* body */}
         <div className="px-6 py-5 overflow-y-auto flex-1">
+          {tab === 'ov' && (
+          <>
           <dl className="grid grid-cols-[110px_1fr] gap-y-3 gap-x-3 text-[13px]">
             <dt className="text-gray-500">Environment</dt>
             <dd className="text-right break-all">{sbx.environmentId}</dd>
@@ -356,8 +384,70 @@ function SandboxDrawer({
               </div>
             )}
           </section>
+          </>
+          )}
+
+          {tab === 'set' && <SettingsPanel env={env} />}
         </div>
       </aside>
+    </>
+  );
+}
+
+// Configuration view. A sandbox is immutable — its image and env come from its
+// environment, so this is read-only and points you there to change anything.
+function SettingsPanel({ env }: { env: SavedEnvironment | null | 'none' }) {
+  if (env === null) return <p className="text-[12px] text-gray-600">Loading configuration…</p>;
+  if (env === 'none')
+    return (
+      <p className="text-[12.5px] text-gray-600">
+        This sandbox was created directly and has no linked environment to configure.
+      </p>
+    );
+
+  const cfg = env.builderConfig;
+  const vars = cfg?.env ? Object.entries(cfg.env) : [];
+
+  return (
+    <>
+      <p className="text-[11.5px] text-gray-500 leading-relaxed mb-4 pl-2.5 border-l-2 border-gray-700">
+        A sandbox is immutable — its image and variables come from its environment. Edit the environment
+        and rebuild to change them.
+      </p>
+
+      <dl className="grid grid-cols-[110px_1fr] gap-y-3 gap-x-3 text-[13px]">
+        <dt className="text-gray-500">Environment</dt>
+        <dd className="text-right font-mono text-[12px] break-all">{env.id}</dd>
+        <dt className="text-gray-500">Base image</dt>
+        <dd className="text-right font-mono text-[12px]">{cfg?.baseImage ?? '—'}</dd>
+        <dt className="text-gray-500">Built image</dt>
+        <dd className="text-right font-mono text-[12px] break-all">{env.imageName || 'not built yet'}</dd>
+      </dl>
+
+      <section className="mt-6">
+        <p className="text-[10.5px] uppercase tracking-wider text-gray-600 mb-2.5">Environment variables</p>
+        {vars.length === 0 ? (
+          <p className="text-[12.5px] text-gray-600">None set on the environment.</p>
+        ) : (
+          <div className="rounded-lg border border-gray-800 bg-[#0d0d0f] divide-y divide-gray-800">
+            {vars.map(([k, v]) => (
+              <div key={k} className="flex items-center gap-2 px-3 py-2 text-[12px] font-mono">
+                <span className="text-gray-400 flex-none">{k}</span>
+                <span className="text-gray-600 flex-none">=</span>
+                <span className="text-gray-300 truncate">{v}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <p className="text-[11px] text-gray-600 mt-2">Read-only — applied at boot. Change them on the environment.</p>
+      </section>
+
+      <button
+        onClick={() => navigate('/environments')}
+        className="mt-6 w-full flex items-center justify-center gap-2 text-[13px] font-semibold py-2.5 rounded-lg border border-gray-700 bg-[#1a1a1f] hover:border-gray-500"
+      >
+        <VscRocket /> Open environment
+      </button>
     </>
   );
 }

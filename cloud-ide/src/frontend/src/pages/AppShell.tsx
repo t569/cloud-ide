@@ -5,12 +5,14 @@
 // Routes:
 //   /environments (and / )      → Environments (env-manager)
 //   /sandboxes                  → Sandboxes (resume live/paused workspaces)
+//   /health                     → Health (subsystem status board)
 //   /editor/:sandboxId          → IDE workspace, booted for that sandbox
 import React from 'react';
 import { useLocation } from './router';
 import { getSession } from './sessionStore';
 import Environments from './Environments';
 import Sandboxes from './Sandboxes';
+import Health from './Health';
 import IDEWorkspace from './IDEWorkspace';
 
 const EDITOR_ROUTE = /^\/editor\/([^/]+)\/?$/;
@@ -29,6 +31,7 @@ export default function AppShell() {
   }
 
   if (path === '/sandboxes') return <Sandboxes />;
+  if (path === '/health') return <Health />;
 
   // Default: the environment manager.
   return <Environments />;

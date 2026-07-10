@@ -2,7 +2,7 @@
 // opens a detail drawer (Overview) to inspect it, open the workspace, pause/resume,
 // or delete it. Opening still routes through the shared launch flow, so a PAUSED
 // sandbox is resumed by POST /v1/sessions rather than by anything special here.
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { VscPulse, VscRefresh, VscServerProcess, VscRocket, VscClose, VscDebugPause, VscPlay, VscTrash, VscRootFolderOpened } from 'react-icons/vsc';
 import {
   listSandboxes,
@@ -10,6 +10,7 @@ import {
   pauseSandbox,
   resumeSandbox,
   listSandboxSessions,
+  streamSandboxLogs,
   type SandboxSummary,
   type SessionSummary,
 } from '../api/sandbox';
@@ -145,7 +146,7 @@ function SandboxDrawer({
   const [busy, setBusy] = useState<null | string>(null);
   const [confirming, setConfirming] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [tab, setTab] = useState<'ov' | 'set'>('ov');
+  const [tab, setTab] = useState<'ov' | 'set' | 'log'>('ov');
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
   // null = loading, 'none' = no linked environment (raw sandbox), else the config.
   const [env, setEnv] = useState<SavedEnvironment | null | 'none'>(null);
@@ -235,7 +236,7 @@ function SandboxDrawer({
 
           {/* tabs */}
           <div className="flex gap-1 mt-4">
-            {(['ov', 'set'] as const).map((t) => (
+            {(['ov', 'set', 'log'] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -243,7 +244,7 @@ function SandboxDrawer({
                   tab === t ? 'text-gray-100' : 'text-gray-500 hover:text-gray-300'
                 }`}
               >
-                {t === 'ov' ? 'Overview' : 'Settings'}
+                {t === 'ov' ? 'Overview' : t === 'set' ? 'Settings' : 'Logs'}
                 {tab === t && <span className="absolute left-2 right-2 -bottom-px h-0.5 rounded bg-[#5ec8d8]" />}
               </button>
             ))}
@@ -388,8 +389,92 @@ function SandboxDrawer({
           )}
 
           {tab === 'set' && <SettingsPanel env={env} />}
+          {tab === 'log' && <LogsPanel sandboxId={sbx.sandboxId} />}
         </div>
       </aside>
+    </>
+  );
+}
+
+// Live container logs (docker logs -f), streamed as plain text. The container's
+// PID 1 is `sleep infinity`, so a healthy sandbox is quiet — this is where boot
+// and exit failures show up.
+function LogsPanel({ sandboxId }: { sandboxId: string }) {
+  const [lines, setLines] = useState<string[]>([]);
+  const [status, setStatus] = useState<'connecting' | 'streaming' | 'ended' | 'error'>('connecting');
+  const boxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const ac = new AbortController();
+    let buf = '';
+    setLines([]);
+    setStatus('connecting');
+
+    streamSandboxLogs(sandboxId, ac.signal)
+      .then(async (res) => {
+        if (!res.ok || !res.body) {
+          setStatus('error');
+          setLines([`Could not load logs (${res.status}).`]);
+          return;
+        }
+        setStatus('streaming');
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const parts = buf.split('\n');
+          buf = parts.pop() ?? '';
+          if (parts.length) setLines((prev) => [...prev, ...parts].slice(-1000)); // cap memory
+        }
+        setStatus('ended');
+      })
+      .catch((e: Error) => {
+        if (e.name !== 'AbortError') setStatus('error');
+      });
+
+    return () => ac.abort();
+  }, [sandboxId]);
+
+  // Follow the tail as new lines arrive.
+  useEffect(() => {
+    const el = boxRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [lines]);
+
+  const lineColor = (l: string) => {
+    if (/\b(error|fatal|panic|exited|failed)\b/i.test(l)) return '#f87171';
+    if (/\b(warn|warning)\b/i.test(l)) return '#fbbf24';
+    return '#8b8b96';
+  };
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-[10.5px] uppercase tracking-wider text-gray-600">Container logs</p>
+        <span className="text-[10.5px] text-gray-600">
+          {status === 'streaming' ? 'live' : status === 'connecting' ? 'connecting…' : status === 'error' ? 'error' : 'ended'}
+        </span>
+      </div>
+      <div
+        ref={boxRef}
+        className="font-mono text-[11.5px] leading-relaxed bg-[#0d0d0f] border border-gray-800 rounded-lg p-3 max-h-[420px] overflow-auto"
+      >
+        {lines.length === 0 ? (
+          <p className="text-gray-600">
+            {status === 'error'
+              ? 'Logs unavailable.'
+              : 'No container output. This sandbox runs `sleep infinity`, so only startup errors and its own stdout appear here.'}
+          </p>
+        ) : (
+          lines.map((l, i) => (
+            <div key={i} className="whitespace-pre-wrap break-words" style={{ color: lineColor(l) }}>
+              {l}
+            </div>
+          ))
+        )}
+      </div>
     </>
   );
 }

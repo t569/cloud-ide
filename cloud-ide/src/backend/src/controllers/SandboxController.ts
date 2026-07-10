@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream';
+import { spawn } from 'node:child_process';
 import { Request, Response } from 'express';
 import {
   SandboxExecRequest,
@@ -335,6 +336,46 @@ export class SandboxController {
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
+  };
+
+  /**
+   * GET /api/v1/sandboxes/:sandboxId/logs — live container logs (`docker logs -f`),
+   * streamed as plain text. Owner-gated by the router, like every :sandboxId route.
+   *
+   * The container's PID 1 is `sleep infinity`, so a healthy sandbox is quiet here —
+   * this is mainly where boot/exit failures surface (the exit-255 class we keep
+   * hitting). Per-command output goes through /exec, not the container log.
+   *
+   * ponytail: shells out to the docker CLI directly. The gateway is colocated with
+   * dockerd (WSL) — the same assumption bind mounts and exec already make. A
+   * non-docker driver would need a logs() on ISandboxDriver; add it with the 2nd driver.
+   */
+  public streamLogs = async (req: Request, res: Response): Promise<void> => {
+    const sandboxId = this.getStringParam(req.params.sandboxId);
+    if (!sandboxId) {
+      res.status(400).json({ error: 'sandboxId is required.' });
+      return;
+    }
+
+    // Array args (not a shell string) — sandboxId can never inject a flag/command.
+    const child = spawn('docker', ['logs', '--tail', '200', '--timestamps', '-f', `sandbox-${sandboxId}`]);
+
+    res.status(200);
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    // docker sends the container's stdout to its stdout and the container's stderr
+    // (plus docker's own errors, e.g. "No such container") to stderr — show both.
+    child.stdout.on('data', (d) => res.write(d));
+    child.stderr.on('data', (d) => res.write(d));
+    child.on('error', (err) => res.end(`\n[logs unavailable: ${String(err)}]\n`));
+    child.on('close', () => res.end());
+
+    // Drawer closed / navigated away → stop following so we don't leak a
+    // `docker logs -f` process per view.
+    res.on('close', () => child.kill('SIGKILL'));
   };
 
    private getStringParam(value: string | string[] | undefined): string | undefined {

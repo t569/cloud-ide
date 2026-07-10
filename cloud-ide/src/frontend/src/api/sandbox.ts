@@ -3,6 +3,7 @@
 import type { SandboxState, SandboxStatus } from '@cloud-ide/shared/types/sandbox';
 import type { SessionState } from '@cloud-ide/shared/types/session';
 import { apiClient } from '@frontend/lib/apiClient';
+import { API_BASE_URL } from '../config/env';
 
 // ponytail: no createSandbox() wrapper. POST /v1/sandboxes is the raw "create
 // compute" verb and always boots a NEW container — calling it to launch an env is
@@ -70,6 +71,17 @@ export interface SessionSummary {
  */
 export const listSandboxSessions = (sandboxId: string) =>
   apiClient.get<SessionSummary[]>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/sessions`);
+
+/**
+ * Live container logs as a plain-text stream (`docker logs -f`). GET, so no CSRF;
+ * `credentials` carries the cookie the ownership guard checks. Returns the raw
+ * Response — the caller reads `.body` and appends lines.
+ */
+export const streamSandboxLogs = (sandboxId: string, signal?: AbortSignal) =>
+  fetch(`${API_BASE_URL}/v1/sandboxes/${encodeURIComponent(sandboxId)}/logs`, {
+    credentials: 'include',
+    signal,
+  });
 
 /**
  * Poll until the sandbox is RUNNING. Provisioning is async (bootSandbox may

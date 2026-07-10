@@ -14,7 +14,6 @@ pipeline/
 │   ├── types.ts                # The 'PipelineInjector' interface contract
 │   ├── MiddlewareEngine.ts     # The runner that executes registered plugins
 │   └── injectors/
-│       ├── OpenSandboxInjector.ts # Injects execd daemon & networking overrides
 │       └── SecurityUserInjector.ts# Handles non-root user setup
 ├── assembler/
 │   └── DockerfileAssembler.ts  # Compiles the final text and maps BuildKit caches

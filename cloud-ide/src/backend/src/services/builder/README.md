@@ -45,8 +45,10 @@ Every docker CLI call (build stream, inspect, tag, prune) routes through
    ordering, reserved-path protection, redundancy checks.
 2. **Multi-stage orchestration** — heavy managers (npm/cargo/pip) to a builder
    stage, runtime deps to the final stage, `COPY --from=builder` bridges.
-3. **Middleware injection** — `SecurityUserInjector` (drop root),
-   `OpenSandboxInjector` (control-plane daemon).
+3. **Middleware injection** — `SecurityUserInjector` (drop root). No execd injector:
+   the daemon copies execd into every sandbox at boot, so baking it in was redundant
+   and broke any base image without `curl` (see `opensandbox/README.md` item K). The
+   image's only obligation is `/bin/bash`.
 4. **Step translation** (`PackageManagerRules`) — BuildKit cache mounts.
 5. **Assembly** — `# syntax=docker/dockerfile:1.4`, layer flattening.
 

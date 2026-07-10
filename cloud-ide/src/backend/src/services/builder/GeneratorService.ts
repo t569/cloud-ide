@@ -8,7 +8,6 @@ import {
   StageOrchestrator,
   MiddlewareEngine,
   SecurityUserInjector,
-  OpenSandboxInjector,
   DockerfileAssembler,
 } from '@cloud-ide/pipeline';
 
@@ -31,11 +30,17 @@ export class DockerGeneratorService {
     // Phase 2: Split into Builder and Runtime stages
     const baseManifest = StageOrchestrator.generateManifest(config);
 
-    // Phase 3: Inject custom backend requirements (Daemons, Users, Networking)
+    // Phase 3: Inject custom backend requirements (Users, Networking).
+    //
+    // No execd injector: the OpenSandbox daemon copies `execd` and `bootstrap.sh`
+    // into every sandbox at boot and rewrites the entrypoint to run them, so baking
+    // execd into the image was redundant — and the `curl | bash` step it added failed
+    // on any base without curl. The image's only obligation is `/bin/bash`, which
+    // bootstrap.sh's shebang requires. See src/opensandbox/README.md audit item K.
     const engine = new MiddlewareEngine()
-      .use(new SecurityUserInjector())
-      .use(new OpenSandboxInjector());
-      
+      .use(new SecurityUserInjector());
+
+
     const finalManifest = engine.execute(baseManifest);
 
     // Phase 4 & 5: Translate to syntax and Assemble

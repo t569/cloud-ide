@@ -195,3 +195,32 @@ a Kubernetes provider may *reject* a null timeout.
 
 Unwired, self-documented as dead, and the origin of the `pullPolicy` / `cpuCount` /
 `memoryMb` payload the engine copied. Removed so it stops being a reference.
+### K. `OpenSandboxInjector` baked execd into every image **[DELETED]**
+
+The Dockerfile pipeline appended `RUN curl -sSL .../install-execd.sh | bash` to every
+build, set `EXECD_PORT=2222`, and overrode the runtime `cmd` to launch execd. All three
+were written against an imagined contract, and nothing in the codebase read them.
+
+The daemon injects execd itself. `docker/runtime.py::_copy_execd_to_container` copies
+`execd` **and** `bootstrap.sh` into the container from a platform image, rewrites the
+entrypoint to `/opt/opensandbox/bootstrap.sh`, and demotes our `entrypoint` to `Cmd`.
+Verified against a live daemon: a stock `debian:bookworm-slim` sandbox — no curl, no
+baked execd — boots, exposes 44772, and runs commands.
+
+```
+$ exec in a plain debian sandbox
+EXECD-ALIVE
+PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"
+NO-CURL-IN-IMAGE          <- the injector's step could never have run here
+bootstrap.sh execd        <- /opt/opensandbox, put there by the daemon
+```
+
+The injected port was wrong too: `openSandboxEngine.ts` reaches execd on **44772**, not
+2222, and `cmd` is dead because the daemon overwrites the entrypoint anyway. The step's
+only real effect was breaking every build whose base image lacked `curl` — `alpine:3`
+failed with `/bin/sh: curl: not found`.
+
+**The image's one obligation is `/bin/bash`**: `bootstrap.sh` opens with `#!/bin/bash`,
+so a musl/busybox base (alpine) dies at boot with the misleading
+`exec /opt/opensandbox/bootstrap.sh: no such file or directory` — that is the *interpreter*
+missing, not the script.

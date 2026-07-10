@@ -1,7 +1,7 @@
 // backend/src/api/routes/environment.routes.ts
 import { Router, Request, Response } from 'express';
 import { IEnvironmentRepository } from '../../database/interfaces/IEnvironmentRepository';
-import { ISessionRepository } from '../../database/interfaces/ISessionRepository';
+import { ISandboxRepository } from '../../database/interfaces/ISandboxRepository';
 
 // Core tools — naming validity lives entirely in @cloud-ide/shared.
 import { Validator, resolveNewNaming, validateName, toImageName, isValidImageRef, stripRegistry } from '@cloud-ide/shared';
@@ -12,7 +12,7 @@ import { EnvironmentRecord } from '../../database/models';
 
 export function createEnvironmentRouter(
   envRepo: IEnvironmentRepository,
-  sessionRepo: ISessionRepository,
+  sandboxRepo: ISandboxRepository,
   buildService: BuildService,
 ) {
   const router = Router();
@@ -280,10 +280,21 @@ export function createEnvironmentRouter(
     const envId = readId(req, res);
     if (!envId) return;
 
-    const activeSessions = await sessionRepo.getSessionsByEnvId(envId);
-    if (activeSessions.length > 0) {
+    // Sandboxes are what depend on an environment, not sessions: a session is an
+    // ephemeral browser connection that comes and goes, but a sandbox is durable
+    // compute that outlives it (scale-to-zero pauses it, it doesn't disconnect).
+    // The old guard queried sessions (SessionRecord has no environmentId, so its
+    // getSessionsByEnvId was a stub returning []); it never fired, and an env could be
+    // deleted out from under a running sandbox, orphaning it — the launch path 404s and
+    // the sandbox can never be reopened. This is the exact query the launch path uses to
+    // find warm sandboxes, so the two agree by construction.
+    const dependents = await sandboxRepo.getSandboxesByEnvId(envId);
+    const live = dependents.filter(
+      (s) => s.state === 'RUNNING' || s.state === 'PAUSED' || s.state === 'PROVISIONING',
+    );
+    if (live.length > 0) {
       res.status(409).json({
-        error: `Cannot delete environment. ${activeSessions.length} sessions are currently using it.`,
+        error: `Cannot delete environment: ${live.length} sandbox(es) still depend on it. Destroy them first.`,
       });
       return;
     }

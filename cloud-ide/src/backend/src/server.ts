@@ -143,7 +143,7 @@ const buildService = new BuildService(
   Number(process.env.MAX_CONCURRENT_BUILDS) || 2, // global build concurrency cap
 );
 
-app.use('/api/environment', createEnvironmentRouter(envRepo, sessionRepo, buildService));
+app.use('/api/environment', createEnvironmentRouter(envRepo, sandboxRepo, buildService));
 
 // Subsystem health, for humans (/health in the SPA) and for load balancers (503 when
 // anything is down). Mounted here — after buildStore exists — so it shares the real

@@ -69,10 +69,6 @@ export class JsonSessionRepository implements ISessionRepository {
     return Object.values(db).filter((session) => session.sandboxId === sandboxId);
   }
 
-   public async getSessionsByEnvId(_envId: string): Promise<SessionRecord[]> {
-    return [];
-  }
-
   public async linkToSandbox(sessionId: string, sandboxId: string): Promise<void> {
     const db = await this.read();
     if (!db[sessionId]) {

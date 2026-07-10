@@ -20,8 +20,7 @@ export interface ISessionRepository {
    * is orphaned, and allows the PersistenceLayer to execute cascade disconnects 
    * if the underlying infrastructure crashes.
    */
-  getSessionsBySandboxId(sandboxId: string): Promise<SessionRecord[]>; 
-  getSessionsByEnvId(envId: string): Promise<SessionRecord[]>;
+  getSessionsBySandboxId(sandboxId: string): Promise<SessionRecord[]>;
 
   /**
    * @description Creates the Many-to-One relational link between frontend users 

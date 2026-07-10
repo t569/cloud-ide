@@ -29,6 +29,7 @@ import { attachUser } from './api/middleware/auth';
 
 // File Routers
 import { createFileSystemRouter } from './api/FileSystemRoutes';
+import { createHealthRouter } from './api/HealthRoutes';
 import { createPreviewRouter } from './api/PreviewRoutes';
 import { createEnvironmentRouter } from './api/routes/environment.routes';
 import { createImageRouter } from './api/routes/images.routes';
@@ -95,7 +96,8 @@ const systemEvents = new EventEmitter();
 
 // // Initialize the Kernel & Background Daemons
 const persistenceLayer = new PersistenceLayer(systemEvents, sessionRepo, sandboxRepo);
-const sandboxManager = new SandboxManager(sandboxRepo, createSandboxDriver());
+const sandboxDriver = createSandboxDriver();
+const sandboxManager = new SandboxManager(sandboxRepo, sandboxDriver);
 
 // fsEventHub carries chokidar (Step 10c) change events out over SSE; the watchers'
 // per-sandbox SSE ref-count doubles as the "is anyone using this?" signal the
@@ -142,6 +144,12 @@ const buildService = new BuildService(
 );
 
 app.use('/api/environment', createEnvironmentRouter(envRepo, sessionRepo, buildService));
+
+// Subsystem health, for humans (/health in the SPA) and for load balancers (503 when
+// anything is down). Mounted here — after buildStore exists — so it shares the real
+// dependency instances rather than probing lookalikes. It sits behind csrfProtection
+// and attachUser, which only means a probe gets handed cookies it can ignore.
+app.use('/api/health', createHealthRouter({ sandboxRepo, envRepo, buildStore, driver: sandboxDriver }));
 
 // Docker Hub image/tag search proxy (base-image picker in the env architect).
 app.use('/api/images', createImageRouter());

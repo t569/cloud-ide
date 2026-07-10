@@ -1,9 +1,16 @@
-// The /sandboxes page (Step 12b). Lists the sandboxes this user owns and reopens
-// one on click. Opening routes through the shared launch flow, so a PAUSED sandbox
-// is resumed by POST /v1/sessions rather than by anything special here.
+// The /sandboxes page (Step 12b). Lists the sandboxes this user owns; clicking one
+// opens a detail drawer (Overview) to inspect it, open the workspace, pause/resume,
+// or delete it. Opening still routes through the shared launch flow, so a PAUSED
+// sandbox is resumed by POST /v1/sessions rather than by anything special here.
 import React, { useEffect, useState } from 'react';
-import { VscPulse, VscRefresh, VscServerProcess, VscRocket } from 'react-icons/vsc';
-import { listSandboxes, type SandboxSummary } from '../api/sandbox';
+import { VscPulse, VscRefresh, VscServerProcess, VscRocket, VscClose, VscDebugPause, VscPlay, VscTrash, VscRootFolderOpened } from 'react-icons/vsc';
+import {
+  listSandboxes,
+  deleteSandbox,
+  pauseSandbox,
+  resumeSandbox,
+  type SandboxSummary,
+} from '../api/sandbox';
 import type { SandboxState } from '@cloud-ide/shared/types/sandbox';
 import { timeAgo } from '../env-manager/utils/timeAgo';
 import { launchEnvironment } from './launch';
@@ -32,7 +39,7 @@ export default function Sandboxes() {
   const [sandboxes, setSandboxes] = useState<SandboxSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setLoading] = useState(true);
-  const [opening, setOpening] = useState<string | null>(null);
+  const [selected, setSelected] = useState<SandboxSummary | null>(null);
 
   const refresh = () => {
     setLoading(true);
@@ -40,23 +47,14 @@ export default function Sandboxes() {
       .then((list) => {
         setSandboxes(list);
         setError(null);
+        // Keep the drawer's data fresh (or close it if the sandbox is gone).
+        setSelected((cur) => (cur ? list.find((s) => s.sandboxId === cur.sandboxId) ?? null : null));
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   };
 
   useEffect(refresh, []);
-
-  // "Resuming" only when it's actually asleep; launchEnvironment handles the wait,
-  // the toast and the navigate. `opening` just disables the card meanwhile.
-  const open = async (sbx: SandboxSummary) => {
-    setOpening(sbx.sandboxId);
-    await launchEnvironment(sbx.environmentId, {
-      workspaceName: sbx.environmentId,
-      verb: sbx.state === 'PAUSED' ? 'Resuming' : 'Opening',
-    });
-    setOpening(null);
-  };
 
   return (
     <div className="min-h-screen bg-[#0d0d0f] text-gray-200 p-8">
@@ -65,7 +63,9 @@ export default function Sandboxes() {
           <h1 className="text-xl font-semibold flex items-center gap-2">
             <VscServerProcess /> Sandboxes
           </h1>
-          <p className="text-xs text-gray-500 mt-1">Your running and paused workspaces.</p>
+          <p className="text-xs text-gray-500 mt-1">
+            Compute you own — each a container you can attach sessions to, inspect, and tear down.
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -105,9 +105,9 @@ export default function Sandboxes() {
         {sandboxes.map((sbx) => (
           <button
             key={sbx.sandboxId}
-            onClick={() => open(sbx)}
-            disabled={opening !== null}
-            className="text-left p-4 rounded-lg border border-gray-800 bg-[#141417] hover:border-gray-600 disabled:opacity-50"
+            onClick={() => setSelected(sbx)}
+            aria-current={selected?.sandboxId === sbx.sandboxId}
+            className="text-left p-4 rounded-lg border border-gray-800 bg-[#141417] hover:border-gray-600 aria-[current=true]:border-[#5ec8d8]/50"
           >
             <div className="flex items-center justify-between mb-2">
               <span className="font-medium truncate">{sbx.environmentId}</span>
@@ -118,6 +118,183 @@ export default function Sandboxes() {
           </button>
         ))}
       </div>
+
+      {selected && (
+        <SandboxDrawer sbx={selected} onClose={() => setSelected(null)} onChanged={refresh} />
+      )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Detail drawer (Overview). Settings and Logs tabs land in later slices — no
+// empty scaffolding until they carry real content.
+// ---------------------------------------------------------------------------
+function SandboxDrawer({
+  sbx,
+  onClose,
+  onChanged,
+}: {
+  sbx: SandboxSummary;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState<null | string>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // Escape closes the drawer.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const run = async (label: string, fn: () => Promise<unknown>, after?: () => void) => {
+    setBusy(label);
+    setActionError(null);
+    try {
+      await fn();
+      after?.();
+      onChanged();
+    } catch (e) {
+      setActionError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const open = () =>
+    run('open', () =>
+      launchEnvironment(sbx.environmentId, {
+        workspaceName: sbx.environmentId,
+        verb: sbx.state === 'PAUSED' ? 'Resuming' : 'Opening',
+      }),
+    );
+
+  const createdAt = new Date(sbx.createdAt).toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/55 backdrop-blur-[2px] z-40" onClick={onClose} />
+      <aside
+        role="dialog"
+        aria-label={`Sandbox ${sbx.environmentId}`}
+        className="fixed top-0 right-0 h-full w-[min(440px,100vw)] bg-[#141417] border-l border-gray-700 shadow-2xl z-50 flex flex-col"
+      >
+        {/* header */}
+        <div className="px-6 pt-5 pb-4 border-b border-gray-800">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2.5">
+                <h2 className="text-[17px] font-semibold truncate">{sbx.environmentId}</h2>
+                <StatusPill state={sbx.state} />
+              </div>
+              <p className="mt-1.5 text-[11px] text-gray-600 font-mono truncate">sandbox {sbx.sandboxId}</p>
+            </div>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="flex-none w-7 h-7 grid place-items-center rounded-md border border-gray-800 text-gray-400 hover:text-gray-200 hover:border-gray-600"
+            >
+              <VscClose />
+            </button>
+          </div>
+        </div>
+
+        {/* overview */}
+        <div className="px-6 py-5 overflow-y-auto flex-1">
+          <dl className="grid grid-cols-[110px_1fr] gap-y-3 gap-x-3 text-[13px]">
+            <dt className="text-gray-500">Environment</dt>
+            <dd className="text-right break-all">{sbx.environmentId}</dd>
+            <dt className="text-gray-500">State</dt>
+            <dd className="text-right">{STATE_STYLE[sbx.state].label}</dd>
+            <dt className="text-gray-500">Created</dt>
+            <dd className="text-right">{createdAt}</dd>
+            <dt className="text-gray-500">Last active</dt>
+            <dd className="text-right">{timeAgo(sbx.lastActiveAt)}</dd>
+            <dt className="text-gray-500">Workspace</dt>
+            <dd className="text-right font-mono text-[12px]">/workspace</dd>
+          </dl>
+
+          {actionError && <p className="mt-4 text-[12px] text-[#f87171]">{actionError}</p>}
+
+          {/* actions */}
+          <div className="flex gap-2 mt-5">
+            <button
+              onClick={open}
+              disabled={busy !== null}
+              className="flex-1 flex items-center justify-center gap-2 text-[13px] font-semibold py-2.5 rounded-lg border border-[#5ec8d8]/50 bg-[#5ec8d8]/10 text-[#5ec8d8] hover:border-[#5ec8d8] disabled:opacity-50"
+            >
+              <VscRootFolderOpened /> {busy === 'open' ? 'Opening…' : 'Open'}
+            </button>
+
+            {sbx.state === 'RUNNING' && (
+              <button
+                onClick={() => run('pause', () => pauseSandbox(sbx.sandboxId))}
+                disabled={busy !== null}
+                className="flex items-center justify-center gap-2 text-[13px] font-semibold py-2.5 px-4 rounded-lg border border-gray-700 bg-[#1a1a1f] hover:border-gray-500 disabled:opacity-50"
+              >
+                <VscDebugPause /> {busy === 'pause' ? '…' : 'Pause'}
+              </button>
+            )}
+            {sbx.state === 'PAUSED' && (
+              <button
+                onClick={() => run('resume', () => resumeSandbox(sbx.sandboxId))}
+                disabled={busy !== null}
+                className="flex items-center justify-center gap-2 text-[13px] font-semibold py-2.5 px-4 rounded-lg border border-gray-700 bg-[#1a1a1f] hover:border-gray-500 disabled:opacity-50"
+              >
+                <VscPlay /> {busy === 'resume' ? '…' : 'Resume'}
+              </button>
+            )}
+
+            <button
+              onClick={() => setConfirming(true)}
+              disabled={busy !== null}
+              aria-label="Delete sandbox"
+              className="flex items-center justify-center py-2.5 px-3.5 rounded-lg border border-[#f87171]/30 bg-[#f87171]/10 text-[#f87171] hover:border-[#f87171] disabled:opacity-50"
+            >
+              <VscTrash />
+            </button>
+          </div>
+
+          {/* delete confirm — spells out the blast radius */}
+          {confirming && (
+            <div className="mt-4 p-4 rounded-lg border border-[#f87171]/30 bg-[#f87171]/5">
+              <p className="text-[13px] font-semibold mb-1">Delete this sandbox?</p>
+              <p className="text-[12px] text-gray-400 leading-relaxed">
+                This destroys the container <span className="text-gray-200">and its <code className="font-mono">/workspace</code> worktree</span>. Uncommitted
+                files are gone, and any attached sessions are disconnected. This can’t be undone.
+              </p>
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={() => setConfirming(false)}
+                  disabled={busy !== null}
+                  className="flex-1 text-[13px] py-2 rounded-lg border border-gray-700 bg-[#1a1a1f] hover:border-gray-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() =>
+                    run('delete', () => deleteSandbox(sbx.sandboxId), onClose)
+                  }
+                  disabled={busy !== null}
+                  className="flex-1 text-[13px] font-semibold py-2 rounded-lg border border-[#f87171]/40 bg-[#f87171]/15 text-[#f87171] hover:border-[#f87171] disabled:opacity-50"
+                >
+                  {busy === 'delete' ? 'Deleting…' : 'Delete sandbox'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </aside>
+    </>
   );
 }

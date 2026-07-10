@@ -40,6 +40,21 @@ export interface SandboxSummary {
 export const listSandboxes = () => apiClient.get<SandboxSummary[]>('/v1/sandboxes');
 
 /**
+ * Destroy a sandbox: its container AND its /workspace worktree. Irreversible —
+ * callers must confirm. Distinct from ending a session (which frees nothing).
+ */
+export const deleteSandbox = (sandboxId: string) =>
+  apiClient.delete<void>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}`);
+
+/** Suspend compute (freezes the container); the workspace survives. Resume to wake. */
+export const pauseSandbox = (sandboxId: string) =>
+  apiClient.post<void>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/pause`, {});
+
+/** Wake a paused sandbox back to RUNNING. */
+export const resumeSandbox = (sandboxId: string) =>
+  apiClient.post<void>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/resume`, {});
+
+/**
  * Poll until the sandbox is RUNNING. Provisioning is async (bootSandbox may
  * return PROVISIONING), and the editor's VFS needs a live workspace to hydrate.
  * Throws on ERROR/STOPPED or if it doesn't come up within `timeoutMs`.

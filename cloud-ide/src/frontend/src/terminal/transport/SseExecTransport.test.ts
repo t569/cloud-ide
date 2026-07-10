@@ -37,10 +37,12 @@ describe('SseExecTransport.execute', () => {
   // The bug: the old payload was ['/bin/sh','-c', command]; the gateway join(' ')s the
   // array and execd runs it via `bash -c`, so wrapping produced a triple-shell that
   // syntax-errored and streamed nothing. execd supplies the shell — send it raw.
-  it('sends the raw command as a single element, not wrapped in /bin/sh -c', async () => {
+  it('sends the command as a single element (raw, not wrapped in /bin/sh -c), with TERM exported', async () => {
     const { body } = await run('ls -la', []);
-    expect(body.command).toEqual(['ls -la']);
-    expect(body.command).not.toContain('/bin/sh');
+    expect(body.command).toHaveLength(1);
+    expect(body.command[0]).not.toContain('/bin/sh'); // no triple-shell
+    expect(body.command[0]).toContain('ls -la'); // the raw command survives
+    expect(body.command[0]).toContain('TERM='); // execd ignores env, so TERM is exported inline
   });
 
   // execd frames events as raw JSON lines (blank line between), NOT `data: ` SSE —

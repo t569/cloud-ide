@@ -106,7 +106,11 @@ export class SseExecTransport implements ITransportStream {
       // a triple-shell that syntax-errored on anything with a loop/pipe/quote and
       // streamed nothing back — the "terminal shows no output" bug.
       const response = await postStream(`${API_BASE_URL}/v1/sandboxes/${this.sandboxId}/exec`, {
-        body: { command: [command], cwd: '/workspace' },
+        // execd IGNORES the request `env` field and defaults TERM=dumb, so exporting
+        // TERM in the request env does nothing — terminfo tools (clear, tput, reset,
+        // colors) then fail with "TERM environment variable not set". Export it in the
+        // command itself instead. Still line-mode, no PTY (vim/top won't run).
+        body: { command: [`export TERM=xterm-256color; ${command}`], cwd: '/workspace' },
         signal: this.abortController.signal,
       });
 

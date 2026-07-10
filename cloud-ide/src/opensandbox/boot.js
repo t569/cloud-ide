@@ -36,16 +36,26 @@ try {
   uvCmd = `${pythonCmd} -m uv`; 
 }
 
-// 3. Idempotent Environment Setup (Skips if exists)
-if (!fs.existsSync(envDir)) {
+// 3. Idempotent Environment Setup.
+// Keyed on the SERVER BINARY, not on `sandbox-env/` existing: `uv venv` creates the
+// directory before `uv pip install` populates it, so an install killed in between
+// (Ctrl-C, a WSL shutdown, a full disk) leaves a valid-looking venv with no server
+// in it. Keyed on the directory, every later boot then skipped the install and died
+// with `spawn .../opensandbox-server ENOENT`. A crashed install must not wedge the
+// next one — so a half-built env is torn down and rebuilt.
+if (!fs.existsSync(serverCmd)) {
+  if (fs.existsSync(envDir)) {
+    console.log('🧹 [OpenSandbox] Incomplete sandbox-env (no server binary). Rebuilding...');
+    fs.rmSync(envDir, { recursive: true, force: true });
+  }
   console.log('📦 [OpenSandbox] Virtual environment not found. Creating sandbox-env with uv...');
   execSync(`${uvCmd} venv sandbox-env`, { stdio: 'inherit', cwd: sandboxDir });
-  
+
   console.log('📥 [OpenSandbox] Installing requirements.txt with uv...');
   // uv strictly requires the --python flag to target the new virtual environment
-  execSync(`${uvCmd} pip install -r requirements.txt --python sandbox-env`, { 
-    stdio: 'inherit', 
-    cwd: sandboxDir 
+  execSync(`${uvCmd} pip install -r requirements.txt --python sandbox-env`, {
+    stdio: 'inherit',
+    cwd: sandboxDir
   });
 } else {
   console.log('⚡ [OpenSandbox] Environment already exists. Skipping installation.');

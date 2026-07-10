@@ -163,7 +163,7 @@ export class OpenSandboxEngine implements RustEngineAPI {
 
 // ---- pure helpers ----
 
-function normalizeLifecycleBaseUrl(url: string): string {
+export function normalizeLifecycleBaseUrl(url: string): string {
   const trimmed = url.replace(/\/+$/, '');
   return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`;
 }

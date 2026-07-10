@@ -19,6 +19,12 @@ import { WorktreeStrategy } from '../provisioning/strategies/git/WorktreeStrateg
 const DEFAULT_WORKSPACE_MOUNT_PATH = '/workspace';
 const USER_VOLUME_ROOT = `${DEFAULT_WORKSPACE_MOUNT_PATH}/mounts`;
 
+// The on-disk storage layer every worktree branches from and lives in. Exported
+// because the health probe must inspect the same paths the engine actually uses —
+// a second `path.resolve(cwd, 'data/worktrees')` elsewhere would silently drift.
+export const CENTRAL_REPO_PATH = path.resolve(process.cwd(), 'data/central-repo.git');
+export const WORKTREES_ROOT = path.resolve(process.cwd(), 'data/worktrees');
+
 export interface VolumeMutationResult {
   sandbox: SandboxRecord;
   restartRequired: boolean;
@@ -56,10 +62,7 @@ export class SandboxManager {
     private driver: ISandboxDriver = new RustEngineClient(),
     // Injected like the driver so tests and alternate storage layouts can
     // swap it; the default points at the server's data folder.
-    private worktreeEngine: WorktreeEngine = new WorktreeEngine(
-      path.resolve(process.cwd(), 'data/central-repo.git'),
-      path.resolve(process.cwd(), 'data/worktrees')
-    )
+    private worktreeEngine: WorktreeEngine = new WorktreeEngine(CENTRAL_REPO_PATH, WORKTREES_ROOT)
   ) {}
 
 

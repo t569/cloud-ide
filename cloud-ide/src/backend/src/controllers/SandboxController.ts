@@ -6,6 +6,7 @@ import {
   VolumeMount,
 } from '@cloud-ide/shared/types/sandbox';
 import { DirtyWorktreeError, SandboxManager } from '../services/sandbox/SandboxManager';
+import { ISessionRepository } from '../database/interfaces';
 import { currentUser } from '../api/middleware/auth';
 
 
@@ -16,7 +17,10 @@ import { currentUser } from '../api/middleware/auth';
  * streaming Server-Sent Events (SSE) back to the client UI.
  */
 export class SandboxController {
-  constructor(private sandboxManager: SandboxManager) {}
+  constructor(
+    private sandboxManager: SandboxManager,
+    private sessionRepo: ISessionRepository,
+  ) {}
 
   public createSandbox = async (req: Request, res: Response): Promise<void> => {
     const spec = req.body as SandboxSpec;
@@ -52,6 +56,39 @@ export class SandboxController {
           createdAt: sbx.createdAt,
           lastActiveAt: sbx.lastActiveAt ?? sbx.createdAt,
         })),
+      );
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  /**
+   * GET /api/v1/sandboxes/:sandboxId/sessions — the browser attachments to this
+   * sandbox, newest first. A session is NOT the sandbox: many can share one, and
+   * ending a session never destroys the compute (the IdleSweeper owns that). This
+   * is what makes the sandbox↔session distinction legible in the UI. Owner-gated by
+   * the router's requireSandboxOwnership, same as every other :sandboxId route.
+   */
+  public listSessions = async (req: Request, res: Response): Promise<void> => {
+    const sandboxId = this.getStringParam(req.params.sandboxId);
+
+    if (!sandboxId) {
+      res.status(400).json({ error: 'sandboxId is required.' });
+      return;
+    }
+
+    try {
+      const sessions = await this.sessionRepo.getSessionsBySandboxId(sandboxId);
+      res.json(
+        sessions
+          .sort((a, b) => b.connectedAt - a.connectedAt)
+          .map((s) => ({
+            sessionId: s.sessionId,
+            userId: s.userId,
+            state: s.state,
+            connectedAt: s.connectedAt,
+            lastActiveAt: s.lastPingAt,
+          })),
       );
     } catch (error: any) {
       res.status(500).json({ error: error.message });

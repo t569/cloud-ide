@@ -110,7 +110,7 @@ const workspaceWatchers = new WorkspaceWatchers(sandboxManager, fsEventHub);
 const idleSweeper = new IdleSweeper(sandboxRepo, sandboxManager, workspaceWatchers);
 
 // Initialize Controllers
-const sandboxController = new SandboxController(sandboxManager);
+const sandboxController = new SandboxController(sandboxManager, sessionRepo);
 const adminController = new AdminController(sandboxManager);
 const sessionController = new SessionController(systemEvents, sessionRepo, sandboxRepo, sandboxManager, envRepo);
 

@@ -9,7 +9,9 @@ import {
   deleteSandbox,
   pauseSandbox,
   resumeSandbox,
+  listSandboxSessions,
   type SandboxSummary,
+  type SessionSummary,
 } from '../api/sandbox';
 import type { SandboxState } from '@cloud-ide/shared/types/sandbox';
 import { timeAgo } from '../env-manager/utils/timeAgo';
@@ -142,6 +144,19 @@ function SandboxDrawer({
   const [busy, setBusy] = useState<null | string>(null);
   const [confirming, setConfirming] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
+
+  // Load this sandbox's session history whenever the drawer targets a new one.
+  useEffect(() => {
+    let live = true;
+    setSessions(null);
+    listSandboxSessions(sbx.sandboxId)
+      .then((s) => live && setSessions(s))
+      .catch(() => live && setSessions([]));
+    return () => {
+      live = false;
+    };
+  }, [sbx.sandboxId]);
 
   // Escape closes the drawer.
   useEffect(() => {
@@ -293,6 +308,54 @@ function SandboxDrawer({
               </div>
             </div>
           )}
+
+          {/* Sessions — the sandbox↔session distinction, made visible */}
+          <section className="mt-7">
+            <p className="text-[10.5px] uppercase tracking-wider text-gray-600 mb-2.5">
+              Sessions{sessions ? ` · ${sessions.length}` : ''}
+            </p>
+            <p className="text-[11.5px] text-gray-600 leading-relaxed mb-3 pl-2.5 border-l-2 border-gray-700">
+              Browser attachments to this sandbox. Closing one frees nothing — the idle sweeper decides
+              when the container pauses.
+            </p>
+            {sessions === null ? (
+              <p className="text-[12px] text-gray-600">Loading sessions…</p>
+            ) : sessions.length === 0 ? (
+              <p className="text-[12.5px] text-gray-600">No sessions have attached to this sandbox yet.</p>
+            ) : (
+              <div>
+                {sessions.map((s) => {
+                  const active = s.state === 'ACTIVE';
+                  return (
+                    <div
+                      key={s.sessionId}
+                      className="flex items-center gap-3 py-2.5 border-t border-gray-800 first:border-t-0"
+                    >
+                      <div className="flex-none w-7 h-7 rounded-full bg-[#212128] grid place-items-center text-[11px] text-gray-400 font-semibold uppercase">
+                        {s.userId.slice(0, 1)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[12.5px] font-mono truncate">{s.userId.slice(0, 12)}</div>
+                        <div className="text-[11px] text-gray-600 mt-0.5 font-mono truncate">
+                          connected {timeAgo(s.connectedAt)} · {s.sessionId}
+                        </div>
+                      </div>
+                      <span
+                        className="flex-none text-[10.5px] font-semibold px-2 py-0.5 rounded-full lowercase"
+                        style={
+                          active
+                            ? { color: '#34d399', background: 'rgba(52,211,153,.12)' }
+                            : { color: '#5b5b65', background: '#212128' }
+                        }
+                      >
+                        {active ? 'active' : s.state === 'CONNECTING' ? 'connecting' : 'ended'}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         </div>
       </aside>
     </>

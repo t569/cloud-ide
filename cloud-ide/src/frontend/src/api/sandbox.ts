@@ -1,6 +1,7 @@
 // Frontend proxy to the backend sandbox API (/api/v1/sandboxes). apiClient's
 // base already ends in /api, so the path is /v1/sandboxes.
 import type { SandboxState, SandboxStatus } from '@cloud-ide/shared/types/sandbox';
+import type { SessionState } from '@cloud-ide/shared/types/session';
 import { apiClient } from '@frontend/lib/apiClient';
 
 // ponytail: no createSandbox() wrapper. POST /v1/sandboxes is the raw "create
@@ -53,6 +54,22 @@ export const pauseSandbox = (sandboxId: string) =>
 /** Wake a paused sandbox back to RUNNING. */
 export const resumeSandbox = (sandboxId: string) =>
   apiClient.post<void>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/resume`, {});
+
+export interface SessionSummary {
+  sessionId: string;
+  userId: string;
+  state: SessionState;
+  connectedAt: number;
+  lastActiveAt: number;
+}
+
+/**
+ * Browser attachments to a sandbox, newest first. Many sessions can share one
+ * sandbox; ending a session never destroys the sandbox — this is the history that
+ * makes that distinction visible.
+ */
+export const listSandboxSessions = (sandboxId: string) =>
+  apiClient.get<SessionSummary[]>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/sessions`);
 
 /**
  * Poll until the sandbox is RUNNING. Provisioning is async (bootSandbox may

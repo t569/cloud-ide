@@ -64,16 +64,32 @@ const FileExplorerNode = ({
         `}
         style={{ paddingLeft: `${(level * 12) + 8}px` }} 
       >
-        {/* Render Chevron for Directories, or File Icon for Files */}
+        {/* Directories: a twisty chevron AND a folder icon (open when expanded),
+            so a folder reads as a folder at a glance — matching files, which
+            carry their own icon. Files: just their type icon (no chevron). */}
         {isDir ? (
-          <div className="w-4 h-4 mr-1 flex items-center justify-center flex-shrink-0 text-ide-muted group-hover:text-ide-text">
-            <svg 
-              width="12" height="12" viewBox="0 0 16 16" fill="currentColor"
-              className={`transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
-            >
-              <path fillRule="evenodd" clipRule="evenodd" d="M5.707 3.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L9.086 8 5.707 4.707a1 1 0 010-1.414z" />
-            </svg>
-          </div>
+          <>
+            <div className="w-4 h-4 mr-0.5 flex items-center justify-center flex-shrink-0 text-ide-muted group-hover:text-ide-text">
+              <svg
+                width="12" height="12" viewBox="0 0 16 16" fill="currentColor"
+                className={`transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+              >
+                <path fillRule="evenodd" clipRule="evenodd" d="M5.707 3.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L9.086 8 5.707 4.707a1 1 0 010-1.414z" />
+              </svg>
+            </div>
+            <div className="w-4 h-4 mr-1.5 flex items-center justify-center flex-shrink-0 text-ide-accent/80">
+              {isExpanded ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3.5 5.5A1.5 1.5 0 0 1 5 4h3.6a1.5 1.5 0 0 1 1.06.44L11 5.8h6a1.5 1.5 0 0 1 1.5 1.5V8H6.2a1.5 1.5 0 0 0-1.44 1.08L3 15.5z" />
+                  <path d="M3 15.5 4.76 9.08A1.5 1.5 0 0 1 6.2 8H20a1 1 0 0 1 .96 1.28l-1.5 5.2A2 2 0 0 1 17.54 16H4.5a1.5 1.5 0 0 1-1.5-.5z" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3.5 6A1.5 1.5 0 0 1 5 4.5h3.6a1.5 1.5 0 0 1 1.06.44L11 6.3h6A1.5 1.5 0 0 1 18.5 7.8v8.7A1.5 1.5 0 0 1 17 18H5a1.5 1.5 0 0 1-1.5-1.5z" />
+                </svg>
+              )}
+            </div>
+          </>
         ) : (
           <div className="w-4 h-4 mr-1.5 flex items-center justify-center flex-shrink-0">
              <FileIcon fileName={node.name} className="w-4 h-4" />

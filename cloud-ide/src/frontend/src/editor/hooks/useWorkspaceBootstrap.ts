@@ -23,13 +23,33 @@ export function useWorkspaceBootstrap(sandboxId: string) {
   // swappable backend (mock, WebSocket, ...) — see lsp/manifest.ts.
   const langRegistry = useMemo(() => {
     const reg = new LanguageServiceRegistry();
-    createLanguageTransports(/* sandboxId */).forEach((t) => reg.register(t));
+    createLanguageTransports(sandboxId).forEach((t) => reg.register(t));
     return reg;
-  }, []);
+  }, [sandboxId]);
 
   // Syntax-highlighting registry: how files map to languages + which grammars
   // to install. Detection lives here so the VFS and Monaco agree on language.
   const languages = useMemo(() => createLanguageRegistry(), []);
+
+  // Live LSP document sync: forward debounced buffer changes to the active
+  // language's transport so the server tracks unsaved edits (the hybrid). The
+  // backend lazily didOpens from disk, so this only carries the *changes*.
+  useEffect(() => {
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+    const unsub = eventBus.on('CONTENT_CHANGED', ({ path, newContent }) => {
+      const transport = langRegistry.get(languages.detect(path));
+      if (!transport?.notifyChange) return;
+      clearTimeout(timers.get(path));
+      timers.set(path, setTimeout(() => {
+        timers.delete(path);
+        transport.notifyChange!(path, newContent);
+      }, 300));
+    });
+    return () => {
+      unsub();
+      timers.forEach(clearTimeout);
+    };
+  }, [eventBus, langRegistry, languages]);
 
   // Boot the VFS controller. Subscribe to tree updates BEFORE booting so the
   // initial hydration payload isn't missed.

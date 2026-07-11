@@ -15,9 +15,10 @@
 //     empty instead of throwing, and status flips to `offline`. Monaco's built-in
 //     syntax highlighting keeps working; the user just loses live intelligence.
 //
-// Backend HTTP contract:
-//   POST {API}/lsp/:languageId/:method   body = params      -> JSON result
-//   GET  {API}/lsp/:languageId/diagnostics                  -> SSE: {path,diagnostics}
+// Backend HTTP contract (sandbox-scoped + IDOR-guarded, like /api/fs):
+//   POST {API}/lsp/:sandboxId/:languageId/:method  body = params  -> JSON result
+//   POST {API}/lsp/:sandboxId/:languageId/sync     { path, text } -> 204
+//   GET  {API}/lsp/:sandboxId/:languageId/diagnostics             -> SSE {path,diagnostics}
 //
 // Swapping the mock/WebSocket transport for this in lsp/manifest.ts is the only
 // change needed to go live — nothing else in the editor moves.
@@ -52,8 +53,14 @@ export class HttpLSPTransport implements ILanguageServerTransport {
 
   constructor(
     public readonly languageId: string,
+    private sandboxId: string,
     private debounceMs: number = DEFAULT_DEBOUNCE_MS,
   ) {}
+
+  /** URL prefix for this sandbox+language, e.g. `/lsp/sb1/python`. */
+  private get base(): string {
+    return `/lsp/${encodeURIComponent(this.sandboxId)}/${encodeURIComponent(this.languageId)}`;
+  }
 
   getStatus(): LSPStatus {
     return this.status;
@@ -84,20 +91,16 @@ export class HttpLSPTransport implements ILanguageServerTransport {
   ): Promise<T> {
     try {
       if (debounce && this.debounceMs > 0) await delay(this.debounceMs, signal);
-      const result = await apiClient.post<T>(
-        `/lsp/${encodeURIComponent(this.languageId)}/${method}`,
-        params,
-        { signal },
-      );
+      const result = await apiClient.post<T>(`${this.base}/${method}`, params, { signal });
       this.setStatus('connected');
       return result ?? fallback;
     } catch (err) {
       // A cancelled request (new keystroke) must look like a cancellation to
       // Monaco, not an error — and must not flip us offline.
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-      // Unreachable backend (network) or no proxy route yet (404) => offline.
-      // A real server-side error leaves status alone but still degrades quietly.
-      if (err instanceof ApiError && (err.status === 0 || err.status === 404)) {
+      // Unreachable backend (network=0, no route=404) or no server for this
+      // language (503) => offline. A real server-side error leaves status alone.
+      if (err instanceof ApiError && [0, 404, 503].includes(err.status)) {
         this.setStatus('offline');
       }
       return fallback;
@@ -124,10 +127,18 @@ export class HttpLSPTransport implements ILanguageServerTransport {
     return this.request('rename', p, s, null);
   }
 
+  /** Live buffer sync (debounced by the caller). Fire-and-forget POST; errors are non-fatal. */
+  notifyChange(path: string, text: string): void {
+    apiClient.post(`${this.base}/sync`, { path, text }).catch(() => {
+      // The server just falls back to the on-disk (last-saved) text — losing an
+      // unsaved-edit sync is a soft failure, not worth surfacing.
+    });
+  }
+
   onDiagnostics(cb: (path: string, d: Diagnostic[]) => void): () => void {
     // The diagnostics stream doubles as our liveness signal: onopen => connected,
     // onerror => offline. Mirrors VFSController's fs-events EventSource.
-    const url = `${API_BASE_URL}/lsp/${encodeURIComponent(this.languageId)}/diagnostics`;
+    const url = `${API_BASE_URL}${this.base}/diagnostics`;
     const src = new EventSource(url, { withCredentials: true });
     this.diagnosticSource = src;
 

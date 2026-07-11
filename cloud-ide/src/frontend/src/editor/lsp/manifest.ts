@@ -9,12 +9,12 @@ import { ILanguageServerTransport } from './types';
 import { HttpLSPTransport } from './transports/HttpLSPTransport';
 // import { MockLSPTransport } from './transports/MockLSPTransport';
 
-export function createLanguageTransports(/* sandboxId?: string */): ILanguageServerTransport[] {
+export function createLanguageTransports(sandboxId: string): ILanguageServerTransport[] {
   return [
     // Online LSP over debounced HTTP + SSE (the backend proxy owns the TCP/SSH
     // tunnel). Degrades to `offline` and Monaco highlighting when unreachable.
-    // One line per language; the backend proxy routes by :languageId.
-    new HttpLSPTransport('python'),
+    // One line per language; the backend proxy routes by :sandboxId/:languageId.
+    new HttpLSPTransport('python', sandboxId),
     // For backend-less local dev with fake intelligence, swap for:
     // new MockLSPTransport('python'),
   ];

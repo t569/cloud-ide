@@ -25,20 +25,20 @@ describe('HttpLSPTransport', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('routes a request to /lsp/:lang/:method and reports connected', async () => {
+  it('routes a request to /lsp/:sandboxId/:lang/:method and reports connected', async () => {
     post.mockResolvedValue([{ path: '/x.py', range: {} }]);
-    const t = new HttpLSPTransport('python');
+    const t = new HttpLSPTransport('python', 'sb1');
 
     const result = await t.provideDefinition(definition, new AbortController().signal);
 
-    expect(post).toHaveBeenCalledWith('/lsp/python/definition', definition, expect.anything());
+    expect(post).toHaveBeenCalledWith('/lsp/sb1/python/definition', definition, expect.anything());
     expect(result).toHaveLength(1);
     expect(t.getStatus()).toBe('connected');
   });
 
   it('debounces completions — no network call until the quiet window elapses', async () => {
     post.mockResolvedValue([]);
-    const t = new HttpLSPTransport('python', 150);
+    const t = new HttpLSPTransport('python', 'sb1', 150);
 
     const p = t.provideCompletions(completion, new AbortController().signal);
     expect(post).not.toHaveBeenCalled(); // still inside the debounce window
@@ -50,7 +50,7 @@ describe('HttpLSPTransport', () => {
 
   it('cancels a debounced request when the user keeps typing (never hits the wire)', async () => {
     post.mockResolvedValue([]);
-    const t = new HttpLSPTransport('python', 150);
+    const t = new HttpLSPTransport('python', 'sb1', 150);
     const ctrl = new AbortController();
 
     const p = t.provideCompletions(completion, ctrl.signal);
@@ -60,9 +60,18 @@ describe('HttpLSPTransport', () => {
     expect(post).not.toHaveBeenCalled();
   });
 
+  it('posts live buffer changes to the sync route (fire-and-forget)', () => {
+    post.mockResolvedValue(undefined);
+    const t = new HttpLSPTransport('python', 'sb1');
+
+    t.notifyChange('/workspace/main.py', 'import os\n');
+
+    expect(post).toHaveBeenCalledWith('/lsp/sb1/python/sync', { path: '/workspace/main.py', text: 'import os\n' });
+  });
+
   it('degrades to empty + offline when the backend is unreachable', async () => {
     post.mockRejectedValue(new ApiError('Network failure', 0));
-    const t = new HttpLSPTransport('python');
+    const t = new HttpLSPTransport('python', 'sb1');
 
     const result = await t.provideDefinition(definition, new AbortController().signal);
 

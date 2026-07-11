@@ -152,6 +152,13 @@ export interface ILanguageServerTransport {
   getStatus?(): LSPStatus;
   /** Subscribe to status changes. Returns an unsubscribe fn. */
   onStatusChange?(cb: (status: LSPStatus) => void): () => void;
+
+  /**
+   * Live document sync (editor -> server). Fire-and-forget: the server keeps up
+   * with the unsaved buffer so completions/diagnostics reflect what's on screen.
+   * The backend is the version authority, so callers just send the new text.
+   */
+  notifyChange?(path: string, text: string): void;
 }
 
 /**

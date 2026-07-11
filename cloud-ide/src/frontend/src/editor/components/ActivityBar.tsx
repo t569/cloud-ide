@@ -6,79 +6,83 @@ interface ActivityBarProps {
   items: ActivityBarItem[];
   activePanel: string | null;
   onPanelSelect: (panelId: string) => void;
-  syncStatus: SyncStatus; // To drive the traffic light system you requested earlier
+  syncStatus: SyncStatus; // drives the traffic-light indicator
 }
 
+// The sync traffic light — a signature element. Each lamp lights (full opacity +
+// glow) only for its state, the rest dim to a quiet baseline.
+const LAMPS: { state: SyncStatus; color: string }[] = [
+  { state: 'conflict', color: '#ff5f56' },
+  { state: 'syncing', color: '#ffbd2e' },
+  { state: 'synced', color: '#27c93f' },
+];
+
 export const ActivityBar = ({ items, activePanel, onPanelSelect, syncStatus }: ActivityBarProps) => {
-  const topItems = items.filter(item => item.position === 'top');
-  const bottomItems = items.filter(item => item.position === 'bottom');
+  const topItems = items.filter((item) => item.position === 'top');
+  const bottomItems = items.filter((item) => item.position === 'bottom');
 
   const renderIcon = (item: ActivityBarItem) => {
     const isActive = activePanel === item.id;
     return (
-      <div
+      <button
         key={item.id}
         title={item.title}
+        aria-label={item.title}
+        aria-pressed={isActive}
         onClick={() => onPanelSelect(item.id)}
-        className="relative w-12 h-12 flex items-center justify-center cursor-pointer group"
+        className="group relative flex h-10 w-12 items-center justify-center"
       >
-        {/* Active state indicator (Subtle left border highlight like VS Code/Zed) */}
-        {isActive && (
-          <div className="absolute left-0 top-1/2 transform -translate-y-1/2 w-0.5 h-8 bg-[#007acc] rounded-r" />
-        )}
-        
-        {/* Icon Wrapper */}
-        <div className={`
-          flex items-center justify-center transition-colors
-          ${isActive ? 'text-white' : 'text-[#8a8a8a] group-hover:text-[#cccccc]'}
-        `}>
+        {/* Active rail — the VS Code/Zed left marker, now on the accent token. */}
+        <span
+          className={`absolute left-0 top-1/2 h-6 w-0.5 -translate-y-1/2 rounded-r-full bg-ide-accent transition-all duration-150 ${
+            isActive ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+        {/* Icon tile: quiet by default, accent-tinted when active. */}
+        <span
+          className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
+            isActive
+              ? 'bg-ide-accent/10 text-ide-text'
+              : 'text-ide-muted group-hover:bg-ide-hover group-hover:text-ide-text'
+          }`}
+        >
           {item.icon}
-        </div>
-      </div>
+        </span>
+      </button>
     );
   };
 
   return (
-    <div className="w-12 h-full bg-[#1e1e1e] border-r border-[#2b2d31] flex flex-col justify-between py-2 flex-shrink-0 select-none z-10">
-      
-      {/* --- TOP SECTION --- */}
-      <div className="flex flex-col items-center space-y-2">
-        
-        {/* MOVED TO TOP: The Traffic Light Sync Status */}
-        <div 
-          className="w-12 h-8 flex items-center justify-center cursor-help mb-2 mt-1"
-          title={`Sync Status: ${syncStatus}`}
+    <div className="z-10 flex h-full w-12 flex-shrink-0 select-none flex-col justify-between border-r border-ide-border bg-ide-panel py-2">
+      <div className="flex flex-col items-center gap-1">
+        <div
+          className="mb-1.5 mt-1 flex h-8 w-12 cursor-help items-center justify-center"
+          title={`Workspace sync: ${syncStatus}`}
+          aria-label={`Workspace sync status: ${syncStatus}`}
         >
-          <div className="flex gap-1.5 items-center">
-            {/* Red (Conflict / Unsynced) */}
-            <div className={`
-              w-2.5 h-2.5 rounded-full bg-[#ff5f56] transition-all duration-300
-              ${syncStatus === 'conflict' ? 'opacity-100 scale-110 shadow-[0_0_6px_rgba(255,95,86,0.6)]' : 'opacity-30'}
-            `} />
-            
-            {/* Yellow (Syncing in progress) */}
-            <div className={`
-              w-2.5 h-2.5 rounded-full bg-[#ffbd2e] transition-all duration-300
-              ${syncStatus === 'syncing' ? 'opacity-100 scale-110 shadow-[0_0_6px_rgba(255,189,46,0.6)]' : 'opacity-30'}
-            `} />
-            
-            {/* Green (Fully Synced) */}
-            <div className={`
-              w-2.5 h-2.5 rounded-full bg-[#27c93f] transition-all duration-300
-              ${syncStatus === 'synced' ? 'opacity-100 scale-110 shadow-[0_0_6px_rgba(39,201,63,0.6)]' : 'opacity-30'}
-            `} />
+          <div className="flex items-center gap-1.5">
+            {LAMPS.map(({ state, color }) => {
+              const on = syncStatus === state;
+              return (
+                <span
+                  key={state}
+                  className="h-2.5 w-2.5 rounded-full transition-all duration-300"
+                  style={{
+                    backgroundColor: color,
+                    opacity: on ? 1 : 0.28,
+                    transform: on ? 'scale(1.1)' : 'scale(1)',
+                    boxShadow: on ? `0 0 7px ${color}99` : 'none',
+                  }}
+                />
+              );
+            })}
           </div>
         </div>
 
-        {/* Top Icons (Explorer, Search, Plugins) */}
         {topItems.map(renderIcon)}
       </div>
 
-      {/* --- BOTTOM SECTION --- */}
-      <div className="flex flex-col items-center space-y-2">
-        {/* Bottom Icons (Settings) */}
-        {bottomItems.map(renderIcon)}
-      </div>
+      <div className="flex flex-col items-center gap-1">{bottomItems.map(renderIcon)}</div>
     </div>
   );
 };

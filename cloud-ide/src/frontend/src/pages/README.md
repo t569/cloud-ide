@@ -46,8 +46,14 @@ by the backend router (404 for non-owners — see backend
 
 The IDE terminal (in `IDEWorkspace`) picks its transport from
 `GET /v1/sandboxes/capabilities`: an interactive **PTY** over `WS /:id/pty` when the
-driver supports it (default), else line-mode SSE. See the backend
-[TERMINAL_BACKEND.md](../../../backend/TERMINAL_BACKEND.md).
+driver supports it (default), else line-mode SSE.
+
+**Reattach across drops.** The PTY survives a WebSocket drop: the backend `PtyRegistry`
+keeps the shell alive for a grace period (keyed by `sandboxId+termId`) and replays output
+buffered while detached when the socket reconnects — so a blip/sleep keeps your running
+shell (`vim`, dev server) instead of resetting it. Closing the tab reaps it immediately.
+
+See the backend [TERMINAL_BACKEND.md](../../../backend/TERMINAL_BACKEND.md).
 
 Backend counterparts: [backend/README.md](../../../backend/README.md) (subsystem table),
 `controllers/SandboxController.ts`, `api/SandboxRoutes.ts`.

@@ -72,6 +72,23 @@ export interface SessionSummary {
 export const listSandboxSessions = (sandboxId: string) =>
   apiClient.get<SessionSummary[]>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/sessions`);
 
+export interface ActivitySummary {
+  id: string;
+  sandboxId: string;
+  kind: 'created' | 'state' | 'session_attached' | 'session_left';
+  message: string;
+  actorId?: string;
+  at: number;
+}
+
+/**
+ * The sandbox audit trail, newest first: created, state changes, sessions
+ * attaching/leaving. The "who did what" half of the Logs tab, distinct from the
+ * raw container logs below.
+ */
+export const listSandboxActivity = (sandboxId: string) =>
+  apiClient.get<ActivitySummary[]>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/activity`);
+
 /**
  * Live container logs as a plain-text stream (`docker logs -f`). GET, so no CSRF;
  * `credentials` carries the cookie the ownership guard checks. Returns the raw

@@ -60,7 +60,7 @@ describe('SandboxController', () => {
 
   it('validates sandbox creation requests', async () => {
     const manager = { provision: jest.fn() } as any;
-    const controller = new SandboxController(manager, { getSessionsBySandboxId: async () => [] } as any);
+    const controller = new SandboxController(manager, { getSessionsBySandboxId: async () => [] } as any, { record: async () => {}, listBySandbox: async () => [] } as any);
     const res = createJsonResponse();
 
     await controller.createSandbox({ body: {} } as any, res as any);
@@ -73,7 +73,7 @@ describe('SandboxController', () => {
     const manager = {
       provision: jest.fn().mockResolvedValue({ sandboxId: 'sbx-1', state: 'RUNNING' }),
     } as any;
-    const controller = new SandboxController(manager, { getSessionsBySandboxId: async () => [] } as any);
+    const controller = new SandboxController(manager, { getSessionsBySandboxId: async () => [] } as any, { record: async () => {}, listBySandbox: async () => [] } as any);
     const res = createJsonResponse();
 
     // userId is set upstream by attachUser; the caller becomes the sandbox's owner.
@@ -88,7 +88,7 @@ describe('SandboxController', () => {
     const manager = {
       provision: jest.fn().mockResolvedValue({ sandboxId: 'sbx-1', state: 'RUNNING' }),
     } as any;
-    const controller = new SandboxController(manager, { getSessionsBySandboxId: async () => [] } as any);
+    const controller = new SandboxController(manager, { getSessionsBySandboxId: async () => [] } as any, { record: async () => {}, listBySandbox: async () => [] } as any);
     const req = {
       body: { imageTag: 'node-env:latest', userId: 'victim' },
       userId: 'attacker',
@@ -108,7 +108,7 @@ describe('SandboxController', () => {
         accessToken: 'secret-token',
       }),
     } as any;
-    const controller = new SandboxController(manager, { getSessionsBySandboxId: async () => [] } as any);
+    const controller = new SandboxController(manager, { getSessionsBySandboxId: async () => [] } as any, { record: async () => {}, listBySandbox: async () => [] } as any);
     const req = Object.assign(new EventEmitter(), {
       params: { sandboxId: 'sbx-1' },
       body: { command: ['/bin/sh', '-c', 'echo hi'] },
@@ -141,7 +141,7 @@ describe('SandboxController', () => {
         sandbox: { sandboxId: 'sbx-9' },
       }),
     } as any;
-    const controller = new SandboxController(manager, { getSessionsBySandboxId: async () => [] } as any);
+    const controller = new SandboxController(manager, { getSessionsBySandboxId: async () => [] } as any, { record: async () => {}, listBySandbox: async () => [] } as any);
     const res = createJsonResponse();
 
     await controller.attachVolume(

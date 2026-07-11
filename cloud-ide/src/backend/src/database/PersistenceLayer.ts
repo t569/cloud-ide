@@ -7,6 +7,7 @@
 import { EventEmitter } from 'events';
 import { ISessionRepository } from './interfaces/ISessionRepository';
 import { ISandboxRepository } from './interfaces/ISandboxRepository'; // The new infrastructure repo
+import { JsonActivityRepository } from './json/JsonActivityRepository';
 import { SandboxState } from '@cloud-ide/shared/types/sandbox';
 import { SessionState } from './models';
 
@@ -14,7 +15,8 @@ export class PersistenceLayer {
   constructor(
     private systemEvents: EventEmitter,
     private sessionRepo: ISessionRepository,
-    private sandboxRepo: ISandboxRepository // Inject the new repo here
+    private sandboxRepo: ISandboxRepository, // Inject the new repo here
+    private activityRepo: JsonActivityRepository // Audit trail for the drawer's Activity log
   ) {
     this.startWatching();
   }
@@ -39,12 +41,14 @@ export class PersistenceLayer {
     this.systemEvents.on('sandbox:destroyed', async (sandboxId: string) => {
       // 1. Remove the infrastructure record
       await this.sandboxRepo.delete(sandboxId);
-      
+
       // 2. Cascade down: Kick off any users who were actively connected to this dead sandbox
       const activeSessions = await this.sessionRepo.getSessionsBySandboxId(sandboxId);
       for (const session of activeSessions) {
         await this.sessionRepo.updateState(session.sessionId, 'DISCONNECTED');
       }
+      // Note: the activity trail is dropped in SandboxManager.destroy (the real
+      // writer); this handler fires only if a `sandbox:destroyed` event is ever emitted.
     });
 
 
@@ -62,13 +66,22 @@ export class PersistenceLayer {
       // Link the client to the specific infrastructure and mark as active
       await this.sessionRepo.linkToSandbox(data.sessionId, data.sandboxId);
       await this.sessionRepo.updateState(data.sessionId, 'ACTIVE');
+
+      const session = await this.sessionRepo.get(data.sessionId);
+      await this.activityRepo.record(data.sandboxId, 'session_attached', 'Session attached', session?.userId);
     });
 
     // When the user closes their browser tab or loses internet
     this.systemEvents.on('session:disconnected', async (sessionId: string) => {
+      // Read the session BEFORE marking it disconnected so we still have its sandbox
+      // link and owner to attribute the activity entry.
+      const session = await this.sessionRepo.get(sessionId);
       await this.sessionRepo.updateState(sessionId, 'DISCONNECTED');
-      
-      // Note: We do NOT destroy the sandbox here! 
+      if (session?.sandboxId) {
+        await this.activityRepo.record(session.sandboxId, 'session_left', 'Session ended', session.userId);
+      }
+
+      // Note: We do NOT destroy the sandbox here!
       // The sandbox stays running in the background for them to return to.
     });
   }

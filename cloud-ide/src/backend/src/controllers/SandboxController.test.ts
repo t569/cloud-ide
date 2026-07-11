@@ -61,7 +61,7 @@ describe('SandboxController.execCommand — abort wiring', () => {
 
     const req = fakeReq();
     const res = fakeRes();
-    void new SandboxController(fakeManager(), { getSessionsBySandboxId: async () => [] } as any).execCommand(req, res);
+    void new SandboxController(fakeManager(), { getSessionsBySandboxId: async () => [] } as any, { record: async () => {}, listBySandbox: async () => [] } as any).execCommand(req, res);
     await reachedFetch;
     return { req, res, signal };
   }

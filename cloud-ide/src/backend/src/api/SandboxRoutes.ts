@@ -36,6 +36,7 @@ export function createSandboxRouter(
 
   router.get('/:sandboxId', controller.getSandboxStatus);
   router.get('/:sandboxId/sessions', controller.listSessions);
+  router.get('/:sandboxId/activity', controller.listActivity);
   router.get('/:sandboxId/logs', controller.streamLogs);
   router.post('/:sandboxId/exec', controller.execCommand);
   router.post('/:sandboxId/pause', controller.pauseSandbox);

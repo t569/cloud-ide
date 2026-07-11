@@ -18,3 +18,17 @@ export interface EnvironmentRecord {
   trackedTools?:string[];
 }
  export type { SessionRecord, SessionState};
+
+// An audit-trail entry for a sandbox: who did what, and when. Recorded by the
+// PersistenceLayer off the same systemEvents that drive state, and read back per
+// sandbox for the drawer's Activity log.
+export type ActivityKind = 'created' | 'state' | 'session_attached' | 'session_left';
+
+export interface ActivityEvent {
+  id: string;
+  sandboxId: string;
+  kind: ActivityKind;
+  message: string;
+  actorId?: string; // the user responsible, when one is (session/create); absent for system state changes
+  at: number;
+}

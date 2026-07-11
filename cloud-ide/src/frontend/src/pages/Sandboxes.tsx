@@ -11,8 +11,10 @@ import {
   resumeSandbox,
   listSandboxSessions,
   streamSandboxLogs,
+  listSandboxActivity,
   type SandboxSummary,
   type SessionSummary,
+  type ActivitySummary,
 } from '../api/sandbox';
 import type { SandboxState } from '@cloud-ide/shared/types/sandbox';
 import { timeAgo } from '../env-manager/utils/timeAgo';
@@ -389,10 +391,76 @@ function SandboxDrawer({
           )}
 
           {tab === 'set' && <SettingsPanel env={env} />}
-          {tab === 'log' && <LogsPanel sandboxId={sbx.sandboxId} />}
+          {tab === 'log' && <LogsTab sandboxId={sbx.sandboxId} />}
         </div>
       </aside>
     </>
+  );
+}
+
+// The Logs tab holds two views: the raw container stream and the audit trail.
+// Activity is "who did what" (created / paused / sessions); Container is the process
+// output. Same tab because both answer "what happened to this sandbox?".
+function LogsTab({ sandboxId }: { sandboxId: string }) {
+  const [view, setView] = useState<'container' | 'activity'>('activity');
+  return (
+    <>
+      <div className="inline-flex mb-3 p-0.5 bg-[#0d0d0f] border border-gray-800 rounded-lg">
+        {(['activity', 'container'] as const).map((v) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className={`px-3 py-1 text-[11px] rounded-md transition-colors ${
+              view === v ? 'bg-gray-800 text-gray-200' : 'text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            {v === 'activity' ? 'Activity' : 'Container'}
+          </button>
+        ))}
+      </div>
+      {view === 'activity' ? <ActivityPanel sandboxId={sandboxId} /> : <LogsPanel sandboxId={sandboxId} />}
+    </>
+  );
+}
+
+// The audit trail: created, state changes, sessions attaching/leaving. Newest first,
+// from activity.json. A one-shot fetch — these events are historical, not a live feed.
+function ActivityPanel({ sandboxId }: { sandboxId: string }) {
+  const [events, setEvents] = useState<ActivitySummary[] | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    setEvents(null);
+    setError(false);
+    listSandboxActivity(sandboxId)
+      .then(setEvents)
+      .catch(() => setError(true));
+  }, [sandboxId]);
+
+  if (error) return <p className="text-[12px] text-gray-600">Activity unavailable.</p>;
+  if (events === null) return <p className="text-[12px] text-gray-600">Loading activity…</p>;
+  if (events.length === 0) return <p className="text-[12px] text-gray-600">No activity recorded yet.</p>;
+
+  const dot: Record<ActivitySummary['kind'], string> = {
+    created: '#34d399',
+    state: '#fbbf24',
+    session_attached: '#60a5fa',
+    session_left: '#8b8b96',
+  };
+
+  return (
+    <div className="flex flex-col gap-px">
+      {events.map((e) => (
+        <div key={e.id} className="flex items-center gap-2.5 py-1.5 border-b border-gray-800/60 last:border-0">
+          <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dot[e.kind] }} />
+          <span className="text-[12.5px] text-gray-300 flex-1">{e.message}</span>
+          {e.actorId && (
+            <span className="text-[10.5px] text-gray-600 font-mono">{e.actorId.slice(0, 8)}</span>
+          )}
+          <span className="text-[10.5px] text-gray-600 shrink-0">{timeAgo(e.at)}</span>
+        </div>
+      ))}
+    </div>
   );
 }
 

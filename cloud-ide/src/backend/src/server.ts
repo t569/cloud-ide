@@ -39,6 +39,7 @@ import { EventEmitter } from 'events';
 import { JsonEnvironmentRepository } from './database/json/JsonEnvironmentRepository';
 import { JsonSandboxRepository } from './database/json/JsonSandboxRepository';
 import { JsonSessionRepository } from './database/json/JsonSessionRepository';
+import { JsonActivityRepository } from './database/json/JsonActivityRepository';
 import { PersistenceLayer } from './database/PersistenceLayer';
 import { SandboxManager } from './services/sandbox/SandboxManager';
 import { createSandboxDriver } from './services/sandbox/drivers/createSandboxDriver';
@@ -90,14 +91,17 @@ app.get('/api/csrf', (_req, res) => res.status(204).end());
 const envRepo = new JsonEnvironmentRepository();
 const sessionRepo = new JsonSessionRepository();
 const sandboxRepo = new JsonSandboxRepository();
+const activityRepo = new JsonActivityRepository();
 
 // Initialize Central Event Bus for Decoupled Mircoservices
 const systemEvents = new EventEmitter();
 
 // // Initialize the Kernel & Background Daemons
-const persistenceLayer = new PersistenceLayer(systemEvents, sessionRepo, sandboxRepo);
+const persistenceLayer = new PersistenceLayer(systemEvents, sessionRepo, sandboxRepo, activityRepo);
 const sandboxDriver = createSandboxDriver();
-const sandboxManager = new SandboxManager(sandboxRepo, sandboxDriver);
+// `undefined` for worktreeEngine keeps its default; activityRepo is the 4th arg so
+// provision/pause/resume/destroy land in the drawer's Activity log.
+const sandboxManager = new SandboxManager(sandboxRepo, sandboxDriver, undefined, activityRepo);
 
 // fsEventHub carries chokidar (Step 10c) change events out over SSE; the watchers'
 // per-sandbox SSE ref-count doubles as the "is anyone using this?" signal the
@@ -110,7 +114,7 @@ const workspaceWatchers = new WorkspaceWatchers(sandboxManager, fsEventHub);
 const idleSweeper = new IdleSweeper(sandboxRepo, sandboxManager, workspaceWatchers);
 
 // Initialize Controllers
-const sandboxController = new SandboxController(sandboxManager, sessionRepo);
+const sandboxController = new SandboxController(sandboxManager, sessionRepo, activityRepo);
 const adminController = new AdminController(sandboxManager);
 const sessionController = new SessionController(systemEvents, sessionRepo, sandboxRepo, sandboxManager, envRepo);
 

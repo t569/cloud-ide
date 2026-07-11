@@ -8,6 +8,7 @@ import {
 } from '@cloud-ide/shared/types/sandbox';
 import { DirtyWorktreeError, SandboxManager } from '../services/sandbox/SandboxManager';
 import { ISessionRepository } from '../database/interfaces';
+import { JsonActivityRepository } from '../database/json/JsonActivityRepository';
 import { currentUser } from '../api/middleware/auth';
 
 
@@ -21,6 +22,7 @@ export class SandboxController {
   constructor(
     private sandboxManager: SandboxManager,
     private sessionRepo: ISessionRepository,
+    private activityRepo: JsonActivityRepository,
   ) {}
 
   public createSandbox = async (req: Request, res: Response): Promise<void> => {
@@ -91,6 +93,26 @@ export class SandboxController {
             lastActiveAt: s.lastPingAt,
           })),
       );
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  /**
+   * GET /api/v1/sandboxes/:sandboxId/activity — the audit trail (newest first):
+   * created, state changes, sessions attaching/leaving. The "user logging" half of
+   * the Logs tab. Owner-gated by the router.
+   */
+  public listActivity = async (req: Request, res: Response): Promise<void> => {
+    const sandboxId = this.getStringParam(req.params.sandboxId);
+
+    if (!sandboxId) {
+      res.status(400).json({ error: 'sandboxId is required.' });
+      return;
+    }
+
+    try {
+      res.json(await this.activityRepo.listBySandbox(sandboxId));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

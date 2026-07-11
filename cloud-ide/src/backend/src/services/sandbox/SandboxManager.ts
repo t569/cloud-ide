@@ -9,6 +9,7 @@ import {
   VolumeMount,
 } from '@cloud-ide/shared/types/sandbox';
 import { ISandboxRepository } from '../../database/interfaces/ISandboxRepository';
+import { JsonActivityRepository } from '../../database/json/JsonActivityRepository';
 import { ExecConnectionInfo } from '../../types/engine';
 import { RustEngineClient } from './rustClient';
 import { ISandboxDriver, DriverCapabilities, ISandboxSession, PtyOptions } from './drivers/ISandboxDriver';
@@ -62,7 +63,13 @@ export class SandboxManager {
     private driver: ISandboxDriver = new RustEngineClient(),
     // Injected like the driver so tests and alternate storage layouts can
     // swap it; the default points at the server's data folder.
-    private worktreeEngine: WorktreeEngine = new WorktreeEngine(CENTRAL_REPO_PATH, WORKTREES_ROOT)
+    private worktreeEngine: WorktreeEngine = new WorktreeEngine(CENTRAL_REPO_PATH, WORKTREES_ROOT),
+    // Optional so the many `new SandboxManager(...)` test sites don't need it. When
+    // present, records lifecycle to the drawer's Activity log. Done HERE, not off
+    // systemEvents: SandboxManager writes sandbox state directly, so the
+    // `sandbox:provisioned`/`state_changed` events PersistenceLayer listens for are
+    // never emitted — this is the only place these transitions actually happen.
+    private activityRepo?: JsonActivityRepository,
   ) {}
 
 
@@ -121,6 +128,7 @@ export class SandboxManager {
     };
 
     await this.sandboxRepo.save(record);
+    await this.activityRepo?.record(record.sandboxId, 'created', `Created from ${record.environmentId}`, ownerId);
     return record;
   }
 
@@ -205,6 +213,7 @@ export class SandboxManager {
 
     if (success) {
       await this.sandboxRepo.updateState(sandboxId, 'PAUSED');
+      await this.activityRepo?.record(sandboxId, 'state', 'Paused');
     }
 
     return success;
@@ -230,6 +239,7 @@ export class SandboxManager {
       } else {
         await this.sandboxRepo.updateState(sandboxId, 'RUNNING');
       }
+      await this.activityRepo?.record(sandboxId, 'state', 'Resumed');
     }
 
     return success;
@@ -262,6 +272,7 @@ export class SandboxManager {
 
     if (success) {
       await this.sandboxRepo.delete(sandboxId);
+      await this.activityRepo?.deleteBySandbox(sandboxId);
       // Clean up using the dedicated worktree ID!
       if (record.worktreeId) {
           await this.worktreeEngine.removeWorktree(record.worktreeId);

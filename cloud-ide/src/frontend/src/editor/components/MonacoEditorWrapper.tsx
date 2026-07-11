@@ -18,6 +18,7 @@ interface MonacoEditorProps {
 
 export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, registry, languages }: MonacoEditorProps) => {
   const editorRef = useRef<any>(null);
+  const inputManagerRef = useRef<EditorInputManager | null>(null);
   const disposablesRef = useRef<any[]>([]); // Track disposables for cleanup
   // Latest settings, readable from the (mount-time) input manager closure.
   const settingsRef = useRef(globalSettings);
@@ -45,6 +46,11 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
       editor, eventBus, activeFile?.path || '',
       () => settingsRef.current.formatOnSave,
     );
+    // Monaco mounts once, but the active file changes as the user switches tabs.
+    // Keep the input manager's path current so Ctrl+S targets the RIGHT file —
+    // otherwise SAVE_REQUESTED carries the first-opened path forever and the
+    // active tab's dirty dot never clears. Synced by the effect below.
+    inputManagerRef.current = inputManager;
 
     // 2. Install all language services (completion/hover/...) via their monaco
     //    bridges. The registry owns the transports; this call is UI-only.
@@ -122,6 +128,12 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
       });
     }
   }, [globalSettings]);
+
+  // 3b. Keep the (mount-time) input manager pointed at the active file so its
+  //     Ctrl+S emits SAVE_REQUESTED for the file actually on screen.
+  useEffect(() => {
+    inputManagerRef.current?.updateActivePath(activeFile?.path || '');
+  }, [activeFile?.path]);
 
   // Empty State
   if (!activeFile) {

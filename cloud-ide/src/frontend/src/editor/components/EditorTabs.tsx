@@ -58,30 +58,37 @@ export const EditorTabs = ({ activeFilePath, openFiles, eventBus }: EditorTabsPr
                 {filename}
               </span>
 
-              {/* Dirty dot when inactive+unsaved; otherwise the close affordance. */}
-              <span className="ml-1 flex h-4 w-4 flex-shrink-0 items-center justify-center">
-                {file.isDirty && !isActive ? (
-                  <span className="h-2 w-2 rounded-full bg-ide-accent" />
-                ) : (
-                  <button
-                    aria-label={`Close ${filename}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      eventBus.emit('TAB_CLOSED', { path: file.path });
-                    }}
-                    className={`rounded p-0.5 text-ide-muted transition-all hover:bg-ide-border hover:text-ide-text ${
-                      isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                    }`}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                      <path
-                        fillRule="evenodd"
-                        clipRule="evenodd"
-                        d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.707.708L7.293 8l-3.646 3.646.707.708L8 8.707z"
-                      />
-                    </svg>
-                  </button>
+              {/* Trailing affordance. A dirty file shows its unsaved dot, which
+                  gives way to the close button on hover (VS Code behaviour); a
+                  clean tab shows the close button on hover only. The dot no
+                  longer depends on the tab being inactive — the active tab must
+                  advertise unsaved changes too, and clear the instant it saves. */}
+              <span className="group/close relative ml-1 flex h-4 w-4 flex-shrink-0 items-center justify-center">
+                {file.isDirty && (
+                  <span className="h-2 w-2 rounded-full bg-ide-accent group-hover:hidden" />
                 )}
+                <button
+                  aria-label={`Close ${filename}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    eventBus.emit('TAB_CLOSED', { path: file.path });
+                  }}
+                  className={`absolute inset-0 grid place-items-center rounded text-ide-muted transition-all hover:bg-ide-border hover:text-ide-text ${
+                    file.isDirty
+                      ? 'opacity-0 group-hover:opacity-100'
+                      : isActive
+                        ? 'opacity-100'
+                        : 'opacity-0 group-hover:opacity-100'
+                  }`}
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                    <path
+                      fillRule="evenodd"
+                      clipRule="evenodd"
+                      d="M8 8.707l3.646 3.647.708-.707L8.707 8l3.647-3.646-.707-.708L8 7.293 4.354 3.646l-.707.708L7.293 8l-3.646 3.646.707.708L8 8.707z"
+                    />
+                  </svg>
+                </button>
               </span>
             </div>
           );

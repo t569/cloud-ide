@@ -23,6 +23,9 @@
     "node-cron": "^4.2.1",
     "ws": "^8.19.0"
   },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
+  },
   "devDependencies": {
     "@napi-rs/cli": "^3.6.1",
     "@types/cors": "^2.8.17",

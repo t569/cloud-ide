@@ -29,6 +29,10 @@ export function createSandboxRouter(
   router.post('/', controller.createSandbox);
   router.get('/', controller.listSandboxes);
 
+  // Driver capabilities (pty/exec) — global, not sandbox-scoped, so it sits above the
+  // ownership guard. The terminal UI reads `pty` to pick its transport (WS PTY vs SSE).
+  router.get('/capabilities', controller.getCapabilities);
+
   // IDOR: everything below is scoped to a sandbox the caller must own. CSRF does not
   // cover this — it stops another SITE forging a request from this browser, not this
   // browser asking for a sandbox it does not own. 404 (not 403) so ids can't be enumerated.

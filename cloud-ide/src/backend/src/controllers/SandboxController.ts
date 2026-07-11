@@ -47,6 +47,12 @@ export class SandboxController {
     }
   };
 
+  /** GET /api/v1/sandboxes/capabilities — what the active driver can do. The terminal
+   *  UI reads `pty` to choose an interactive WS PTY vs line-mode SSE transport. */
+  public getCapabilities = async (_req: Request, res: Response): Promise<void> => {
+    res.json(this.sandboxManager.capabilities());
+  };
+
   /** GET /api/v1/sandboxes — this user's sandboxes, for the /sandboxes page (12a). */
   public listSandboxes = async (req: Request, res: Response): Promise<void> => {
     try {

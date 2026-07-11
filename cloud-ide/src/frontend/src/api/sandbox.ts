@@ -41,6 +41,15 @@ export interface SandboxSummary {
 /** Every sandbox this user owns (Step 12a). State is the stored value, not a live poll. */
 export const listSandboxes = () => apiClient.get<SandboxSummary[]>('/v1/sandboxes');
 
+export interface DriverCapabilities {
+  exec: boolean;
+  pty: boolean; // interactive PTY available → terminal uses the WS /pty transport
+}
+
+/** What the active sandbox driver can do. The terminal reads `pty` to pick its transport. */
+export const getSandboxCapabilities = () =>
+  apiClient.get<DriverCapabilities>('/v1/sandboxes/capabilities');
+
 /**
  * Destroy a sandbox: its container AND its /workspace worktree. Irreversible —
  * callers must confirm. Distinct from ending a session (which frees nothing).

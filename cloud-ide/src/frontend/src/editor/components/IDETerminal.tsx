@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { TerminalTabs, TerminalSession } from '../../terminal/components/TerminalTabs';
 import { createTerminalTransport } from '../../terminal/transport/createTerminalTransport';
+import { getSandboxCapabilities } from '../../api/sandbox';
 import { EditorEventBus } from '../core/EditorEventBus';
 
 
@@ -21,6 +22,9 @@ interface IDETerminalProps {
 export const IDETerminal = ({ sandboxId, editorEventBus }: IDETerminalProps) => {
   const [sessions, setSessions] = useState<TerminalSession[]>([]);
   const hasBooted = useRef(false);
+  // Driver PTY capability, resolved once before the first tab boots. Ref (not state)
+  // so addTab reads the current value synchronously without re-rendering.
+  const ptyCapable = useRef(false);
   // 1. Grab the Global Palette from the Design System
   const { palette } = useDesignSystem();
 
@@ -31,11 +35,13 @@ export const IDETerminal = ({ sandboxId, editorEventBus }: IDETerminalProps) => 
       const newId = `term-${Date.now()}`;
       const newTitle = `bash-${prev.length + 1}`;
 
-      // Transport chosen by driver capability (see createTerminalTransport).
-      // Today drivers report pty:false → line-mode SSE (POST /exec → execd; no
-      // vim/top, no persistent shell). Pass pty:true once a PTY-capable driver
-      // is wired to switch this tab to the WS /pty bridge — no change here.
-      const transport = createTerminalTransport(sandboxId);
+      // Transport chosen by driver capability (see createTerminalTransport):
+      // pty → interactive WS /pty bridge (real TTY: vim/top/colors); else line-mode
+      // SSE. The 80×24 seed is re-synced by xterm's fit-addon resize on mount.
+      const transport = createTerminalTransport(sandboxId, {
+        pty: ptyCapable.current,
+        initialSize: { cols: 80, rows: 24 },
+      });
       transport.connect();
 
       // sessionKey opts this tab into backend scrollback persistence + restore
@@ -44,12 +50,16 @@ export const IDETerminal = ({ sandboxId, editorEventBus }: IDETerminalProps) => 
     });
   };
 
-  // Ensure we boot exactly one terminal on load.
+  // Ensure we boot exactly one terminal on load — after learning whether the driver
+  // supports a PTY, so the first tab picks the right transport. A failed probe just
+  // leaves pty=false (SSE), so the terminal always boots.
   useEffect(() => {
-    if (!hasBooted.current) {
-      hasBooted.current = true;
-      addTab();
-    }
+    if (hasBooted.current) return;
+    hasBooted.current = true;
+    getSandboxCapabilities()
+      .then((caps) => { ptyCapable.current = !!caps.pty; })
+      .catch(() => { /* keep SSE default */ })
+      .finally(() => addTab());
   }, []);
 
   // 2. Gracefully kill a terminal connection

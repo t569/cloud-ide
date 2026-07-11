@@ -1,5 +1,11 @@
 # Cloud IDE Rust Sandbox Engine (Kernel)
 
+> [!WARNING]
+> **⚠️ DEPRECATED / not wired.** This Rust engine was ported to TypeScript
+> (`../../src/services/sandbox/openSandboxEngine.ts`) and is no longer built or
+> loaded — see the [crate README](../README.md). Kept as reference only; the
+> description below reflects the old FFI design, not the running system.
+
 ## Overview
 This directory contains the core execution engine for the Cloud IDE. Operating as a highly performant, memory-safe middleware, it bridges the Node.js API Gateway (User Space) and the underlying container hypervisors (Kernel Space). 
 

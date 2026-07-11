@@ -107,3 +107,23 @@ npm install pg -w backend
 ```bash
 npm install zod -w shared
 ```
+
+---
+
+## 📚 Docs
+
+Design records and per-area guides (this `src/` dir is the project root; `../` items
+below live here alongside this README):
+
+| Doc | Covers |
+|---|---|
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture, build phases, known debt. |
+| [VFS.md](./VFS.md) | Virtual file system design. |
+| [backend/README.md](./backend/README.md) | Gateway subsystems, env vars, running & tests. |
+| [backend/TERMINAL_BACKEND.md](./backend/TERMINAL_BACKEND.md) | Terminal + sandbox-driver abstraction (PTY). |
+| [backend/HEALTH.md](./backend/HEALTH.md) | Health-probe subsystem. |
+| [frontend/README.md](./frontend/README.md) · [frontend/src/pages/README.md](./frontend/src/pages/README.md) | Frontend stack; route views incl. the sandboxes control plane. |
+| [frontend/src/editor/SECURITY.md](./frontend/src/editor/SECURITY.md) | Auth/CSRF/IDOR hardening (backend links here too). |
+
+Feature areas keep their own `README.md` next to the code (drivers, builder, terminal,
+vfs, env-manager, …).

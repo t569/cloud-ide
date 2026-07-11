@@ -1,5 +1,9 @@
 # OpenSandbox Provider Implementation Details
 
+> [!WARNING]
+> **⚠️ DEPRECATED / not wired.** Describes the legacy Rust `opensandbox.rs`. The live
+> implementation is the TypeScript port `../../../src/services/sandbox/openSandboxEngine.ts`
+> (same behavior, no FFI) — see the [crate README](../../README.md).
 
 ## Overview
 The `opensandbox.rs` file contains the concrete implementation of the `SandboxEngine` trait, specifically engineered to interface with Alibaba's OpenSandbox architecture. 

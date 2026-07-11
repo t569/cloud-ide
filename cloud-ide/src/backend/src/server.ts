@@ -151,24 +151,10 @@ const buildService = new BuildService(
 
 app.use('/api/environment', createEnvironmentRouter(envRepo, sandboxRepo, buildService));
 
-// Subsystem health, for humans (/health in the SPA) and for load balancers (503 when
-// anything is down). Mounted here — after buildStore exists — so it shares the real
-// dependency instances rather than probing lookalikes. It sits behind csrfProtection
-// and attachUser, which only means a probe gets handed cookies it can ignore.
-app.use('/api/health', createHealthRouter({ sandboxRepo, envRepo, buildStore, driver: sandboxDriver }));
-
-// Docker Hub image/tag search proxy (base-image picker in the env architect).
-app.use('/api/images', createImageRouter());
-
-// GARBAGE COLLECTION: RUNS IN THE BACKGROUND
-GarbageCollector.init();
-
-// NEW: Mount the Virtual File System routes (host-direct against the worktrees).
-// sandboxRepo is injected so the router can enforce sandbox ownership (IDOR).
-// fsEventHub / workspaceWatchers are constructed above (the IdleSweeper needs them).
+// Managers shared by the health probes AND the fs/lsp routers below — constructed
+// here (before the health mount) so the dashboard probes the real instances.
 const fileSystemManager = new FileSystemManager(sandboxManager);
 const sessionStore = new SessionStore();
-app.use('/api/fs', createFileSystemRouter(fileSystemManager, sandboxRepo, fsEventHub, workspaceWatchers, sessionStore));
 
 // Language servers (online LSP). Browser <-debounced HTTP/SSE-> here <-TCP-> server.
 // Config: LSP_SERVERS="python=127.0.0.1:2087;typescript=host:2089". Unset => every
@@ -182,6 +168,26 @@ const lspProxy = new LspProxy({
   rootHostPath: (sb) => sandboxManager.getWorkspaceHostPath(sb),
   readFile: (sb, p) => fileSystemManager.readFile(sb, p),
 });
+
+// Subsystem health, for humans (/health in the SPA) and for load balancers (503 when
+// anything is down). Mounted here — after buildStore exists — so it shares the real
+// dependency instances rather than probing lookalikes. It sits behind csrfProtection
+// and attachUser, which only means a probe gets handed cookies it can ignore.
+app.use('/api/health', createHealthRouter({
+  sandboxRepo, envRepo, buildStore, driver: sandboxDriver,
+  lspServers, lspSessionCount: () => lspProxy.sessionCount(),
+}));
+
+// Docker Hub image/tag search proxy (base-image picker in the env architect).
+app.use('/api/images', createImageRouter());
+
+// GARBAGE COLLECTION: RUNS IN THE BACKGROUND
+GarbageCollector.init();
+
+// Mount the Virtual File System routes (host-direct against the worktrees) and the
+// LSP routes. Both reuse the managers constructed above the health mount. sandboxRepo
+// is injected so each router enforces sandbox ownership (IDOR).
+app.use('/api/fs', createFileSystemRouter(fileSystemManager, sandboxRepo, fsEventHub, workspaceWatchers, sessionStore));
 app.use('/api/lsp', createLspRouter(lspProxy, sandboxRepo));
 
 // NEW: Mount the Ingress Router (Step 3) — proxies browser traffic into sandbox services

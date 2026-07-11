@@ -2,8 +2,8 @@
 // 10s. Deliberately dumb: the backend decides what a subsystem is and whether it's
 // healthy, so adding a probe there lights up a card here with no change to this file.
 import React, { useEffect, useState } from 'react';
-import { VscPulse, VscRefresh, VscServerProcess } from 'react-icons/vsc';
-import type { HealthReport, HealthStatus } from '@cloud-ide/shared/types/health';
+import { VscPulse, VscRefresh, VscServerProcess, VscChevronRight } from 'react-icons/vsc';
+import type { HealthReport, HealthStatus, HealthCheck } from '@cloud-ide/shared/types/health';
 import { fetchHealth } from '../api/health';
 import { navigate } from './router';
 
@@ -34,6 +34,86 @@ function formatUptime(seconds: number): string {
   if (h) return `${h}h ${m}m`;
   return `${m}m ${seconds % 60}s`;
 }
+
+// A labeled stat grid — whatever `metrics` a probe attached, shown on expand.
+const MetricsGrid = ({ metrics }: { metrics: Record<string, string | number> }) => (
+  <div className="grid grid-cols-2 gap-x-4 gap-y-1 mt-3 pt-3 border-t border-gray-800/60">
+    {Object.entries(metrics).map(([k, v]) => (
+      <div key={k} className="flex items-center justify-between text-[11px]">
+        <span className="text-gray-500">{k}</span>
+        <span className="font-mono text-gray-300">{v}</span>
+      </div>
+    ))}
+  </div>
+);
+
+// One nested check (e.g. a single LSP server). Recursive: a child with its own
+// children/metrics is itself expandable — the renderer stays subsystem-agnostic.
+const CheckRow = ({ check }: { check: HealthCheck }) => {
+  const expandable = Boolean(check.metrics || check.children?.length);
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-b border-gray-800/40 last:border-0">
+      <button
+        type="button"
+        disabled={!expandable}
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-2 py-1.5 text-left"
+      >
+        {expandable ? (
+          <VscChevronRight className={`shrink-0 text-gray-600 transition-transform ${open ? 'rotate-90' : ''}`} />
+        ) : (
+          <span className="w-[16px] shrink-0" />
+        )}
+        <Dot status={check.status} />
+        <span className="text-xs font-mono">{check.name}</span>
+        <span className="text-[11px] text-gray-500 truncate ml-2 flex-1 text-right" title={check.detail}>
+          {check.detail}
+        </span>
+        <span className="text-[10px] text-gray-600 ml-2 shrink-0">{check.latencyMs}ms</span>
+      </button>
+      {open && check.metrics && <MetricsGrid metrics={check.metrics} />}
+      {open && check.children?.length ? (
+        <div className="ml-4 pl-2 border-l border-gray-800/60">
+          {check.children.map((c) => <CheckRow key={c.name} check={c} />)}
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
+// A top-level subsystem card. Expands (if it has metrics/children) into the stat
+// grid and per-part rows. A plain probe with neither renders exactly as before.
+const CheckCard = ({ check }: { check: HealthCheck }) => {
+  const expandable = Boolean(check.metrics || check.children?.length);
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="p-4 rounded-lg border bg-[#141417]" style={{ borderColor: `${STATUS_STYLE[check.status].color}33` }}>
+      <button
+        type="button"
+        disabled={!expandable}
+        onClick={() => setOpen((o) => !o)}
+        className={`w-full flex items-center justify-between mb-2 ${expandable ? 'cursor-pointer' : 'cursor-default'}`}
+      >
+        <span className="flex items-center gap-2 font-medium font-mono text-sm">
+          {expandable && (
+            <VscChevronRight className={`text-gray-500 transition-transform ${open ? 'rotate-90' : ''}`} />
+          )}
+          <Dot status={check.status} />
+          {check.name}
+        </span>
+        <span className="text-[11px] text-gray-600">{check.latencyMs}ms</span>
+      </button>
+      <p className="text-[11px] text-gray-400 leading-relaxed break-words">{check.detail}</p>
+      {open && check.metrics && <MetricsGrid metrics={check.metrics} />}
+      {open && check.children?.length ? (
+        <div className="mt-3 pt-1 border-t border-gray-800/60">
+          {check.children.map((c) => <CheckRow key={c.name} check={c} />)}
+        </div>
+      ) : null}
+    </div>
+  );
+};
 
 export default function Health() {
   const [report, setReport] = useState<HealthReport | null>(null);
@@ -105,23 +185,8 @@ export default function Health() {
         </p>
       )}
 
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-3">
-        {report?.checks.map((check) => (
-          <div
-            key={check.name}
-            className="p-4 rounded-lg border bg-[#141417]"
-            style={{ borderColor: `${STATUS_STYLE[check.status].color}33` }}
-          >
-            <div className="flex items-center justify-between mb-2">
-              <span className="flex items-center gap-2 font-medium font-mono text-sm">
-                <Dot status={check.status} />
-                {check.name}
-              </span>
-              <span className="text-[11px] text-gray-600">{check.latencyMs}ms</span>
-            </div>
-            <p className="text-[11px] text-gray-400 leading-relaxed break-words">{check.detail}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(300px,1fr))] gap-3 items-start">
+        {report?.checks.map((check) => <CheckCard key={check.name} check={check} />)}
       </div>
     </div>
   );

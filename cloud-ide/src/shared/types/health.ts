@@ -10,6 +10,17 @@ export interface HealthCheck {
   /** Human-readable evidence: the version, the counts, or the failure. */
   detail: string;
   latencyMs: number;
+  /**
+   * Optional labeled stats shown when the card is expanded (e.g. per-server
+   * counts). Generic on purpose — any probe can attach them; the dashboard
+   * renders whatever is here without knowing the subsystem.
+   */
+  metrics?: Record<string, string | number>;
+  /**
+   * Optional nested checks — a subsystem made of many parts (e.g. one LSP server
+   * per language) reports each as a child. Rendered recursively as the same row.
+   */
+  children?: HealthCheck[];
 }
 
 export interface HealthReport {

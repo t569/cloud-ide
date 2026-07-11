@@ -2,8 +2,9 @@
 // around real subsystems; what can actually be wrong here is the rollup (a `down`
 // subsystem must not be reported as `ok`) and the isolation (one broken probe must
 // not take the endpoint with it).
-import { rollup, runProbes, type Probe } from './HealthRoutes';
+import { rollup, runProbes, probeLspServers, type Probe } from './HealthRoutes';
 import type { HealthCheck } from '@cloud-ide/shared/types/health';
+import type { LspServerConfig } from '../services/lsp/LspProxy';
 
 const check = (status: HealthCheck['status']): HealthCheck => ({
   name: 'x',
@@ -49,5 +50,33 @@ describe('runProbes', () => {
 
     expect(report.status).toBe('down');
     expect(report.checks[0].detail).toMatch(/timed out/);
+  });
+});
+
+describe('probeLspServers', () => {
+  const servers = (spec: Record<string, [string, number]>) =>
+    new Map<string, LspServerConfig>(Object.entries(spec).map(([l, [host, port]]) => [l, { host, port }]));
+
+  it('is ok with no servers configured (LSP is optional)', async () => {
+    const v = await probeLspServers(new Map(), 0);
+    expect(v.status).toBe('ok');
+    expect(v.children).toBeUndefined();
+    expect(v.metrics).toMatchObject({ configured: 0 });
+  });
+
+  it('emits a child per server and rolls partial reachability up to degraded', async () => {
+    const reach = async (host: string) => {
+      if (host === 'dead') throw new Error('ECONNREFUSED');
+    };
+    const v = await probeLspServers(servers({ python: ['ok', 1], go: ['dead', 2] }), 3, reach);
+
+    expect(v.status).toBe('degraded'); // NOT down — a dead LSP must not 503 the node
+    expect(v.metrics).toMatchObject({ configured: 2, reachable: 1, sessions: 3 });
+    expect(v.children?.map((c) => c.status)).toEqual(['ok', 'down']);
+  });
+
+  it('is ok when every server is reachable', async () => {
+    const v = await probeLspServers(servers({ python: ['ok', 1] }), 0, async () => {});
+    expect(v.status).toBe('ok');
   });
 });

@@ -55,6 +55,11 @@ export class LspProxy {
     return this.deps.serverFor(languageId) !== null;
   }
 
+  /** Number of live (sandbox, language) sessions — a health-page metric. */
+  sessionCount(): number {
+    return this.sessions.size;
+  }
+
   private key(sandboxId: string, languageId: string): string {
     return `${sandboxId}:${languageId}`;
   }

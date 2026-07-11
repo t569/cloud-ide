@@ -15,6 +15,8 @@ import { config, IS_PRODUCTION } from '../config/env';
 import { DockerCli } from '../services/docker';
 import { normalizeLifecycleBaseUrl } from '../services/sandbox/openSandboxEngine';
 import { CENTRAL_REPO_PATH, WORKTREES_ROOT } from '../services/sandbox/SandboxManager';
+import { connectTcp } from '../services/lsp/tcpConnector';
+import type { LspServerConfig } from '../services/lsp/LspProxy';
 import type { IBuildStore } from '../services/builder';
 import type { IEnvironmentRepository, ISandboxRepository } from '../database/interfaces';
 import type { ISandboxDriver } from '../services/sandbox/drivers/ISandboxDriver';
@@ -23,8 +25,16 @@ import type { HealthCheck, HealthReport, HealthStatus } from '@cloud-ide/shared/
 const PROBE_TIMEOUT_MS = 3_000;
 const execFileAsync = promisify(execFile);
 
+/** A probe verdict. `metrics`/`children` enrich the (expandable) dashboard card. */
+export interface Verdict {
+  status: HealthStatus;
+  detail: string;
+  metrics?: Record<string, string | number>;
+  children?: HealthCheck[];
+}
+
 /** Resolves with a verdict; throwing (or hanging) means `down`. */
-export type Probe = () => Promise<{ status: HealthStatus; detail: string }>;
+export type Probe = () => Promise<Verdict>;
 
 const ok = (detail: string) => ({ status: 'ok' as const, detail });
 const degraded = (detail: string) => ({ status: 'degraded' as const, detail });
@@ -74,6 +84,58 @@ export interface HealthDeps {
   envRepo: IEnvironmentRepository;
   buildStore: IBuildStore;
   driver: ISandboxDriver;
+  /** Configured language servers (from LSP_SERVERS), for the LSP health card. */
+  lspServers: Map<string, LspServerConfig>;
+  /** Live (sandbox, language) session count — an LSP metric. */
+  lspSessionCount: () => number;
+}
+
+/** TCP-reachability of one language server. A full LSP handshake would be heavier
+ *  than a health probe needs — a completed connect proves the server is listening. */
+async function tcpReachable(host: string, port: number): Promise<void> {
+  const stream = await connectTcp(host, port, PROBE_TIMEOUT_MS);
+  stream.destroy();
+}
+
+/**
+ * Health of every configured LSP server as one parent check with a child per
+ * server. Pure over an injected `reach` so it's unit-testable without sockets.
+ * Capped at `degraded`: LSP is optional (the editor falls back to Monaco
+ * highlighting), so a dead server must never 503 the whole node.
+ */
+export async function probeLspServers(
+  servers: Map<string, LspServerConfig>,
+  sessionCount: number,
+  reach: (host: string, port: number) => Promise<void> = tcpReachable,
+): Promise<Verdict> {
+  const entries = [...servers.entries()];
+  if (entries.length === 0) {
+    return {
+      status: 'ok',
+      detail: 'no language servers configured — editor uses Monaco highlighting',
+      metrics: { configured: 0, sessions: sessionCount },
+    };
+  }
+
+  const children: HealthCheck[] = await Promise.all(
+    entries.map(async ([lang, cfg]): Promise<HealthCheck> => {
+      const startedAt = Date.now();
+      try {
+        await reach(cfg.host, cfg.port);
+        return { name: lang, status: 'ok', detail: `${cfg.host}:${cfg.port} reachable`, latencyMs: Date.now() - startedAt };
+      } catch (err) {
+        return { name: lang, status: 'down', detail: `${cfg.host}:${cfg.port} — ${(err as Error).message}`, latencyMs: Date.now() - startedAt };
+      }
+    }),
+  );
+
+  const reachable = children.filter((c) => c.status === 'ok').length;
+  return {
+    status: reachable === children.length ? 'ok' : 'degraded',
+    detail: `${reachable}/${children.length} servers reachable`,
+    metrics: { configured: children.length, reachable, sessions: sessionCount },
+    children,
+  };
 }
 
 export function systemProbes(deps: HealthDeps): Record<string, Probe> {
@@ -181,6 +243,10 @@ export function systemProbes(deps: HealthDeps): Record<string, Probe> {
       const baseRepo = existsSync(CENTRAL_REPO_PATH) ? 'initialized' : 'pending first provision';
       return ok(`${worktrees} worktrees, base repo ${baseRepo}, ${git.stdout.trim()}`);
     },
+
+    // Language servers: one expandable card, a child per configured server. Never
+    // worse than degraded — LSP is optional and must not pull the node from rotation.
+    lsp: () => probeLspServers(deps.lspServers, deps.lspSessionCount()),
 
     'sandbox-driver': async () => {
       const caps = deps.driver.capabilities();

@@ -5,4 +5,5 @@ export { LanguageServiceRegistry } from './LanguageServiceRegistry';
 export { MonacoLanguageBridge } from './MonacoLanguageBridge';
 export { MockLSPTransport } from './transports/MockLSPTransport';
 export { WebSocketLSPTransport } from './transports/WebSocketLSPTransport';
+export { HttpLSPTransport } from './transports/HttpLSPTransport';
 export { createLanguageTransports } from './manifest';

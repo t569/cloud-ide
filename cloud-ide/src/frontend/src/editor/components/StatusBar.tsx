@@ -1,7 +1,17 @@
 // frontend/src/editor/components/StatusBar.tsx
 import React from 'react';
 import { EditorCursorState, DocumentFormatting, GitState, IDEGlobalSettings } from '../types/editor';
+import type { LSPStatus } from '../lsp/types';
 import { toast } from '../../notifications';
+
+// Language-server read-out: label + dot colour per connection state. `offline`
+// is intentionally muted, not red — it's the expected no-network fallback, not
+// a failure the user must act on.
+const LSP_UI: Record<LSPStatus, { label: string; color: string }> = {
+  connecting: { label: 'LSP…', color: '#d7a860' },
+  connected: { label: 'LSP', color: '#4ec99a' },
+  offline: { label: 'LSP off', color: '#8a8a8a' },
+};
 
 // A status-bar affordance. Any plugin can drop one in.
 export const StatusBarItem = ({
@@ -31,6 +41,7 @@ interface StatusBarProps {
   formatting: DocumentFormatting;
   git: GitState | null; // null when the workspace isn't a git repo
   language: string | null; // display name of the active file's language; null when no file is open
+  lsp: LSPStatus | null; // language-server state; null when no server is wired for this language
 }
 
 // These read-outs are placeholders until cursor/format/git are wired to Monaco, so a
@@ -38,7 +49,7 @@ interface StatusBarProps {
 const soon = (label: string) => () =>
   toast.info(`${label} isn't wired up yet — coming soon.`, { title: 'Not implemented' });
 
-export const StatusBar = ({ settings, cursor, formatting, git, language }: StatusBarProps) => (
+export const StatusBar = ({ settings, cursor, formatting, git, language, lsp }: StatusBarProps) => (
   <div
     className="flex h-6 items-center justify-between border-t border-ide-border bg-ide-panel text-[11px] select-none"
     style={{ fontFamily: settings.fontFamily }}
@@ -77,9 +88,14 @@ export const StatusBar = ({ settings, cursor, formatting, git, language }: Statu
         {formatting.eol}
       </StatusBarItem>
       {language && (
-        // ponytail: LSP status will sit alongside this once the LSP slice lands.
         <StatusBarItem onClick={soon('Language mode')} title="Select language mode">
           {language}
+        </StatusBarItem>
+      )}
+      {lsp && (
+        <StatusBarItem onClick={soon('Language server')} title={`Language server: ${lsp}`} className="gap-1.5">
+          <span style={{ color: LSP_UI[lsp].color }}>●</span>
+          {LSP_UI[lsp].label}
         </StatusBarItem>
       )}
     </div>

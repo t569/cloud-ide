@@ -20,6 +20,7 @@ import { coreContributions } from '../contrib/coreContributions';
 
 import { useWorkspaceBootstrap } from '../hooks/useWorkspaceBootstrap';
 import { useWorkspaceLayout } from '../hooks/useWorkspaceLayout';
+import { useLspStatus } from '../hooks/useLspStatus';
 import { startPanelDrag } from '../hooks/usePanelResize';
 
 interface EditorWorkspaceProps {
@@ -59,7 +60,10 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
     workspaceState.openFiles.find((f) => f.path === workspaceState.activeFilePath) || null;
 
   // Language of the active file, for the status bar. Same detect() Monaco uses.
-  const activeLanguage = activeFile ? languages.displayName(languages.detect(activeFile.path)) : null;
+  const activeLanguageId = activeFile ? languages.detect(activeFile.path) : null;
+  const activeLanguage = activeLanguageId ? languages.displayName(activeLanguageId) : null;
+  // Live LSP connection state for that language (null if no server is wired).
+  const lspStatus = useLspStatus(langRegistry, activeLanguageId);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-ide-bg text-ide-text font-sans overflow-hidden">
@@ -191,6 +195,7 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
             formatting={{ eol: 'LF', encoding: 'UTF8', indentMode: 'spaces', indentSize: 2 }}
             git={{ branch: 'main', hasChanges: false }}
             language={activeLanguage}
+            lsp={lspStatus}
           />
         </div>
       </div>

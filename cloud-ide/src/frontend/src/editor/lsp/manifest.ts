@@ -6,14 +6,16 @@
 // MockLSPTransport for a WebSocketLSPTransport here and nothing else changes.
 
 import { ILanguageServerTransport } from './types';
-import { MockLSPTransport } from './transports/MockLSPTransport';
-// import { WebSocketLSPTransport } from './transports/WebSocketLSPTransport';
-// import { WS_BASE_URL } from '../../config/env';
+import { HttpLSPTransport } from './transports/HttpLSPTransport';
+// import { MockLSPTransport } from './transports/MockLSPTransport';
 
 export function createLanguageTransports(/* sandboxId?: string */): ILanguageServerTransport[] {
   return [
-    new MockLSPTransport('python'),
-    // Go live by swapping the line above for:
-    // new WebSocketLSPTransport('python', `${WS_BASE_URL}/lsp/python`),
+    // Online LSP over debounced HTTP + SSE (the backend proxy owns the TCP/SSH
+    // tunnel). Degrades to `offline` and Monaco highlighting when unreachable.
+    // One line per language; the backend proxy routes by :languageId.
+    new HttpLSPTransport('python'),
+    // For backend-less local dev with fake intelligence, swap for:
+    // new MockLSPTransport('python'),
   ];
 }

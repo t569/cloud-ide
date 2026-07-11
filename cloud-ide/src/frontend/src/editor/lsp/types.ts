@@ -114,6 +114,14 @@ export interface Diagnostic {
 }
 
 /**
+ * Connection state, surfaced in the status bar so the user knows whether they
+ * have live language intelligence or are running on Monaco's built-in
+ * highlighting alone. `offline` is not an error — it's the expected fallback
+ * when the network or the backend language server is unreachable.
+ */
+export type LSPStatus = 'connecting' | 'connected' | 'offline';
+
+/**
  * THE PORT. Any language backend implements this.
  *
  * It is request/response (promises) because that is what LSP features
@@ -139,6 +147,11 @@ export interface ILanguageServerTransport {
 
   /** Push-based (server -> editor). Returns an unsubscribe fn. */
   onDiagnostics?(cb: (path: string, diagnostics: Diagnostic[]) => void): () => void;
+
+  /** Current connection state, for the status bar. Omit if not applicable (e.g. the mock). */
+  getStatus?(): LSPStatus;
+  /** Subscribe to status changes. Returns an unsubscribe fn. */
+  onStatusChange?(cb: (status: LSPStatus) => void): () => void;
 }
 
 /**

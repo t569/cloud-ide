@@ -59,7 +59,7 @@ terminal/
 
 ### 2. The Infrastructure Layer (`/transport`)
 
-The UI components never speak directly to a WebSocket or an API. They only communicate via the `ITransportStream` interface, and **`createTerminalTransport(sandboxId, {pty})`** is the single place that decides which one backs a tab — by driver capability. See the backend **[TERMINAL_BACKEND.md](../../../../backend/TERMINAL_BACKEND.md)** for the full picture.
+The UI components never speak directly to a WebSocket or an API. They only communicate via the `ITransportStream` interface, and **`createTerminalTransport(sandboxId, {pty})`** is the single place that decides which one backs a tab — by driver capability. See the backend **[TERMINAL_BACKEND.md](../../../backend/TERMINAL_BACKEND.md)** for the full picture.
 
 *   **`SseExecTransport.ts`** — **the live default.** Line-mode: local echo, buffer a line, `POST /api/v1/sandboxes/:id/exec` on Enter, stream stdout/stderr back over SSE. Not a PTY — no vim/top, and no persistent shell (each command is a fresh `sh -c`).
 *   **`WebSocketTransport.ts`** — the interactive PTY transport. Connects to the gateway's **`/pty` WebSocket bridge** (`PtyGateway`), *not* execd directly — execd is one-shot and cannot do a PTY. Wire protocol by frame type: **binary = stdin/stdout bytes**, **text = JSON control** (`{type:'resize'}` out, `{type:'exit'}` in). Handles size re-sync on reconnect and streaming UTF-8 decode. Selected only when the active sandbox driver advertises `pty` (see requirement below).
@@ -425,11 +425,11 @@ to give us this:
 - [x] **`WebSocketTransport`** finished (binary stdin/stdout, text control, size re-sync, backoff reconnect).
 - [x] **Gateway `/pty` WS bridge** (`PtyGateway`) — provider-agnostic, ownership-guarded, capability-gated.
 - [x] **Resize events**: `ResizeObserver` → `transport.resize()` → text control frame → `session.resize()`.
-- Note: there is **no** `execd`-WS/`node-pty` work — execd is one-shot and external; interactive PTY comes from a driver's `openSession` (see below).
+- Note: interactive PTY comes from a driver's `openSession`, not `execd` (execd is one-shot and external). The default `DockerPtyDriver` implements it with `node-pty` over `docker exec -it`.
 
 ### ⏳ Phase 5: Interactive PTY + State (In progress)
-- [ ] **PTY-capable driver** (`AlibabaSdkDriver`): the one missing piece to light up the WS/PTY chain — unverified scaffold, needs the SDK + live validation (backend TERMINAL_BACKEND.md step 5).
-- [ ] **PTY reattach** across socket drops (step 6; pairs with the driver + session recovery).
+- [x] **PTY-capable driver** (`DockerPtyDriver`, default): lights up the WS/PTY chain via `docker exec -it` + node-pty. (`AlibabaSdkDriver` remains an alt scaffold — backend TERMINAL_BACKEND.md step 5.)
+- [ ] **PTY reattach** across socket drops (step 6): keep the server PTY alive across a WS drop and re-bind on reconnect, so the running shell survives. Now **unblocked** (a live PTY exists); pairs with the `SessionStore` scrollback restore below. Today a drop → backoff reconnect opens a **fresh** shell (scrollback is redrawn, but in-shell processes/state are lost).
 - [x] **Session Persistence**: scrollback saved to the backend `SessionStore` (crash-safe, cross-device) and restored on mount via `useSessionPersistence` — replaces the old localStorage plan.
 - [ ] **Complete `RepoGraphPlugin`**: agentic command→knowledge-graph tracking for the AI assistant.
 - [ ] **Global IDE Wiring**: Context HUD `onFileClick` already bridges to the editor via `IDETerminal` → `FILE_OPEN_REQUESTED`; extend as needed.

@@ -21,7 +21,7 @@ One implementation per provider. Methods:
 |---|---|---|---|
 | **RustEngineClient** | `../rustClient.ts` | `{exec:true, pty:false}` | The base OpenSandbox driver: lifecycle + line-mode exec via `openSandboxEngine.ts` (a pure-TS HTTP client). Name kept for continuity — there is **no** Rust/FFI anymore. |
 | **DockerPtyDriver** | `DockerPtyDriver.ts` | `{exec, pty:true*}` | **Default.** Composition over the base: lifecycle/exec delegate; adds interactive PTY via `docker exec -it sandbox-<id>` (node-pty). `*pty` is true only if node-pty loaded, so it self-downgrades to exec-only where it isn't built. |
-| **AlibabaSdkDriver** | `AlibabaSdkDriver.ts` | `{exec, pty:true}` | ⚠️ **Unverified scaffold.** Same composition shape, but the PTY comes from the OpenSandbox SDK instead of docker-exec. Needs the SDK + live validation — see [`../../../TERMINAL_BACKEND.md`](../../../TERMINAL_BACKEND.md) step 5. |
+| **AlibabaSdkDriver** | `AlibabaSdkDriver.ts` | `{exec, pty:true}` | ⚠️ **Unverified scaffold.** Same composition shape, but the PTY comes from the OpenSandbox SDK instead of docker-exec. Needs the SDK + live validation — see [`../../../../TERMINAL_BACKEND.md`](../../../../TERMINAL_BACKEND.md) step 5. |
 
 ## Selection — `createSandboxDriver()`
 Reads `SANDBOX_DRIVER` (default `opensandbox`), mirroring the `DOCKER_BUILDER` pattern.
@@ -34,4 +34,4 @@ composed over it. Wired in `server.ts` and injected into `SandboxManager`.
 3. Add a branch to `createSandboxDriver()` + a `SANDBOX_DRIVER` value + a line in the table above.
 
 Interactive-terminal wiring (PtyGateway, the WS protocol, the frontend transport factory)
-lives in **[`../../../TERMINAL_BACKEND.md`](../../../TERMINAL_BACKEND.md)**.
+lives in **[`../../../../TERMINAL_BACKEND.md`](../../../../TERMINAL_BACKEND.md)**.

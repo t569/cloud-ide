@@ -33,8 +33,19 @@ export const SESSION_COOKIE_OPTIONS = {
   path: '/',
 };
 
-/** Same shape as the session cookie: the `uid` bearer must not be JS-readable. */
-export const USER_COOKIE_OPTIONS = SESSION_COOKIE_OPTIONS;
+/**
+ * Same hardening as the session cookie (httpOnly/sameSite/secure), but the `uid`
+ * bearer must OUTLIVE the browser session. Without an explicit maxAge it is a
+ * session cookie: closing the browser drops it, `attachUser` mints a fresh uid on
+ * return, and that new identity owns none of your sandboxes — so your workspace
+ * "disappears" (the old sandbox is orphaned and the IdleSweeper reaps it). uid is a
+ * durable anonymous account, not a per-connection bearer like `sid`. 1 year; login
+ * will replace this seam.
+ */
+export const USER_COOKIE_OPTIONS = {
+  ...SESSION_COOKIE_OPTIONS,
+  maxAge: 365 * 24 * 60 * 60 * 1000,
+};
 
 /**
  * Compares two secrets without leaking their contents through timing. Length is

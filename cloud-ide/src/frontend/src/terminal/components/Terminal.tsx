@@ -252,25 +252,17 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
       }
     });
 
-    // D. Handle Pasting
-    const handleDOMPaste = async (e: ClipboardEvent) => {
-      if (isReadOnly) return;
-      e.preventDefault();
-      const pastedText = await inputHandler.handlePaste();
-      if (pastedText) {
-         inputHandler.handleInput(pastedText, transport);
-         xterm?.scrollToBottom(); // <--- Snaps viewport to the bottom on paste
-      }
-    };
-
-    const terminalElement = terminalRef.current;
-    terminalElement?.addEventListener('paste', handleDOMPaste);
+    // D. Pasting is handled by xterm itself: a paste fires the SAME onData above
+    // (already wrapped in bracketed-paste markers when the remote shell enables
+    // them), so it flows through the middleware pipeline like typed input. We do
+    // NOT add a separate DOM 'paste' listener — that ran in ADDITION to xterm's
+    // native handler, writing every paste to the PTY twice and skipping bracketed
+    // paste (which made multi-line pastes into bash/vim misbehave).
 
     return () => {
       onDataDisposable?.dispose();
       onResizeDisposable.dispose();
       onSelectionDisposable?.dispose();
-      terminalElement?.removeEventListener('paste', handleDOMPaste);
     };
   }, [xterm, transport, isReadOnly, eventBus]);
 

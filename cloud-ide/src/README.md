@@ -1,7 +1,7 @@
 # Prerequisites
 
 ## 🛠️ System Prerequisites
-Before installing, ensure your development environment meets the strict architectural requirements for the Native FFI (Foreign Function Interface) engine:
+Before installing, make sure your environment has:
 
 *   **Node.js (v24.x 64-bit):** Run the x64 build. Verify with:
     ```bash

@@ -29,6 +29,8 @@ import { attachUser } from './api/middleware/auth';
 
 // File Routers
 import { createFileSystemRouter } from './api/FileSystemRoutes';
+import { createLspRouter } from './api/LspRoutes';
+import { LspProxy, parseLspServers } from './services/lsp/LspProxy';
 import { createHealthRouter } from './api/HealthRoutes';
 import { createPreviewRouter } from './api/PreviewRoutes';
 import { createEnvironmentRouter } from './api/routes/environment.routes';
@@ -167,6 +169,20 @@ GarbageCollector.init();
 const fileSystemManager = new FileSystemManager(sandboxManager);
 const sessionStore = new SessionStore();
 app.use('/api/fs', createFileSystemRouter(fileSystemManager, sandboxRepo, fsEventHub, workspaceWatchers, sessionStore));
+
+// Language servers (online LSP). Browser <-debounced HTTP/SSE-> here <-TCP-> server.
+// Config: LSP_SERVERS="python=127.0.0.1:2087;typescript=host:2089". Unset => every
+// language reports `offline` and the editor runs on Monaco highlighting alone.
+// Single-node assumption: the server shares this disk, so host paths ARE its paths
+// (see LspProxy). hostPathFor/readFile reuse the FileSystemManager trust boundary.
+const lspServers = parseLspServers(process.env.LSP_SERVERS);
+const lspProxy = new LspProxy({
+  serverFor: (lang) => lspServers.get(lang) ?? null,
+  hostPathFor: (sb, p) => fileSystemManager.hostPathFor(sb, p),
+  rootHostPath: (sb) => sandboxManager.getWorkspaceHostPath(sb),
+  readFile: (sb, p) => fileSystemManager.readFile(sb, p),
+});
+app.use('/api/lsp', createLspRouter(lspProxy, sandboxRepo));
 
 // NEW: Mount the Ingress Router (Step 3) — proxies browser traffic into sandbox services
 app.use('/preview', createPreviewRouter(sandboxManager, sandboxRepo));

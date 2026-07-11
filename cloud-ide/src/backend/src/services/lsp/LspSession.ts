@@ -104,19 +104,32 @@ export class LspSession {
     this.notify('initialized', {});
   }
 
-  /** Tell the server about a document's current text (required before completion). */
-  didOpen(absPath: string, languageId: string, text: string, version = 1): void {
-    this.notify('textDocument/didOpen', {
-      textDocument: { uri: pathToUri(absPath), languageId, version, text },
-    });
+  // uri -> last version we sent. The session is the version authority: the
+  // frontend just says "the text changed", we assign the monotonic version LSP
+  // requires. This is what lets the hybrid work — a lazy didOpen from disk, then
+  // live didChange from the editor buffer, without the client tracking versions.
+  private openVersions = new Map<string, number>();
+
+  /**
+   * Open a document exactly once. `loadText` is only called on the first open
+   * (the hybrid's lazy read from the worktree), so repeat requests are cheap.
+   */
+  async ensureOpen(absPath: string, languageId: string, loadText: () => Promise<string> | string): Promise<void> {
+    const uri = pathToUri(absPath);
+    if (this.openVersions.has(uri)) return;
+    const text = await loadText();
+    this.openVersions.set(uri, 1);
+    this.notify('textDocument/didOpen', { textDocument: { uri, languageId, version: 1, text } });
   }
 
-  /** Full-text update. (Incremental sync is a later optimization.) */
-  didChange(absPath: string, text: string, version: number): void {
-    this.notify('textDocument/didChange', {
-      textDocument: { uri: pathToUri(absPath), version },
-      contentChanges: [{ text }],
-    });
+  /** Live full-text update from the editor buffer. No-op if the doc was never opened. */
+  change(absPath: string, text: string): void {
+    const uri = pathToUri(absPath);
+    const prev = this.openVersions.get(uri);
+    if (prev === undefined) return; // must ensureOpen first
+    const version = prev + 1;
+    this.openVersions.set(uri, version);
+    this.notify('textDocument/didChange', { textDocument: { uri, version }, contentChanges: [{ text }] });
   }
 
   onDiagnostics(cb: (path: string, diagnostics: any[]) => void): () => void {

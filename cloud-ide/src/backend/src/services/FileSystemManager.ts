@@ -122,6 +122,15 @@ export class FileSystemManager {
   }
 
   /**
+   * The absolute host path of a workspace file, through the same trust-boundary
+   * guard as every other op. Public so the LSP proxy can build the `file://` URI
+   * the language server sees — without re-implementing (or weakening) the guard.
+   */
+  public hostPathFor(sandboxId: string, containerPath: string): Promise<string> {
+    return this.resolveHostPath(sandboxId, containerPath);
+  }
+
+  /**
    * Reads a file's content as UTF-8.
    */
   public async readFile(sandboxId: string, filePath: string): Promise<string> {

@@ -3,7 +3,7 @@
 // useSyncExternalStore (React's stdlib bridge to external stores).
 import { useSyncExternalStore } from 'react';
 
-export type ToastType = 'success' | 'warning' | 'error';
+export type ToastType = 'success' | 'warning' | 'error' | 'info';
 
 export interface Toast {
   id: number;
@@ -47,6 +47,7 @@ export const toast = {
   success: (message: string, opts?: ToastOptions) => push('success', message, opts),
   warning: (message: string, opts?: ToastOptions) => push('warning', message, opts),
   error: (message: string, opts?: ToastOptions) => push('error', message, opts),
+  info: (message: string, opts?: ToastOptions) => push('info', message, opts),
   dismiss,
 };
 

@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { FileIcon } from '@frontend/common/FileIcon';
 import { FileNode, EditorEventPayloads } from '../types/editor';
 import { EditorEventBus } from '../core/EditorEventBus';
+import { dialog } from '../../notifications';
 
 // --- 1. RECURSIVE NODE COMPONENT ---
 interface FileExplorerNodeProps {
@@ -35,11 +36,18 @@ const FileExplorerNode = ({
   };
 
   // THE DELETE TRIGGER
-  const handleDelete = (e: React.MouseEvent) => {
+  const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent the file from opening
-    if (window.confirm(`Are you sure you want to delete '${node.name}'?`)) {
-      eventBus.emit('FILE_DELETED', { path: node.path });
-    }
+    const ok = await dialog.confirm({
+      title: `Delete ${node.name}?`,
+      message:
+        node.type === 'directory'
+          ? 'This removes the folder and everything inside it. This can’t be undone.'
+          : 'This permanently removes the file. This can’t be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+    });
+    if (ok) eventBus.emit('FILE_DELETED', { path: node.path });
   };
 
   return (

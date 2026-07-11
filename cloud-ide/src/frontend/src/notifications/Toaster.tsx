@@ -1,13 +1,14 @@
 // Mount once (e.g. in main.tsx). Portals a neon-outlined toast stack to <body>.
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { VscPass, VscWarning, VscError, VscClose } from 'react-icons/vsc';
+import { VscPass, VscWarning, VscError, VscInfo, VscClose } from 'react-icons/vsc';
 import { Toast, ToastType, toast, useToasts } from './toastStore';
 
 const CONFIG: Record<ToastType, { icon: React.ComponentType<{ size?: number }>; color: string; label: string }> = {
   success: { icon: VscPass, color: '#34d399', label: 'Success' }, // emerald neon
   warning: { icon: VscWarning, color: '#fbbf24', label: 'Warning' }, // amber neon
   error: { icon: VscError, color: '#f87171', label: 'Error' }, // red neon
+  info: { icon: VscInfo, color: '#60a5fa', label: 'Info' }, // azure neon
 };
 
 const ToastCard = ({ t }: { t: Toast }) => {

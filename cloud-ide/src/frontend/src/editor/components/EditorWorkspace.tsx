@@ -9,6 +9,8 @@ import { FileExplorer } from './FileExplorer';
 import { MonacoEditorWrapper } from './MonacoEditorWrapper';
 import { CommandPalette } from './CommandPalette';
 import { IDETerminal } from './IDETerminal';
+import { ComingSoon } from './ComingSoon';
+import { VscSearch, VscExtensions, VscSettingsGear } from 'react-icons/vsc';
 
 import { DesignSystemProvider, useDesignSystem } from '../context/DesignSystemContext';
 import { WorkspaceProvider, useWorkspace } from '../context/WorkspaceContext';
@@ -94,7 +96,25 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
                 />
               )}
               {layout.activeSidebarPanel === 'search' && (
-                <div className="p-4 text-sm text-ide-muted">Search Panel (WIP)</div>
+                <ComingSoon
+                  icon={<VscSearch size={20} />}
+                  title="Search"
+                  description="Full-text search across your workspace files is on the way."
+                />
+              )}
+              {layout.activeSidebarPanel === 'plugins' && (
+                <ComingSoon
+                  icon={<VscExtensions size={20} />}
+                  title="Plugins"
+                  description="Browse and manage editor extensions. Not available yet."
+                />
+              )}
+              {layout.activeSidebarPanel === 'settings' && (
+                <ComingSoon
+                  icon={<VscSettingsGear size={20} />}
+                  title="Settings"
+                  description="Editor and workspace preferences will live here soon."
+                />
               )}
             </div>
 

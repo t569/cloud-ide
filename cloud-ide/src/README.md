@@ -122,6 +122,7 @@ below live here alongside this README):
 | [backend/README.md](./backend/README.md) | Gateway subsystems, env vars, running & tests. |
 | [backend/TERMINAL_BACKEND.md](./backend/TERMINAL_BACKEND.md) | Terminal + sandbox-driver abstraction (PTY). |
 | [backend/HEALTH.md](./backend/HEALTH.md) | Health-probe subsystem. |
+| [backend/LSP.md](./backend/LSP.md) | Language-server (LSP) setup & proxy architecture. |
 | [frontend/README.md](./frontend/README.md) · [frontend/src/pages/README.md](./frontend/src/pages/README.md) | Frontend stack; route views incl. the sandboxes control plane. |
 | [frontend/src/editor/SECURITY.md](./frontend/src/editor/SECURITY.md) | Auth/CSRF/IDOR hardening (backend links here too). |
 

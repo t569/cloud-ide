@@ -32,6 +32,7 @@ Each subsystem is decoupled and has its own authoritative doc/header comments.
 | **Build pipeline** | `src/services/builder/` | Environment JSON → built/tagged Docker images with queueing, status, history, rollback. 👉 **[services/builder/README.md](./src/services/builder/README.md)**. |
 | **Storage** | `src/services/storage/WorktreeEngine.ts` | One git worktree per sandbox (branch `sbx-<id>`) — the durable, content-addressed source of truth (our Merkle tree + WAL; see ARCHITECTURE.md "Known Debt"). |
 | **Health** | `src/api/HealthRoutes.ts` | `GET /api/health` — probes every subsystem above in parallel (daemon, docker, build store, repos, worktrees + `git`, driver) and reports the worst as the overall status. 200 for `ok`/`degraded`, **503** for `down`. Rendered at `/health` in the SPA. 👉 **[HEALTH.md](./HEALTH.md)**. |
+| **Language servers (LSP)** | `src/services/lsp/`, `src/api/LspRoutes.ts` | Proxies browser code-intelligence to real language servers over TCP (browsers can't). One JSON-RPC session per `(sandbox, language)`, hybrid + incremental doc sync, SSE diagnostics. Optional — off by default (`LSP_SERVERS` unset ⇒ Monaco highlighting only). 👉 **[LSP.md](./LSP.md)**. |
 
 ### The terminal in one picture
 
@@ -58,6 +59,7 @@ xterm ─ createTerminalTransport ─┬─ SseExecTransport ─POST /exec─▶
 | `BUILD_STORE` | `json` | build store: `json` \| `memory` \| `redis` |
 | `MAX_CONCURRENT_BUILDS` | `2` | global build concurrency cap |
 | `GATEWAY_TIMEOUT` | `130000` | ms; must exceed `RUST_READ_TIMEOUT` |
+| `LSP_SERVERS` | — | language servers, `lang=host:port;…` (e.g. `python=127.0.0.1:2087`). Unset ⇒ LSP off. 👉 **[LSP.md](./LSP.md)** |
 
 ---
 

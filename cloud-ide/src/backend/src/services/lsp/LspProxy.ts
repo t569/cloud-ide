@@ -18,6 +18,7 @@ import { Duplex } from 'node:stream';
 import { LspSession, pathToUri, uriToPath } from './LspSession';
 import { connectTcp } from './tcpConnector';
 import { PORT_TO_LSP, toLspParams, fromLspResult } from './lspMethods';
+import { ContentChange } from './textEdit';
 
 export interface LspServerConfig {
   host: string;
@@ -105,12 +106,16 @@ export class LspProxy {
     return fromLspResult(method, raw, (uri) => this.hostToWorkspace(root, uriToPath(uri)));
   }
 
-  /** Frontend didChange — keep the server on the live editor buffer (the hybrid). */
-  async change(sandboxId: string, languageId: string, workspacePath: string, text: string): Promise<void> {
+  /**
+   * Frontend didChange — keep the server on the live editor buffer (the hybrid).
+   * `changes` are incremental deltas (or a full-replacement snapshot). The doc is
+   * lazily opened from the worktree first, so deltas apply onto the right baseline.
+   */
+  async change(sandboxId: string, languageId: string, workspacePath: string, changes: ContentChange[]): Promise<void> {
     const session = await this.getSession(sandboxId, languageId);
     const hostPath = await this.deps.hostPathFor(sandboxId, workspacePath);
-    await session.ensureOpen(hostPath, languageId, () => Promise.resolve(text));
-    session.change(hostPath, text);
+    await session.ensureOpen(hostPath, languageId, () => this.deps.readFile(sandboxId, workspacePath));
+    session.change(hostPath, changes);
   }
 
   /** Subscribe to a session's diagnostics, remapped to workspace paths for the SSE stream. */

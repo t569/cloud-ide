@@ -60,13 +60,60 @@ describe('HttpLSPTransport', () => {
     expect(post).not.toHaveBeenCalled();
   });
 
-  it('posts live buffer changes to the sync route (fire-and-forget)', () => {
+  it('first sync posts a full-text snapshot to baseline the document', async () => {
     post.mockResolvedValue(undefined);
     const t = new HttpLSPTransport('python', 'sb1');
+    const delta = { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, text: 'x' };
 
-    t.notifyChange('/workspace/main.py', 'import os\n');
+    t.notifyChange('/workspace/main.py', [delta], 'x\n');
+    expect(post).not.toHaveBeenCalled(); // debounced
+    await vi.advanceTimersByTimeAsync(250);
 
-    expect(post).toHaveBeenCalledWith('/lsp/sb1/python/sync', { path: '/workspace/main.py', text: 'import os\n' });
+    expect(post).toHaveBeenCalledWith('/lsp/sb1/python/sync', {
+      path: '/workspace/main.py',
+      changes: [{ text: 'x\n' }], // full snapshot, not the delta, on the first sync
+    });
+  });
+
+  it('sends accumulated incremental deltas after the baseline', async () => {
+    post.mockResolvedValue(undefined);
+    const t = new HttpLSPTransport('python', 'sb1');
+    const d1 = { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, text: 'a' };
+    const d2 = { range: { start: { line: 0, character: 1 }, end: { line: 0, character: 1 } }, text: 'b' };
+
+    t.notifyChange('/f.py', [d1], 'a');
+    await vi.advanceTimersByTimeAsync(250); // baseline snapshot
+    post.mockClear();
+
+    t.notifyChange('/f.py', [d2], 'ab'); // subsequent edit
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(post).toHaveBeenCalledWith('/lsp/sb1/python/sync', { path: '/f.py', changes: [d2] });
+  });
+
+  it('resyncs a full snapshot on the flush after a failed sync POST', async () => {
+    const t = new HttpLSPTransport('python', 'sb1');
+    const d1 = { range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, text: 'a' };
+    const d2 = { range: { start: { line: 0, character: 1 }, end: { line: 0, character: 1 } }, text: 'b' };
+
+    post.mockResolvedValueOnce(undefined); // baseline snapshot succeeds
+    t.notifyChange('/f.py', [d1], 'a');
+    await vi.advanceTimersByTimeAsync(250);
+    post.mockClear();
+
+    post.mockRejectedValueOnce(new ApiError('boom', 500)); // this delta POST fails
+    t.notifyChange('/f.py', [d2], 'ab');
+    await vi.advanceTimersByTimeAsync(250);
+    expect(post).toHaveBeenCalledWith('/lsp/sb1/python/sync', { path: '/f.py', changes: [d2] });
+    post.mockClear();
+
+    // Next edit must re-baseline with the full buffer, not the lone new delta —
+    // the server may have missed the dropped one.
+    post.mockResolvedValueOnce(undefined);
+    const d3 = { range: { start: { line: 0, character: 2 }, end: { line: 0, character: 2 } }, text: 'c' };
+    t.notifyChange('/f.py', [d3], 'abc');
+    await vi.advanceTimersByTimeAsync(250);
+    expect(post).toHaveBeenCalledWith('/lsp/sb1/python/sync', { path: '/f.py', changes: [{ text: 'abc' }] });
   });
 
   it('degrades to empty + offline when the backend is unreachable', async () => {

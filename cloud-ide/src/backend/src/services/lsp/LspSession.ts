@@ -8,6 +8,7 @@
 
 import { Duplex } from 'node:stream';
 import { encodeMessage, MessageBuffer } from './framing';
+import { applyContentChanges, ContentChange } from './textEdit';
 
 interface Pending {
   resolve: (value: any) => void;
@@ -104,11 +105,12 @@ export class LspSession {
     this.notify('initialized', {});
   }
 
-  // uri -> last version we sent. The session is the version authority: the
-  // frontend just says "the text changed", we assign the monotonic version LSP
-  // requires. This is what lets the hybrid work — a lazy didOpen from disk, then
-  // live didChange from the editor buffer, without the client tracking versions.
-  private openVersions = new Map<string, number>();
+  // uri -> { version, text }. The session is BOTH the version authority and the
+  // document-text mirror: the browser sends tiny incremental deltas, we fold them
+  // into the full text here and always hand the server a complete buffer — so any
+  // server is correct regardless of its sync capability, and a dropped delta is
+  // healed the moment the client sends a full snapshot.
+  private openDocs = new Map<string, { version: number; text: string }>();
 
   /**
    * Open a document exactly once. `loadText` is only called on the first open
@@ -116,20 +118,24 @@ export class LspSession {
    */
   async ensureOpen(absPath: string, languageId: string, loadText: () => Promise<string> | string): Promise<void> {
     const uri = pathToUri(absPath);
-    if (this.openVersions.has(uri)) return;
+    if (this.openDocs.has(uri)) return;
     const text = await loadText();
-    this.openVersions.set(uri, 1);
+    this.openDocs.set(uri, { version: 1, text });
     this.notify('textDocument/didOpen', { textDocument: { uri, languageId, version: 1, text } });
   }
 
-  /** Live full-text update from the editor buffer. No-op if the doc was never opened. */
-  change(absPath: string, text: string): void {
+  /**
+   * Live update from the editor buffer. `changes` are LSP incremental changes
+   * (or a single full-replacement); we apply them to the mirror, then send the
+   * server the full resulting text. No-op if the doc was never opened.
+   */
+  change(absPath: string, changes: ContentChange[]): void {
     const uri = pathToUri(absPath);
-    const prev = this.openVersions.get(uri);
-    if (prev === undefined) return; // must ensureOpen first
-    const version = prev + 1;
-    this.openVersions.set(uri, version);
-    this.notify('textDocument/didChange', { textDocument: { uri, version }, contentChanges: [{ text }] });
+    const doc = this.openDocs.get(uri);
+    if (!doc) return; // must ensureOpen first
+    doc.text = applyContentChanges(doc.text, changes);
+    doc.version += 1;
+    this.notify('textDocument/didChange', { textDocument: { uri, version: doc.version }, contentChanges: [{ text: doc.text }] });
   }
 
   onDiagnostics(cb: (path: string, diagnostics: any[]) => void): () => void {

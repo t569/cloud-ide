@@ -6,7 +6,7 @@
 // exactly like the /api/fs routes — the session cookie proves ownership.
 //
 //   POST /api/lsp/:sandboxId/:languageId/:method   body = port params -> JSON result
-//   POST /api/lsp/:sandboxId/:languageId/sync       body = { path, text } -> 204
+//   POST /api/lsp/:sandboxId/:languageId/sync       body = { path, changes[] } -> 204
 //   GET  /api/lsp/:sandboxId/:languageId/diagnostics -> SSE { path, diagnostics }
 import { Router, Request, Response, NextFunction } from 'express';
 import { LspProxy, NoLanguageServerError } from '../services/lsp/LspProxy';
@@ -62,15 +62,16 @@ export function createLspRouter(proxy: LspProxy, sandboxRepo: ISandboxRepository
     });
   });
 
-  // didChange: keep the server on the live editor buffer (the hybrid). Fire-and-forget.
+  // didChange: keep the server on the live editor buffer (the hybrid). `changes`
+  // are LSP incremental deltas (or a single full-replacement snapshot).
   router.post('/:sandboxId/:languageId/sync', async (req: Request, res: Response) => {
     const { sandboxId, languageId } = req.params as Record<string, string>;
-    const { path, text } = req.body ?? {};
-    if (typeof path !== 'string' || typeof text !== 'string') {
-      return res.status(400).json({ error: 'path and text are required' });
+    const { path, changes } = req.body ?? {};
+    if (typeof path !== 'string' || !Array.isArray(changes)) {
+      return res.status(400).json({ error: 'path and changes[] are required' });
     }
     try {
-      await proxy.change(sandboxId, languageId, path, text);
+      await proxy.change(sandboxId, languageId, path, changes);
       res.status(204).end();
     } catch (err: any) {
       if (err instanceof NoLanguageServerError) return res.status(503).end();

@@ -95,10 +95,20 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
   // 2. Handle Text Changes
   const handleEditorChange: OnChange = (value, event) => {
     if (activeFile) {
-      eventBus.emit('CONTENT_CHANGED', { 
-        path: activeFile.path, 
+      // Monaco's deltas are 1-based and sorted end-to-start (safe to apply in
+      // order); convert to 0-based LSP ranges for incremental language-server sync.
+      const changes = event.changes.map((c) => ({
+        range: {
+          start: { line: c.range.startLineNumber - 1, character: c.range.startColumn - 1 },
+          end: { line: c.range.endLineNumber - 1, character: c.range.endColumn - 1 },
+        },
+        text: c.text,
+      }));
+      eventBus.emit('CONTENT_CHANGED', {
+        path: activeFile.path,
         newContent: value || '',
-        isDirty: true 
+        isDirty: true,
+        changes,
       });
     }
   };

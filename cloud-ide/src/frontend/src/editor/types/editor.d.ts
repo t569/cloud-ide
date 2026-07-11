@@ -6,6 +6,7 @@
  */
 import { SyncStatus } from '../../vfs/types/vfs';
 import { EnvironmentConfig } from '@cloud-ide/shared/types/env';
+import { ContentChange } from '../lsp/types';
 
 
 export type {SyncStatus};
@@ -131,9 +132,11 @@ export interface EditorEventPayloads {
   /** Fired when a user switches between already-open tabs. */
   'TAB_ACTIVATED': { path: string };
 
-  /** Fired by Monaco on keystroke. Triggers the 'dirty' dot on the UI tab. */
+  /** Fired by Monaco on keystroke. Triggers the 'dirty' dot on the UI tab.
+   *  `changes` carries Monaco's incremental edit deltas (0-based, LSP-shaped) for
+   *  live language-server sync; absent when emitted by non-Monaco sources. */
   // [PATCHED] isDirty is now optional so the Test Harness doesn't throw errors!
-  'CONTENT_CHANGED': { path: string; newContent: string; isDirty?: boolean };
+  'CONTENT_CHANGED': { path: string; newContent: string; isDirty?: boolean; changes?: ContentChange[] };
 
   /** Fired by Ctrl+S or the TopNav File -> Save button. */
   'SAVE_REQUESTED': { path: string };

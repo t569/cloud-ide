@@ -121,6 +121,12 @@ export interface Diagnostic {
  */
 export type LSPStatus = 'connecting' | 'connected' | 'offline';
 
+/** One LSP content change: a ranged edit, or (no range) a full-document replacement. */
+export interface ContentChange {
+  range?: Range;
+  text: string;
+}
+
 /**
  * THE PORT. Any language backend implements this.
  *
@@ -156,9 +162,11 @@ export interface ILanguageServerTransport {
   /**
    * Live document sync (editor -> server). Fire-and-forget: the server keeps up
    * with the unsaved buffer so completions/diagnostics reflect what's on screen.
-   * The backend is the version authority, so callers just send the new text.
+   * `changes` are incremental deltas (tiny — the network win); `fullText` is the
+   * whole buffer, sent only to (re)establish a baseline. The backend mirrors the
+   * document, so callers never track versions.
    */
-  notifyChange?(path: string, text: string): void;
+  notifyChange?(path: string, changes: ContentChange[], fullText: string): void;
 }
 
 /**

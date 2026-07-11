@@ -31,24 +31,14 @@ export function useWorkspaceBootstrap(sandboxId: string) {
   // to install. Detection lives here so the VFS and Monaco agree on language.
   const languages = useMemo(() => createLanguageRegistry(), []);
 
-  // Live LSP document sync: forward debounced buffer changes to the active
-  // language's transport so the server tracks unsaved edits (the hybrid). The
-  // backend lazily didOpens from disk, so this only carries the *changes*.
+  // Live LSP document sync: forward each buffer change to the active language's
+  // transport, which accumulates the incremental deltas and debounces the POST.
+  // The backend lazily didOpens from disk, so only the deltas cross the network.
   useEffect(() => {
-    const timers = new Map<string, ReturnType<typeof setTimeout>>();
-    const unsub = eventBus.on('CONTENT_CHANGED', ({ path, newContent }) => {
-      const transport = langRegistry.get(languages.detect(path));
-      if (!transport?.notifyChange) return;
-      clearTimeout(timers.get(path));
-      timers.set(path, setTimeout(() => {
-        timers.delete(path);
-        transport.notifyChange!(path, newContent);
-      }, 300));
+    const unsub = eventBus.on('CONTENT_CHANGED', ({ path, newContent, changes }) => {
+      langRegistry.get(languages.detect(path))?.notifyChange?.(path, changes ?? [], newContent);
     });
-    return () => {
-      unsub();
-      timers.forEach(clearTimeout);
-    };
+    return unsub;
   }, [eventBus, langRegistry, languages]);
 
   // Boot the VFS controller. Subscribe to tree updates BEFORE booting so the

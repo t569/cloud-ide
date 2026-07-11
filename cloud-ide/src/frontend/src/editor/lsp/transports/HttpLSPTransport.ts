@@ -17,14 +17,14 @@
 //
 // Backend HTTP contract (sandbox-scoped + IDOR-guarded, like /api/fs):
 //   POST {API}/lsp/:sandboxId/:languageId/:method  body = params  -> JSON result
-//   POST {API}/lsp/:sandboxId/:languageId/sync     { path, text } -> 204
+//   POST {API}/lsp/:sandboxId/:languageId/sync     { path, changes[] } -> 204
 //   GET  {API}/lsp/:sandboxId/:languageId/diagnostics             -> SSE {path,diagnostics}
 //
 // Swapping the mock/WebSocket transport for this in lsp/manifest.ts is the only
 // change needed to go live — nothing else in the editor moves.
 
 import {
-  ILanguageServerTransport, LSPStatus,
+  ILanguageServerTransport, LSPStatus, ContentChange,
   CompletionItem, CompletionParams, HoverParams, Hover,
   DefinitionParams, Location, FormattingParams, TextEdit,
   SignatureHelpParams, SignatureHelp, RenameParams, WorkspaceEdit, Diagnostic,
@@ -33,6 +33,18 @@ import { apiClient, ApiError } from '../../../lib/apiClient';
 import { API_BASE_URL } from '../../../config/env';
 
 const DEFAULT_DEBOUNCE_MS = 150;
+const SYNC_DEBOUNCE_MS = 250;
+
+// Per-document sync buffer: accumulates incremental deltas between flushes so
+// debouncing never drops a change. `resync` forces a full-text snapshot on the
+// next flush — the first sync (to establish a baseline) and after any failed
+// POST (to self-heal a possibly-desynced server).
+interface SyncBuffer {
+  changes: ContentChange[];
+  fullText: string;
+  resync: boolean;
+  timer?: ReturnType<typeof setTimeout>;
+}
 
 /** A cancellable delay: resolves after `ms`, or rejects with AbortError if the signal fires first. */
 function delay(ms: number, signal: AbortSignal): Promise<void> {
@@ -50,6 +62,7 @@ export class HttpLSPTransport implements ILanguageServerTransport {
   private status: LSPStatus = 'connecting';
   private statusSubs = new Set<(s: LSPStatus) => void>();
   private diagnosticSource: EventSource | null = null;
+  private syncBuffers = new Map<string, SyncBuffer>();
 
   constructor(
     public readonly languageId: string,
@@ -127,12 +140,37 @@ export class HttpLSPTransport implements ILanguageServerTransport {
     return this.request('rename', p, s, null);
   }
 
-  /** Live buffer sync (debounced by the caller). Fire-and-forget POST; errors are non-fatal. */
-  notifyChange(path: string, text: string): void {
-    apiClient.post(`${this.base}/sync`, { path, text }).catch(() => {
-      // The server just falls back to the on-disk (last-saved) text — losing an
-      // unsaved-edit sync is a soft failure, not worth surfacing.
-    });
+  /**
+   * Live buffer sync. Accumulates incremental deltas and debounces the POST, so
+   * rapid typing coalesces into one small request without losing any change.
+   */
+  notifyChange(path: string, changes: ContentChange[], fullText: string): void {
+    let buf = this.syncBuffers.get(path);
+    if (!buf) {
+      buf = { changes: [], fullText, resync: true }; // first sync => full snapshot baseline
+      this.syncBuffers.set(path, buf);
+    }
+    buf.fullText = fullText;
+    buf.changes.push(...changes);
+    clearTimeout(buf.timer);
+    buf.timer = setTimeout(() => void this.flushSync(path), SYNC_DEBOUNCE_MS);
+  }
+
+  private async flushSync(path: string): Promise<void> {
+    const buf = this.syncBuffers.get(path);
+    if (!buf) return;
+    // A full-replacement change (no range) when we need to (re)baseline; else the
+    // accumulated deltas. The backend mirrors the doc, so a full snapshot heals
+    // any drift from a previously-dropped delta.
+    const payload = buf.resync ? [{ text: buf.fullText }] : buf.changes;
+    if (payload.length === 0) return;
+    buf.changes = [];
+    buf.resync = false;
+    try {
+      await apiClient.post(`${this.base}/sync`, { path, changes: payload });
+    } catch {
+      buf.resync = true; // next flush sends a full snapshot to self-heal
+    }
   }
 
   onDiagnostics(cb: (path: string, d: Diagnostic[]) => void): () => void {
@@ -160,5 +198,7 @@ export class HttpLSPTransport implements ILanguageServerTransport {
     this.diagnosticSource?.close();
     this.diagnosticSource = null;
     this.statusSubs.clear();
+    this.syncBuffers.forEach((b) => clearTimeout(b.timer));
+    this.syncBuffers.clear();
   }
 }

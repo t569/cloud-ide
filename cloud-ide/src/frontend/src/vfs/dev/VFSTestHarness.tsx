@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { EditorEventBus } from '@frontend/editor/core/EditorEventBus';
 import { VFSController } from '@frontend/editor/core/VFSController';
+import { createLanguageRegistry } from '@frontend/editor/languages';
 import { FileNode, SyncStatus } from '../types/vfs';
 
 export const VFSTestHarness = () => {
@@ -22,7 +23,7 @@ export const VFSTestHarness = () => {
 
   useEffect(() => {
     // 4. Boot the Controller!
-    const controller = new VFSController(eventBus, mockDispatch as any, 'test-sandbox-123');
+    const controller = new VFSController(eventBus, mockDispatch as any, 'test-sandbox-123', createLanguageRegistry());
 
     // Listen for the Tree Generator output
     const unsubTree = eventBus.on('VFS_TREE_UPDATED', (payload) => {

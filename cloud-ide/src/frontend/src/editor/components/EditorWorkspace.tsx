@@ -35,7 +35,7 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
   const { settings } = useDesignSystem();
 
   // Non-visual engines: bus, VFS controller, LSP registry, live file tree.
-  const { eventBus, fileTree, langRegistry } = useWorkspaceBootstrap(sandboxId);
+  const { eventBus, fileTree, langRegistry, languages } = useWorkspaceBootstrap(sandboxId);
 
   // Layout + per-sandbox persistence + drag resizing.
   const { layout, toggleSidebar, setSidebarWidth, setBottomPanelHeight } =
@@ -57,6 +57,9 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
   // Derive the active file for Monaco.
   const activeFile =
     workspaceState.openFiles.find((f) => f.path === workspaceState.activeFilePath) || null;
+
+  // Language of the active file, for the status bar. Same detect() Monaco uses.
+  const activeLanguage = activeFile ? languages.displayName(languages.detect(activeFile.path)) : null;
 
   return (
     <div className="h-screen w-screen flex flex-col bg-ide-bg text-ide-text font-sans overflow-hidden">
@@ -148,6 +151,7 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
                 globalSettings={settings}
                 eventBus={eventBus}
                 registry={langRegistry}
+                languages={languages}
               />
             </div>
           </div>
@@ -186,6 +190,7 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
             cursor={{ line: 5, column: 36 }}
             formatting={{ eol: 'LF', encoding: 'UTF8', indentMode: 'spaces', indentSize: 2 }}
             git={{ branch: 'main', hasChanges: false }}
+            language={activeLanguage}
           />
         </div>
       </div>

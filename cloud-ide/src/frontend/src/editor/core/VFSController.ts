@@ -2,6 +2,7 @@
 import { EditorEventBus } from './EditorEventBus';
 import { VirtualFileSystem } from '../../vfs/VirtualFileSystem';
 import { API_BASE_URL } from '../../config/env';
+import { LanguageRegistry } from '../languages';
 import React from 'react';
 
 /**
@@ -29,9 +30,10 @@ export class VFSController {
   private fsEvents?: EventSource;
 
   constructor(
-    private eventBus: EditorEventBus, 
+    private eventBus: EditorEventBus,
     private dispatch: React.Dispatch<any>,
-    private sandboxId: string
+    private sandboxId: string,
+    private languages: LanguageRegistry
   ) {
     // 1. Instantiate the VFS Engine
     this.vfs = new VirtualFileSystem(sandboxId, (status) => {
@@ -104,7 +106,7 @@ export class VFSController {
 
       try {
         const content = await this.vfs.readFile(path);
-        this.eventBus.emit('FILE_LOADED', { path, content, language: this.guessLanguage(path) });
+        this.eventBus.emit('FILE_LOADED', { path, content, language: this.languages.detect(path) });
         this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'synced' } });
       } catch (error) {
         this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'conflict' } });
@@ -177,52 +179,6 @@ export class VFSController {
     this.unsubs.push(this.eventBus.on('TAB_CLOSED', ({ path }) => {
       this.dispatch({ type: 'CLOSE_FILE', payload: { path } });
     }));
-  }
-
-  // TODO: make this more robust by actually analyzing the file content or using a library like 'highlight.js' instead of just relying on file extensions
-  // In essence build an engine
-  /**
-   * Maps file extensions to Monaco Editor's internal language identifiers.
-   * Ensures the editor applies the correct syntax highlighting and language server rules.
-   */
-  private guessLanguage(path: string): string {
-    const ext = path.split('.').pop()?.toLowerCase();
-    
-    const languageMap: Record<string, string> = {
-      // Web
-      'js': 'javascript', 'jsx': 'javascript', 'mjs': 'javascript',
-      'ts': 'typescript', 'tsx': 'typescript',
-      'html': 'html', 'htm': 'html',
-      'css': 'css', 'scss': 'scss', 'less': 'less',
-      'json': 'json',
-      
-      // Backend & Systems
-      'py': 'python', 'pyw': 'python',
-      'java': 'java',
-      'c': 'c', 'h': 'c',
-      'cpp': 'cpp', 'hpp': 'cpp', 'cc': 'cpp', 'cxx': 'cpp',
-      'cs': 'csharp',
-      'go': 'go',
-      'rs': 'rust',
-      'rb': 'ruby',
-      'php': 'php',
-      
-      // Configs & Scripts
-      'sh': 'shell', 'bash': 'shell', 'zsh': 'shell',
-      'yaml': 'yaml', 'yml': 'yaml',
-      'xml': 'xml',
-      'sql': 'sql',
-      'md': 'markdown',
-      'dockerfile': 'dockerfile',
-      'env': 'plaintext', 'gitignore': 'plaintext'
-    };
-
-    // Special cases for files without standard extensions (e.g., 'Dockerfile')
-    const filename = path.split('/').pop()?.toLowerCase();
-    if (filename === 'dockerfile') return 'dockerfile';
-    if (filename === 'makefile') return 'makefile';
-
-    return languageMap[ext || ''] || 'plaintext';
   }
 
   // ==========================================

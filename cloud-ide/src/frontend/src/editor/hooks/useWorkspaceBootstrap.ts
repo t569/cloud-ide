@@ -10,6 +10,7 @@ import { EditorEventBus } from '../core/EditorEventBus';
 import { VFSController } from '../core/VFSController';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { LanguageServiceRegistry, createLanguageTransports } from '../lsp';
+import { createLanguageRegistry } from '../languages';
 
 export function useWorkspaceBootstrap(sandboxId: string) {
   const { dispatch } = useWorkspace();
@@ -26,20 +27,24 @@ export function useWorkspaceBootstrap(sandboxId: string) {
     return reg;
   }, []);
 
+  // Syntax-highlighting registry: how files map to languages + which grammars
+  // to install. Detection lives here so the VFS and Monaco agree on language.
+  const languages = useMemo(() => createLanguageRegistry(), []);
+
   // Boot the VFS controller. Subscribe to tree updates BEFORE booting so the
   // initial hydration payload isn't missed.
   useEffect(() => {
     const unsubTree = eventBus.on('VFS_TREE_UPDATED', (p) => setFileTree(p.tree));
-    const vfs = new VFSController(eventBus, dispatch, sandboxId);
+    const vfs = new VFSController(eventBus, dispatch, sandboxId, languages);
     vfs.initWorkspace();
     return () => {
       unsubTree();
       vfs.destroy();
     };
-  }, [eventBus, dispatch, sandboxId]);
+  }, [eventBus, dispatch, sandboxId, languages]);
 
   // Tear down transports (close sockets) when the workspace unmounts.
   useEffect(() => () => langRegistry.dispose(), [langRegistry]);
 
-  return { eventBus, fileTree, langRegistry };
+  return { eventBus, fileTree, langRegistry, languages };
 }

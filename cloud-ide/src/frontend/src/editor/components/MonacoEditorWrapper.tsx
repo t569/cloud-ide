@@ -3,6 +3,7 @@ import React, { useRef, useEffect } from 'react';
 import Editor, { OnMount, OnChange } from '@monaco-editor/react';
 import { EditorInputManager } from '../core/EditorInputManager';
 import { LanguageServiceRegistry } from '../lsp';
+import { LanguageRegistry } from '../languages';
 import { OpenFileContext, IDEGlobalSettings, EditorEventPayloads } from '../types/editor';
 import { EditorEventBus } from '../core/EditorEventBus';
 
@@ -12,9 +13,10 @@ interface MonacoEditorProps {
   globalSettings: IDEGlobalSettings;
   eventBus: EditorEventBus;
   registry: LanguageServiceRegistry;
+  languages: LanguageRegistry;
 }
 
-export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, registry }: MonacoEditorProps) => {
+export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, registry, languages }: MonacoEditorProps) => {
   const editorRef = useRef<any>(null);
   const disposablesRef = useRef<any[]>([]); // Track disposables for cleanup
   // Latest settings, readable from the (mount-time) input manager closure.
@@ -47,6 +49,11 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
     // 2. Install all language services (completion/hover/...) via their monaco
     //    bridges. The registry owns the transports; this call is UI-only.
     disposablesRef.current.push(...registry.install(monaco));
+
+    // 2b. Install any custom syntax grammars. Built-in languages need nothing —
+    //     Monaco already tokenizes them — so this is a no-op until a plugin adds
+    //     a grammar the editor doesn't ship.
+    disposablesRef.current.push(...languages.install(monaco));
 
     // Shift+Alt+F (or File menu) -> run monaco's format action, which invokes
     // whichever formatting provider is registered (a language transport's via
@@ -127,7 +134,7 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
       <Editor
         height="100%"
         path={activeFile.path} // Monaco uses this to maintain internal view states (cursor pos, undo history) across tabs!
-        language={getLanguageFromPath(activeFile.path)}
+        language={languages.detect(activeFile.path)}
         value={activeFile.content} // NOTE: You will need to add 'content' to your mock state to test this
         theme="cloud-ide-dark"
         onMount={handleEditorMount}
@@ -145,20 +152,4 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
       />
     </div>
   );
-};
-
-// TODO: make this more robust
-// Simple helper to guess language for syntax highlighting
-const getLanguageFromPath = (path: string) => {
-  const ext = path.split('.').pop()?.toLowerCase();
-  switch (ext) {
-    case 'js': case 'jsx': return 'javascript';
-    case 'ts': case 'tsx': return 'typescript';
-    case 'py': return 'python';
-    case 'json': return 'json';
-    case 'html': return 'html';
-    case 'css': return 'css';
-    case 'md': return 'markdown';
-    default: return 'plaintext';
-  }
 };

@@ -66,9 +66,11 @@ The UI components never speak directly to a WebSocket or an API. They only commu
 *   **`SessionStream.ts`** — legacy: connects the Alibaba SDK directly from the browser to run a real background `bash`. Superseded by the gateway-side `AlibabaSdkDriver` (keeps the vendor SDK out of the client); kept for reference.
 *   **`DockerStream.ts`** — read-only transport for tailing build logs from the environment manager.
 
-> **Interactive PTY is not live yet.** The chain above is built, but it needs a PTY-capable
-> backend driver (`AlibabaSdkDriver`, an unverified scaffold). Until that's validated,
-> `createTerminalTransport` returns `SseExecTransport`. See TERMINAL_BACKEND.md step 5.
+> **Interactive PTY is LIVE.** The default backend driver (`DockerPtyDriver`, via
+> `docker exec -it`) advertises `pty`, so `IDETerminal` fetches `GET /v1/sandboxes/capabilities`
+> and `createTerminalTransport` returns `WebSocketTransport`. It falls back to
+> `SseExecTransport` only when no driver offers a PTY (e.g. node-pty unbuilt). See
+> TERMINAL_BACKEND.md.
 
 ### 3. The Protocol Layer (`/core/middlewares`)
 Sits directly between the **Transport** and the **Screen**. It sanitizes data moving in both directions.

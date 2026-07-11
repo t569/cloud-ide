@@ -1,11 +1,13 @@
 # Terminal Backend & Sandbox-Driver Abstraction — Implementation Guide
 
-Status: **planning doc**, not yet built. This is the roadmap for two linked
-pieces of work:
+Status: **largely shipped** — kept as the design record. Both pieces below are built
+and live; only PTY reattach-across-drops (step 6) remains. The interactive terminal
+runs by default via `DockerPtyDriver` (`docker exec -it`), not the Alibaba SDK path
+this doc originally targeted.
 
-1. A **real interactive terminal** (PTY) to replace today's line-mode exec.
-2. A **provider-neutral sandbox driver** so OpenSandbox (Alibaba SDK) is *one*
-   interchangeable backend, not the foundation everything is welded to.
+1. A **real interactive terminal** (PTY) to replace today's line-mode exec. ✅ live.
+2. A **provider-neutral sandbox driver** so OpenSandbox is *one* interchangeable
+   backend, not the foundation everything is welded to. ✅ `ISandboxDriver` + drivers.
 
 The guiding rule (see root `ARCHITECTURE.md`): **depend on our own port, not a
 vendor SDK.** We build the interactive terminal against *our* interface, then
@@ -192,10 +194,9 @@ env var. No terminal, VFS, or UI code changes.
 - [x] **0.** `IRustEngineClient` → `ISandboxDriver` (new `drivers/ISandboxDriver.ts`);
       `RustEngineClient implements ISandboxDriver` + `capabilities()` returns
       `{exec:true, pty:false}`; `SandboxManager` now depends on the interface (field
-      `driver`). Deviation from the plan: the concrete class stays named
-      `RustEngineClient` in `rustClient.ts` — it resolves `index.node` via `__dirname`,
-      so moving/renaming the file would silently break the FFI loader at runtime. A
-      provider-neutral rename can ride the AlibabaSdkDriver work (step 5). No behavior
+      `driver`). The concrete class stays named `RustEngineClient` in `rustClient.ts`
+      for continuity, though the FFI/`index.node` engine underneath was since ported to
+      pure TS (`openSandboxEngine.ts`) — there is no napi loader anymore. No behavior
       change; all backend tests green.
 - [x] **1.** `ISandboxSession` / `PtyOptions` / `DriverCapabilities` + optional
       `openSession` on `ISandboxDriver` (types only — no implementation yet, hence

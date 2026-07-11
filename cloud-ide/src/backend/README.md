@@ -78,7 +78,10 @@ The alternate `AlibabaSdkDriver` (`SANDBOX_DRIVER=alibaba`) is an **unverified s
 that would deliver the PTY over the OpenSandbox SDK instead of docker-exec. Full plan +
 wire protocol: **[TERMINAL_BACKEND.md](./TERMINAL_BACKEND.md)**.
 
-Still deferred: **PTY reattach across socket drops** (build-order step 6).
+**Reattach across drops** (`PtyRegistry` in `api/PtyGateway.ts`): a dropped socket
+doesn't kill the shell — it's held for a grace period (keyed by `sandboxId+termId`) and
+a reconnect re-binds to it, replaying output buffered while detached. So a blip/sleep
+keeps your `vim`/dev-server; a clean tab-close reaps it immediately.
 
 ---
 

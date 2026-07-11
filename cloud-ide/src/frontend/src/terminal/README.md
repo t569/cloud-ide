@@ -429,7 +429,7 @@ to give us this:
 
 ### ⏳ Phase 5: Interactive PTY + State (In progress)
 - [x] **PTY-capable driver** (`DockerPtyDriver`, default): lights up the WS/PTY chain via `docker exec -it` + node-pty. (`AlibabaSdkDriver` remains an alt scaffold — backend TERMINAL_BACKEND.md step 5.)
-- [ ] **PTY reattach** across socket drops (step 6): keep the server PTY alive across a WS drop and re-bind on reconnect, so the running shell survives. Now **unblocked** (a live PTY exists); pairs with the `SessionStore` scrollback restore below. Today a drop → backoff reconnect opens a **fresh** shell (scrollback is redrawn, but in-shell processes/state are lost).
+- [x] **PTY reattach** across socket drops (step 6): the backend `PtyRegistry` keeps the shell alive across a WS drop and re-binds on reconnect (keyed by `sandboxId+termId`), replaying output buffered while detached — so the running shell survives a blip. `createTerminalTransport` sends a stable `terminalId` and `WebSocketTransport`'s backoff reconnect re-hits the same URL, so this is automatic. A clean tab-close reaps the shell immediately.
 - [x] **Session Persistence**: scrollback saved to the backend `SessionStore` (crash-safe, cross-device) and restored on mount via `useSessionPersistence` — replaces the old localStorage plan.
 - [ ] **Complete `RepoGraphPlugin`**: agentic command→knowledge-graph tracking for the AI assistant.
 - [ ] **Global IDE Wiring**: Context HUD `onFileClick` already bridges to the editor via `IDETerminal` → `FILE_OPEN_REQUESTED`; extend as needed.

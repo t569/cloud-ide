@@ -1,9 +1,9 @@
 # Terminal Backend & Sandbox-Driver Abstraction — Implementation Guide
 
-Status: **largely shipped** — kept as the design record. Both pieces below are built
-and live; only PTY reattach-across-drops (step 6) remains. The interactive terminal
-runs by default via `DockerPtyDriver` (`docker exec -it`), not the Alibaba SDK path
-this doc originally targeted.
+Status: **shipped** — kept as the design record. Everything below is built and live,
+including PTY reattach across socket drops (step 6). The interactive terminal runs by
+default via `DockerPtyDriver` (`docker exec -it`), not the Alibaba SDK path this doc
+originally targeted.
 
 1. A **real interactive terminal** (PTY) to replace today's line-mode exec. ✅ live.
 2. A **provider-neutral sandbox driver** so OpenSandbox is *one* interchangeable
@@ -223,7 +223,10 @@ env var. No terminal, VFS, or UI code changes.
       SDK runs on Node + the server-side ConnectionConfig/auth is correct; confirm the
       process-exit event. Once green against a live sandbox, flip `capabilities` truth
       and the whole chain (driver → PtyGateway → WebSocketTransport) is live.
-- [ ] **6.** PTY reattach across socket drops (pairs with Gap B session recovery).
+- [x] **6.** PTY reattach across socket drops — `PtyRegistry` (`api/PtyGateway.ts`)
+      keeps the shell alive for a grace period after a drop, keyed by `sandboxId+termId`,
+      and replays output buffered while detached on reconnect. Clean close (1000) reaps
+      immediately; abnormal drop holds for `PTY_DETACH_GRACE_MS` (60s).
 
 ---
 

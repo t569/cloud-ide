@@ -41,6 +41,9 @@ export const IDETerminal = ({ sandboxId, editorEventBus }: IDETerminalProps) => 
       const transport = createTerminalTransport(sandboxId, {
         pty: ptyCapable.current,
         initialSize: { cols: 80, rows: 24 },
+        // Stable per-tab id: WebSocketTransport reconnects to this same URL, so the
+        // backend re-binds to the running shell instead of spawning a fresh one.
+        terminalId: newId,
       });
       transport.connect();
 

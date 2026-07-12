@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "install:all": "npm install",
+    "doctor": "sh scripts/doctor.sh",
     "dev:sandbox": "node opensandbox/boot.js",
     "dev:backend": "npx wait-on tcp:127.0.0.1:8080 && npm run dev --workspace=backend",
     "dev:frontend": "npx wait-on tcp:127.0.0.1:3000 && npm run dev --workspace=frontend",

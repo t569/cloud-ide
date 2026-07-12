@@ -16,6 +16,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { SerializeAddon } from '@xterm/addon-serialize';
 import { IdeLinkProvider } from '../providers/IdeLinkProvider';
 import { TerminalEventBus } from '../core/TerminalEventBus';
+import { isLocalDevUrl } from '../core/devUrl';
 import '@xterm/xterm/css/xterm.css'; 
 
 /**
@@ -100,7 +101,21 @@ export const useTerminal = ({
     const fitAddon = new FitAddon();
     const searchAddon = new SearchAddon();
     const serializeAddon = new SerializeAddon();
-    const webLinksAddon = new WebLinksAddon();
+
+    // WebLinksAddon with NO handler defaults to window.open(uri) — and it is registered
+    // BEFORE our IdeLinkProvider, so xterm (which takes the first provider that matches
+    // a position) hands it every http:// link. That is why clicking the dev-server URL
+    // your server just printed opened the browser at the HOST's localhost — i.e. the
+    // gateway — and answered "Cannot GET /". The container's localhost is not ours to
+    // open; it has to be proxied. So: route those through the bus, and let genuinely
+    // external links (docs URLs an installer prints) open in a tab as normal.
+    const webLinksAddon = new WebLinksAddon((event, uri) => {
+      if (isLocalDevUrl(uri)) {
+        eventBus.emit('LINK_ACTIVATED', { url: uri });
+        return;
+      }
+      window.open(uri, '_blank', 'noopener,noreferrer');
+    });
 
     // Store refs for parent access (e.g., allowing Ctrl+F to trigger the searchAddon)
     searchAddonRef.current = searchAddon;

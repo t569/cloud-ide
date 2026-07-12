@@ -1,6 +1,7 @@
 // frontend/src/terminal/providers/IdeLinkProvider.ts
 import { Terminal, ILinkProvider, ILink } from '@xterm/xterm';
 import { TerminalEventBus } from '../core/TerminalEventBus';
+import { isLocalDevUrl } from '../core/devUrl';
 import { FILE_NAME_MAP, EXTENSION_MAP } from '@cloud-ide/shared/types/constants/iconRegistry';
 
 /**
@@ -88,14 +89,15 @@ export class IdeLinkProvider implements ILinkProvider {
    * @param {string} text - The exact string the user clicked on the terminal canvas.
    */
   private handleActivation(text: string) {
-    // Route 1: Development Server URLs
-    if (text.includes('http://') || text.includes('127.0.0.1')) {
-      this.eventBus.emit('UI_CONTEXT_SUGGESTED', {
-        sourcePlugin: 'IdeLinkProvider',
-        type: 'links',
-        items: [text]
-      });
-    } 
+    // Route 1: Development Server URLs.
+    // ACTIVATE the link (open the preview), don't merely suggest a badge the user then
+    // has to find and click — a click on the URL should go where the URL points. Same
+    // event the WebLinks handler raises, so both ways of clicking a link behave the
+    // same. (In practice WebLinksAddon matches these first; this keeps the two in
+    // agreement rather than leaving a second, divergent behaviour lying in wait.)
+    if (isLocalDevUrl(text)) {
+      this.eventBus.emit('LINK_ACTIVATED', { url: text });
+    }
     // Route 2: Source Code Files
     else {
       this.eventBus.emit('UI_CONTEXT_SUGGESTED', {

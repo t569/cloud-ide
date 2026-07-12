@@ -5,6 +5,7 @@ import { createTerminalTransport } from '../../terminal/transport/createTerminal
 import { getSandboxCapabilities } from '../../api/sandbox';
 import { EditorEventBus } from '../core/EditorEventBus';
 import { API_BASE_URL } from '../../config/env';
+import { toIngressUrl } from '../../terminal/core/devUrl';
 
 
 // DESIGN SYSTEM
@@ -90,15 +91,17 @@ export const IDETerminal = ({ sandboxId, editorEventBus, onPreview }: IDETermina
     editorEventBus.emit('FILE_OPEN_REQUESTED', { path });
   };
 
-  // The LinkSnifferPlugin spots `localhost:5173` in the terminal output and offers it
-  // as a badge. That localhost is INSIDE the container — the browser can't reach it —
-  // so we hand back the Gateway's ingress URL instead, which proxies to whatever is
-  // listening on that port in the sandbox. This is the "exposed port".
+  // A dev-server URL was activated — either the underlined link in the terminal output
+  // (LINK_ACTIVATED) or its badge in the Context HUD. That localhost is INSIDE the
+  // container, so the browser cannot reach it; opening it raw lands on the HOST's
+  // localhost, which is this gateway, which answers "Cannot GET /". Rewrite it onto the
+  // ingress, which proxies to whatever is listening on that port in the sandbox. This
+  // is the "exposed port".
   const handleLinkClick = (rawUrl: string) => {
-    const port = rawUrl.match(/:(\d{2,5})/)?.[1];
-    if (!port) return;
     // API_BASE_URL ends in /api; the ingress router is mounted at the server root.
-    onPreview(`${API_BASE_URL.replace(/\/api$/, '')}/preview/${sandboxId}/${port}/`);
+    const gatewayOrigin = API_BASE_URL.replace(/\/api$/, '');
+    const url = toIngressUrl(rawUrl, sandboxId, gatewayOrigin);
+    if (url) onPreview(url);
   };
 
   return (

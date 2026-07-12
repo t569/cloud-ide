@@ -48,6 +48,10 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
   // Latest settings, readable from the (mount-time) input manager closure.
   const settingsRef = useRef(globalSettings);
   settingsRef.current = globalSettings;
+  // The file on screen right now, readable from the mount-time FILE_LOADED closure —
+  // which fires for background tabs too and must not steal the editor from this one.
+  const activePathRef = useRef<string | null>(null);
+  activePathRef.current = activeFile?.path ?? null;
   // The monaco namespace is only available from onMount; `mounted` re-runs the
   // language-service effect once it is.
   const monacoRef = useRef<typeof MonacoNs | null>(null);
@@ -66,6 +70,26 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
     return () => installed.forEach((d) => d.dispose());
   }, [registry, mounted]);
 
+
+  /**
+   * Jump to a go-to-definition target once its file is both loaded AND on screen.
+   * Two things have to be true and they can land in either order, so this is called
+   * from both: FILE_LOADED (content arrived) and the effect below (the tab became
+   * active). Whichever happens second does the reveal; the ref makes it idempotent.
+   */
+  const revealIfPending = (path: string) => {
+    const pending = pendingRevealRef.current;
+    if (!pending || pending.path !== path || !editorRef.current) return;
+    pendingRevealRef.current = null;
+    revealRange(editorRef.current, pending.selection);
+  };
+
+  // The tab caught up with a definition we already loaded — reveal it now. Without
+  // this, gating the setModel above on the active path would silently break
+  // go-to-definition whenever the content arrived before React re-rendered.
+  useEffect(() => {
+    if (activeFile?.path) revealIfPending(activeFile.path);
+  }, [activeFile?.path]);
 
   // 1. Handle Editor Mount
   const handleEditorMount: OnMount = (editor, monaco) => {
@@ -163,15 +187,20 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
         loadingRef.current = false;
       }
 
-      // Tell the editor to display this model
-      editor.setModel(model);
+      // Show it ONLY if it is the file the user is actually looking at.
+      //
+      // This used to be unconditional, which is a race as soon as more than one file
+      // is loading: restoring a session re-opens EVERY saved tab at once, so several
+      // fetches are in flight and whichever lands LAST would seize the editor. The tab
+      // bar said one file while the editor displayed another — and if that other one
+      // was short or empty, it read as "my file lost its contents". React could not
+      // correct it either: the `path` prop had not changed, so @monaco-editor/react
+      // never re-attached. It only bit after a pause/resume, because reopening the
+      // sandbox is the one flow that restores several tabs simultaneously.
+      if (activePathRef.current !== path) return; // seeded; the tab will show it when selected
 
-      // A go-to-definition was waiting on this file — jump to the symbol.
-      const pending = pendingRevealRef.current;
-      if (pending?.path === path) {
-        pendingRevealRef.current = null;
-        revealRange(editor, pending.selection);
-      }
+      editor.setModel(model);
+      revealIfPending(path);
     });
 
     // Add to your cleanup logic

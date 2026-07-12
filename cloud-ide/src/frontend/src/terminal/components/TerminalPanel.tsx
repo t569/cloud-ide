@@ -10,7 +10,7 @@
  * and specific plugins into a single, self-contained DOM node.
  */
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 // WIDGETS
 import { TerminalComponent, TerminalHandle } from './Terminal';
@@ -83,6 +83,14 @@ export const TerminalPanel = ({ transport, isActive, onFileClick, onLinkClick, t
 
   // State to control the floating custom right-click menu
   const [contextMenu, setContextMenu] = useState({ isVisible: false, x: 0, y: 0, selectedText: '' });
+
+  // A click on a dev-server URL in the terminal output. The bus is isolated per panel,
+  // so bridge it out to the same callback the Context HUD's badges use — clicking the
+  // link and clicking its badge must land in the same place.
+  useEffect(() => {
+    const unsub = isolatedEventBus.on('LINK_ACTIVATED', ({ url }) => onLinkClick?.(url));
+    return unsub;
+  }, [isolatedEventBus, onLinkClick]);
 
   // ==========================================
   // Context Menu Interceptor & Math

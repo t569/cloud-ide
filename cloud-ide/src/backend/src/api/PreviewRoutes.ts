@@ -69,6 +69,24 @@ export function createPreviewIngress(
   };
 
   /**
+   * The preview EXISTS to be embedded in the editor's <iframe>. The global
+   * `securityHeaders` middleware sets `X-Frame-Options: DENY` on every response, which
+   * makes the browser refuse to render it — the preview pane just sits there blank, and
+   * the "exposed port" appears not to work at all.
+   *
+   * X-Frame-Options cannot express "only my app may frame this" (ALLOW-FROM is dead,
+   * and SAMEORIGIN fails here — the SPA on :5173 is a different origin from the gateway
+   * on :3000). So drop it for this route and state the policy in CSP, which can name an
+   * origin. This NARROWS nothing: DENY was never protecting anything here, it was just
+   * breaking the feature.
+   */
+  const framableByOurAppOnly = (_req: Request, res: Response, next: NextFunction) => {
+    res.removeHeader('X-Frame-Options');
+    res.setHeader('Content-Security-Policy', `frame-ancestors ${config.FRONTEND_ORIGIN}`);
+    next();
+  };
+
+  /**
    * One proxy instance for all sandboxes (3a/3b). The `router` callback asks the
    * daemon per-request for a host-routable endpoint for that port — sandboxes have no
    * IP we can reach directly. Resolution fails until something is actually listening
@@ -98,6 +116,24 @@ export function createPreviewIngress(
       return sandboxManager.resolveEndpoint(target.sandboxId, target.port);
     },
     on: {
+      // The proxied app can also refuse to be framed — a dev server that sends its own
+      // X-Frame-Options, or a CSP carrying frame-ancestors, would block the preview
+      // exactly as our own DENY did. Those headers are copied onto our response
+      // verbatim, so strip the framing directives on the way back and let the policy set
+      // above stand. Only framing is touched; any other CSP the app sends is left alone.
+      proxyRes: (proxyRes) => {
+        delete proxyRes.headers['x-frame-options'];
+        const csp = proxyRes.headers['content-security-policy'];
+        if (typeof csp === 'string' && /frame-ancestors/i.test(csp)) {
+          const stripped = csp
+            .split(';')
+            .filter((directive) => !/^\s*frame-ancestors\b/i.test(directive))
+            .join(';')
+            .trim();
+          if (stripped) proxyRes.headers['content-security-policy'] = stripped;
+          else delete proxyRes.headers['content-security-policy'];
+        }
+      },
       error: (err, _req, res) => {
         console.error(`[Ingress] Proxy error: ${err.message}`);
         const response = res as Response;
@@ -118,7 +154,14 @@ export function createPreviewIngress(
   // their paused container. Ownership is checked BEFORE wakeOnDemand so an
   // unauthorized caller cannot even cause a resume. Validation runs first so a
   // malformed id 400s rather than hitting the repo.
-  router.use('/:sandboxId/:port', validateParams, requireSandboxOwnership(sandboxRepo), wakeOnDemand, proxy);
+  router.use(
+    '/:sandboxId/:port',
+    validateParams,
+    requireSandboxOwnership(sandboxRepo),
+    framableByOurAppOnly,
+    wakeOnDemand,
+    proxy,
+  );
 
   /**
    * The WebSocket half. An upgrade bypasses Express entirely, so every guard the HTTP

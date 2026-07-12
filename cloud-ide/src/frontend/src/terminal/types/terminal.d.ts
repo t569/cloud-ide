@@ -110,6 +110,18 @@ export interface TerminalEventPayloads {
    * URL. The PreviewPane listens for this to open the app beside the code.
    */
   'PREVIEW_URL': { url: string };
+
+  /**
+   * The user CLICKED a dev-server URL in the terminal output (not a badge — the
+   * underlined text itself). Carries the RAW url as printed, e.g.
+   * 'http://localhost:5173'. The workspace turns it into an ingress URL, because
+   * only it knows the sandboxId.
+   *
+   * That localhost is inside the CONTAINER. Opening it directly — which is what
+   * xterm's WebLinksAddon does by default — points the browser at the host's own
+   * port instead, which is the gateway, which answers "Cannot GET /".
+   */
+  'LINK_ACTIVATED': { url: string };
 }
 
 /**

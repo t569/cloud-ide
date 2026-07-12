@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo } from 'react';
-import { WorkspaceSession } from '../types/editor';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { WorkspaceSession, FileNode } from '../types/editor';
+import { LocalStorageManager } from '../utils/LocalStoragemanager';
 
 import { EditorTabs } from './EditorTabs';
 import { StatusBar } from './StatusBar';
@@ -54,6 +55,62 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
       dispatch({ type: 'SET_WORKSPACE_NAME', payload: { name: session.workspaceName } });
     }
   }, [session.workspaceName, dispatch]);
+
+  // ---- Open-tab persistence: survive a page reload --------------------------
+  // A refresh rebuilds this component from scratch, so the reducer starts with
+  // zero open files and the editor comes up blank — the "reloading wiped my
+  // files" report (the file BODIES were safe on disk; the open set was lost).
+  // We snapshot the open paths to localStorage and replay them once the tree has
+  // hydrated. `restored` gates the writer so the initial empty state can't
+  // overwrite the saved set before we've had a chance to replay it.
+  const restoredRef = useRef(false);
+  const [restored, setRestored] = useState(false);
+
+  useEffect(() => {
+    // Reset when switching sandboxes so we restore the right session.
+    restoredRef.current = false;
+    setRestored(false);
+  }, [sandboxId]);
+
+  useEffect(() => {
+    const unsub = eventBus.on('VFS_TREE_UPDATED', ({ tree }) => {
+      if (restoredRef.current) return;
+      restoredRef.current = true;
+
+      const session = LocalStorageManager.getSession(sandboxId);
+      if (session.openFiles.length) {
+        // Only re-open paths that still exist on disk (a file deleted between
+        // sessions must not resurrect a broken tab).
+        const present = new Set<string>();
+        const walk = (nodes: FileNode[]) =>
+          nodes.forEach((n) => {
+            present.add(n.path);
+            if (n.children) walk(n.children);
+          });
+        walk(tree);
+
+        // FILE_OPEN_REQUESTED loads content + opens the tab (reusing the exact
+        // path a user click takes), so every restored tab has a live buffer.
+        session.openFiles
+          .filter((p) => present.has(p))
+          .forEach((path) => eventBus.emit('FILE_OPEN_REQUESTED', { path }));
+
+        if (session.activeFilePath && present.has(session.activeFilePath)) {
+          eventBus.emit('TAB_ACTIVATED', { path: session.activeFilePath });
+        }
+      }
+      setRestored(true);
+    });
+    return unsub;
+  }, [eventBus, sandboxId]);
+
+  useEffect(() => {
+    if (!restored) return; // don't clobber the saved set before replaying it
+    LocalStorageManager.saveSession(sandboxId, {
+      openFiles: workspaceState.openFiles.map((f) => f.path),
+      activeFilePath: workspaceState.activeFilePath,
+    });
+  }, [restored, sandboxId, workspaceState.openFiles, workspaceState.activeFilePath]);
 
   // Derive the active file for Monaco.
   const activeFile =

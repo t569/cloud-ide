@@ -1,6 +1,12 @@
 // frontend/src/editor/utils/LocalStorageManager.ts
 import { IDEGlobalSettings, WorkspaceLayoutState } from '../types/editor';
 
+/** The persisted open-tab set for one sandbox (paths only — bodies live on disk). */
+export interface EditorSession {
+  openFiles: string[];
+  activeFilePath: string | null;
+}
+
 /**
  * ============================================================================
  * LOCAL STORAGE MANAGER
@@ -14,6 +20,7 @@ import { IDEGlobalSettings, WorkspaceLayoutState } from '../types/editor';
 export class LocalStorageManager {
   private static readonly PREFIX_GLOBAL = 'cloud-ide:global:';
   private static readonly PREFIX_WORKSPACE = 'cloud-ide:workspace:';
+  private static readonly PREFIX_SESSION = 'cloud-ide:session:';
 
   // --- DEFAULT FALLBACK STATES ---
   
@@ -99,6 +106,41 @@ export class LocalStorageManager {
       localStorage.setItem(`${this.PREFIX_WORKSPACE}${sandboxId}:layout`, JSON.stringify(updated));
     } catch (error) {
       console.error(`[StorageManager] Failed to save layout for sandbox ${sandboxId}.`, error);
+    }
+  }
+
+  // ==========================================
+  // EDITOR SESSION (Open tabs — survive a reload)
+  // ==========================================
+  //
+  // Which files were open and which was active, per sandbox. The file BODIES are
+  // NOT stored here — the VFS autosaves them to the backend worktree, so on reload
+  // we just re-open the same paths and their content streams back from disk. This
+  // is what stops a refresh from dropping you onto a blank editor with "no files
+  // open" even though nothing was actually lost.
+
+  /** Restore the set of open tabs for a sandbox. Empty when there's no record. */
+  public static getSession(sandboxId: string): EditorSession {
+    try {
+      const stored = localStorage.getItem(`${this.PREFIX_SESSION}${sandboxId}`);
+      if (!stored) return { openFiles: [], activeFilePath: null };
+      const parsed = JSON.parse(stored);
+      return {
+        openFiles: Array.isArray(parsed.openFiles) ? parsed.openFiles.filter((p: unknown) => typeof p === 'string') : [],
+        activeFilePath: typeof parsed.activeFilePath === 'string' ? parsed.activeFilePath : null,
+      };
+    } catch (error) {
+      console.warn(`[StorageManager] Corrupted session for sandbox ${sandboxId}. Ignoring.`, error);
+      return { openFiles: [], activeFilePath: null };
+    }
+  }
+
+  /** Persist the set of open tabs for a sandbox. */
+  public static saveSession(sandboxId: string, session: EditorSession): void {
+    try {
+      localStorage.setItem(`${this.PREFIX_SESSION}${sandboxId}`, JSON.stringify(session));
+    } catch (error) {
+      console.error(`[StorageManager] Failed to save session for sandbox ${sandboxId}.`, error);
     }
   }
 

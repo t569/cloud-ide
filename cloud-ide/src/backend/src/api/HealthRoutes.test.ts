@@ -55,7 +55,9 @@ describe('runProbes', () => {
 
 describe('probeLspServers', () => {
   const servers = (spec: Record<string, [string, number]>) =>
-    new Map<string, LspServerConfig>(Object.entries(spec).map(([l, [host, port]]) => [l, { host, port }]));
+    new Map<string, LspServerConfig>(
+      Object.entries(spec).map(([l, [host, port]]) => [l, { kind: 'tcp', host, port }]),
+    );
 
   it('is ok with no servers configured (LSP is optional)', async () => {
     const v = await probeLspServers(new Map(), 0);

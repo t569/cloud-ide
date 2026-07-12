@@ -11,6 +11,7 @@ import {
   SandboxSpec,
   SandboxStatus,
 } from '@cloud-ide/shared/types/sandbox';
+import { Duplex } from 'node:stream';
 import { ExecConnectionInfo } from '../../../types/engine';
 
 /** What a driver can do. The transport factory reads this to pick a terminal
@@ -62,4 +63,17 @@ export interface ISandboxDriver {
 
   // --- OPTIONAL interactive PTY (Phase 2). Absent ⇒ the driver is exec-only. ---
   openSession?(sandboxId: string, opts: PtyOptions): Promise<ISandboxSession>;
+
+  /**
+   * OPTIONAL raw bidirectional stdio to a long-lived process inside the sandbox.
+   * Absent ⇒ the driver cannot host in-container language servers, and `exec:`
+   * entries in LSP_SERVERS are unavailable (the language reports offline).
+   *
+   * Distinct from execCommand, which is one-shot and buffered — this is a stream
+   * that stays open, which is what a JSON-RPC session needs. Distinct from
+   * openSession, which allocates a TTY: a TTY would corrupt the protocol framing.
+   *
+   * The Duplex must die with the process and vice-versa (see spawnDuplex).
+   */
+  openExecStream?(sandboxId: string, command: string[]): Promise<Duplex>;
 }

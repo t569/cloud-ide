@@ -20,8 +20,10 @@ import {
   SandboxSpec,
   SandboxStatus,
 } from '@cloud-ide/shared/types/sandbox';
+import { Duplex } from 'node:stream';
 import { ExecConnectionInfo } from '../../../types/engine';
 import { ISandboxDriver, ISandboxSession, PtyOptions, DriverCapabilities } from './ISandboxDriver';
+import { spawnDuplex } from './execStream';
 
 // node-pty's IPty surface we touch. `any` module (no static types) so tsc needs
 // nothing installed; this keeps the calls we make honest at least locally.
@@ -82,6 +84,27 @@ export class DockerPtyDriver implements ISandboxDriver {
     // pty only if node-pty actually loaded — otherwise the transport factory must
     // fall back to SSE rather than open a PTY socket that immediately dies.
     return { exec: this.lifecycle.capabilities().exec, pty: !!loadPty() };
+  }
+
+  /**
+   * Raw stdio to a process in the container — `docker exec -i`, no `-t`.
+   *
+   * This is what lets a language server run INSIDE the sandbox, where its own
+   * toolchain lives: rust-analyzer finds the cargo registry, pyright finds the
+   * venv, gopls finds GOMODCACHE. A gateway-side server sees only the bind-mounted
+   * worktree and resolves none of them.
+   *
+   * Costs one long-lived `docker exec` per (sandbox, language) — LspProxy caches
+   * the session, so it's paid once at first use, never per request.
+   */
+  async openExecStream(sandboxId: string, command: string[]): Promise<Duplex> {
+    // Array args (never a shell string) so neither the sandboxId nor the configured
+    // command can inject flags. `-i` keeps stdin open; no `-t`, deliberately.
+    return spawnDuplex(
+      'docker',
+      ['exec', '-i', '-w', '/workspace', `sandbox-${sandboxId}`, ...command],
+      (line) => console.warn(`[lsp ${sandboxId} ${command[0]}] ${line}`),
+    );
   }
 
   async openSession(sandboxId: string, opts: PtyOptions): Promise<ISandboxSession> {

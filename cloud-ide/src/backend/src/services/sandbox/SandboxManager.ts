@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
+import { Duplex } from 'node:stream';
 import {
   SandboxExecRequest,
   SandboxExecResult,
@@ -171,6 +172,28 @@ export class SandboxManager {
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
     return this.driver.openSession(sandboxId, opts);
+  }
+
+  /**
+   * Opens a raw stdio stream to a long-lived process in the sandbox — the transport
+   * for an in-container language server. Wakes a PAUSED sandbox first, same as the
+   * PTY path: unlike the VFS (which reads the worktree straight off the host disk
+   * and works while paused), a process needs a running container.
+   *
+   * Throws if the driver can't do it; LspProxy turns that into "language offline",
+   * so a driver without exec streams degrades to Monaco highlighting rather than
+   * breaking the editor.
+   */
+  public async openExecStream(sandboxId: string, command: string[]): Promise<Duplex> {
+    if (!this.driver.openExecStream) {
+      throw new Error('The active sandbox driver does not support exec streams.');
+    }
+    const status = await this.driver.getSandboxStatus(sandboxId);
+    if (status.state === 'PAUSED') {
+      await this.resume(sandboxId);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+    return this.driver.openExecStream(sandboxId, command);
   }
 
   /**

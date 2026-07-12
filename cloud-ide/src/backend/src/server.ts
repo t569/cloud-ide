@@ -156,17 +156,23 @@ app.use('/api/environment', createEnvironmentRouter(envRepo, sandboxRepo, buildS
 const fileSystemManager = new FileSystemManager(sandboxManager);
 const sessionStore = new SessionStore();
 
-// Language servers (online LSP). Browser <-debounced HTTP/SSE-> here <-TCP-> server.
-// Config: LSP_SERVERS="python=127.0.0.1:2087;typescript=host:2089". Unset => every
-// language reports `offline` and the editor runs on Monaco highlighting alone.
-// Single-node assumption: the server shares this disk, so host paths ARE its paths
-// (see LspProxy). hostPathFor/readFile reuse the FileSystemManager trust boundary.
+// Language servers (online LSP). Browser <-debounced HTTP/SSE-> here <-> server.
+// Unset => every language reports `offline` and the editor runs on Monaco alone.
+//
+//   LSP_SERVERS="python=exec:pyright-langserver --stdio;rust=exec:rust-analyzer"
+//
+// `exec:` runs the server INSIDE the sandbox over docker-exec stdio, so it sees the
+// image's own toolchain (venv, node_modules, cargo registry) and speaks /workspace
+// paths natively. That's what makes imports resolve. `host:port` instead points at a
+// server beside the gateway: it shares this disk (host paths ARE its paths, see
+// LspProxy) but is blind to anything installed in the image.
 const lspServers = parseLspServers(process.env.LSP_SERVERS);
 const lspProxy = new LspProxy({
   serverFor: (lang) => lspServers.get(lang) ?? null,
   hostPathFor: (sb, p) => fileSystemManager.hostPathFor(sb, p),
   rootHostPath: (sb) => sandboxManager.getWorkspaceHostPath(sb),
   readFile: (sb, p) => fileSystemManager.readFile(sb, p),
+  openExecStream: (sb, cmd) => sandboxManager.openExecStream(sb, cmd),
 });
 
 // Subsystem health, for humans (/health in the SPA) and for load balancers (503 when

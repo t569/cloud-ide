@@ -108,6 +108,9 @@ export function createFileSystemRouter(
       const { sandboxId } = req.params;
       const filePath = req.query.path as string;
 
+      if (!sandboxId || typeof sandboxId !== 'string') {
+        return res.status(400).json({ error: 'Invalid Sandbox id' });
+      }
       if (!filePath || typeof filePath !== 'string') {
         return res.status(400).json({ error: 'Valid file path is required' });
       }

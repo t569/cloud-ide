@@ -119,6 +119,19 @@ export async function probeLspServers(
 
   const children: HealthCheck[] = await Promise.all(
     entries.map(async ([lang, cfg]): Promise<HealthCheck> => {
+      // An in-container server has nothing to probe from here: it is spawned per
+      // sandbox, on demand, and there is no sandbox in scope during a node-level
+      // health check. Report it as configured rather than inventing a verdict —
+      // a green light we can't actually verify would be worse than an honest one.
+      if (cfg.kind === 'exec') {
+        return {
+          name: lang,
+          status: 'ok',
+          detail: `in-sandbox: ${cfg.command.join(' ')} (spawned on first use)`,
+          latencyMs: 0, // nothing was dialled — there is no latency to report
+        };
+      }
+
       const startedAt = Date.now();
       try {
         await reach(cfg.host, cfg.port);

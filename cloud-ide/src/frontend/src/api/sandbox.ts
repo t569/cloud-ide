@@ -53,9 +53,15 @@ export const getSandboxCapabilities = () =>
 /**
  * Destroy a sandbox: its container AND its /workspace worktree. Irreversible —
  * callers must confirm. Distinct from ending a session (which frees nothing).
+ *
+ * A clean destroy (force=false) is rejected with 409 when the worktree has
+ * uncommitted changes — the pre-flight guard. Pass `force` to skip that guard
+ * and delete the dirty worktree with it.
  */
-export const deleteSandbox = (sandboxId: string) =>
-  apiClient.delete<void>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}`);
+export const deleteSandbox = (sandboxId: string, force = false) =>
+  apiClient.delete<void>(
+    `/v1/sandboxes/${encodeURIComponent(sandboxId)}${force ? '?force=true' : ''}`,
+  );
 
 /** Suspend compute (freezes the container); the workspace survives. Resume to wake. */
 export const pauseSandbox = (sandboxId: string) =>

@@ -21,6 +21,7 @@ import { timeAgo } from '../env-manager/utils/timeAgo';
 import { getEnvironment, type SavedEnvironment } from '../env-manager/services/api/environmentApi';
 import { launchEnvironment } from './launch';
 import { navigate } from './router';
+import { ApiError } from '../lib/apiClient';
 
 // Matches the env-manager's badge palette: emerald live, amber transitional, red dead.
 const STATE_STYLE: Record<SandboxState, { color: string; label: string }> = {
@@ -147,6 +148,9 @@ function SandboxDrawer({
 }) {
   const [busy, setBusy] = useState<null | string>(null);
   const [confirming, setConfirming] = useState(false);
+  // Set when a clean delete is rejected (409) because the worktree is dirty —
+  // flips the confirm panel into offering a force-delete.
+  const [forceNeeded, setForceNeeded] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [tab, setTab] = useState<'ov' | 'set' | 'log'>('ov');
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
@@ -160,6 +164,9 @@ function SandboxDrawer({
     setTab('ov');
     setSessions(null);
     setEnv(null);
+    setConfirming(false);
+    setForceNeeded(false);
+    setActionError(null);
     listSandboxSessions(sbx.sandboxId)
       .then((s) => live && setSessions(s))
       .catch(() => live && setSessions([]));
@@ -189,6 +196,28 @@ function SandboxDrawer({
       onChanged();
     } catch (e) {
       setActionError((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Delete with its own error handling: a 409 means the worktree is dirty, which
+  // isn't a failure to surface as red text — it's a prompt to force. Flip into
+  // force mode and let the user confirm the destructive path explicitly.
+  const del = async (force: boolean) => {
+    setBusy('delete');
+    setActionError(null);
+    try {
+      await deleteSandbox(sbx.sandboxId, force);
+      onClose();
+      onChanged();
+    } catch (e) {
+      if (!force && e instanceof ApiError && e.status === 409) {
+        setForceNeeded(true);
+        setActionError(e.message);
+      } else {
+        setActionError((e as Error).message);
+      }
     } finally {
       setBusy(null);
     }
@@ -311,30 +340,47 @@ function SandboxDrawer({
             </button>
           </div>
 
-          {/* delete confirm — spells out the blast radius */}
+          {/* delete confirm — spells out the blast radius. Escalates to a
+              force-delete once the clean path is rejected for a dirty worktree. */}
           {confirming && (
             <div className="mt-4 p-4 rounded-lg border border-[#f87171]/30 bg-[#f87171]/5">
-              <p className="text-[13px] font-semibold mb-1">Delete this sandbox?</p>
+              <p className="text-[13px] font-semibold mb-1">
+                {forceNeeded ? 'Force-delete this sandbox?' : 'Delete this sandbox?'}
+              </p>
               <p className="text-[12px] text-gray-400 leading-relaxed">
-                This destroys the container <span className="text-gray-200">and its <code className="font-mono">/workspace</code> worktree</span>. Uncommitted
-                files are gone, and any attached sessions are disconnected. This can’t be undone.
+                {forceNeeded ? (
+                  <>
+                    This worktree has <span className="text-gray-200">uncommitted changes</span>. A normal
+                    delete is blocked to protect them. Force-delete discards those changes and destroys
+                    the container and its <code className="font-mono">/workspace</code> worktree anyway. This can’t be undone.
+                  </>
+                ) : (
+                  <>
+                    This destroys the container <span className="text-gray-200">and its <code className="font-mono">/workspace</code> worktree</span>. Uncommitted
+                    files are gone, and any attached sessions are disconnected. This can’t be undone.
+                  </>
+                )}
               </p>
               <div className="flex gap-2 mt-3">
                 <button
-                  onClick={() => setConfirming(false)}
+                  onClick={() => {
+                    setConfirming(false);
+                    setForceNeeded(false);
+                    setActionError(null);
+                  }}
                   disabled={busy !== null}
                   className="flex-1 text-[13px] py-2 rounded-lg border border-gray-700 bg-[#1a1a1f] hover:border-gray-500"
                 >
                   Cancel
                 </button>
                 <button
-                  onClick={() =>
-                    run('delete', () => deleteSandbox(sbx.sandboxId), onClose)
-                  }
+                  onClick={() => del(forceNeeded)}
                   disabled={busy !== null}
                   className="flex-1 text-[13px] font-semibold py-2 rounded-lg border border-[#f87171]/40 bg-[#f87171]/15 text-[#f87171] hover:border-[#f87171] disabled:opacity-50"
                 >
-                  {busy === 'delete' ? 'Deleting…' : 'Delete sandbox'}
+                  {busy === 'delete'
+                    ? forceNeeded ? 'Force-deleting…' : 'Deleting…'
+                    : forceNeeded ? 'Force-delete' : 'Delete sandbox'}
                 </button>
               </div>
             </div>

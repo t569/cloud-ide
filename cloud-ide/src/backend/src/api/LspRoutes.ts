@@ -30,13 +30,26 @@ export function createLspRouter(proxy: LspProxy, sandboxRepo: ISandboxRepository
   // IDOR: caller must own the sandbox (same guard the file routes use).
   router.use('/:sandboxId', requireSandboxOwnership(sandboxRepo));
 
+  // Which languages this sandbox actually has a server for — the env's declared
+  // servers plus any global LSP_SERVERS. The editor builds its transports from this,
+  // so adding a language server to an environment needs no frontend change.
+  router.get('/:sandboxId/languages', async (req: Request, res: Response) => {
+    const { sandboxId } = req.params as Record<string, string>;
+    try {
+      res.status(200).json({ languages: await proxy.languages(sandboxId) });
+    } catch {
+      // Unknown env, DB blip — no intelligence is a degradation, not an error.
+      res.status(200).json({ languages: [] });
+    }
+  });
+
   // Diagnostics stream. GET, so it never collides with the POST routes below.
   router.get('/:sandboxId/:languageId/diagnostics', async (req: Request, res: Response) => {
     const { sandboxId, languageId } = req.params as Record<string, string>;
 
     // No server for this language → 503 so the client's EventSource errors and
     // the status bar shows `offline` (Monaco highlighting carries on).
-    if (!proxy.isConfigured(languageId)) return res.status(503).end();
+    if (!(await proxy.isConfigured(sandboxId, languageId))) return res.status(503).end();
 
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream');

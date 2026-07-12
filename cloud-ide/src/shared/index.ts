@@ -7,6 +7,12 @@
 export { Validator } from './utils/Validator';
 export { optimizeLayers, injectCacheBuster } from './utils/optimise';
 export { StepHasher } from './utils/hasher';
+export {
+  LANGUAGE_SERVERS,
+  SUPPORTED_LANGUAGE_SERVERS,
+  languageServerSpec,
+  type LanguageServerSpec,
+} from './languageServers';
 export { PackageManagerRules } from './utils/packagemanager_rules';
 export {
   isValidId,

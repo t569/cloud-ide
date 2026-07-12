@@ -28,10 +28,12 @@ class FakeLsp extends Duplex {
   private reply(m: unknown): void { this.push(encodeMessage(m)); }
 }
 
+/** A proxy with a python server configured globally (LSP_SERVERS), over TCP. */
 function makeProxy(fake: FakeLsp) {
   const readFile = jest.fn(async () => 'import os\n');
   const proxy = new LspProxy({
-    serverFor: (lang) => (lang === 'python' ? { kind: 'tcp', host: 'x', port: 1 } : null),
+    envLanguages: async () => [], // env declares nothing -> fall back to LSP_SERVERS
+    globalServers: new Map([['python', { kind: 'tcp', host: 'x', port: 1 }]]),
     hostPathFor: async (_sb, p) => `/wt/sb1${p.replace(/^\/workspace/, '')}`,
     rootHostPath: async () => '/wt/sb1',
     readFile,
@@ -40,13 +42,13 @@ function makeProxy(fake: FakeLsp) {
   return { proxy, readFile };
 }
 
-/** A proxy whose python server runs INSIDE the sandbox (docker-exec stdio). */
+/** A proxy whose sandbox's ENVIRONMENT declares python — so it runs in-container. */
 function makeExecProxy(fake: FakeLsp) {
   const openExecStream = jest.fn(async () => fake);
   const hostPathFor = jest.fn(async (_sb: string, p: string) => `/wt/sb1${p}`);
   const proxy = new LspProxy({
-    serverFor: (lang) =>
-      lang === 'python' ? { kind: 'exec', command: ['pyright-langserver', '--stdio'] } : null,
+    envLanguages: async () => ['python'],
+    globalServers: new Map(),
     hostPathFor,
     rootHostPath: async () => '/wt/sb1',
     readFile: async () => 'import os\n',
@@ -120,7 +122,7 @@ describe('LspProxy', () => {
 // bug this guards) would hand the server /wt/sb1/main.py, a path that does not exist
 // inside the container, and every request would resolve nothing.
 describe('LspProxy — in-sandbox (exec) servers', () => {
-  it('spawns the configured command and speaks container paths, unmapped', async () => {
+  it('spawns the env-declared server and speaks container paths, unmapped', async () => {
     const fake = new FakeLsp();
     const { proxy, openExecStream, hostPathFor } = makeExecProxy(fake);
     const range = { start: { line: 1, character: 0 }, end: { line: 1, character: 3 } };
@@ -131,7 +133,8 @@ describe('LspProxy — in-sandbox (exec) servers', () => {
       position: { line: 0, character: 8 },
     });
 
-    expect(openExecStream).toHaveBeenCalledWith('sb1', ['pyright-langserver', '--stdio']);
+    // argv comes from the SAME table LspInjector installed from (shared/languageServers).
+    expect(openExecStream).toHaveBeenCalledWith('sb1', ['pylsp']);
     expect(hostPathFor).not.toHaveBeenCalled(); // the host mapping must not be applied
 
     // didOpen carried the CONTAINER path, not the worktree's host path.
@@ -144,7 +147,8 @@ describe('LspProxy — in-sandbox (exec) servers', () => {
 
   it('reports the language offline when the driver cannot open exec streams', async () => {
     const proxy = new LspProxy({
-      serverFor: () => ({ kind: 'exec', command: ['rust-analyzer'] }),
+      envLanguages: async () => ['rust'],
+      globalServers: new Map(),
       hostPathFor: async (_sb, p) => p,
       rootHostPath: async () => '/wt/sb1',
       readFile: async () => '',
@@ -152,6 +156,45 @@ describe('LspProxy — in-sandbox (exec) servers', () => {
     });
     await expect(proxy.request('sb1', 'rust', 'completion', { path: '/workspace/m.rs' }))
       .rejects.toBeInstanceOf(NoLanguageServerError);
+  });
+
+  // The environment is the source of truth. If it declared the language, the server is
+  // IN the image and must win — falling through to a gateway-side TCP server would
+  // silently hand the editor a server that cannot see the sandbox's dependencies.
+  it('prefers the env-declared in-container server over a global LSP_SERVERS entry', async () => {
+    const fake = new FakeLsp();
+    const openExecStream = jest.fn(async () => fake);
+    const connect = jest.fn(async () => fake);
+    const proxy = new LspProxy({
+      envLanguages: async () => ['python'],
+      globalServers: new Map([['python', { kind: 'tcp', host: 'gateway', port: 2087 }]]),
+      hostPathFor: async (_sb, p) => p,
+      rootHostPath: async () => '/wt/sb1',
+      readFile: async () => 'import os\n',
+      openExecStream,
+      connect,
+    });
+
+    expect(await proxy.serverFor('sb1', 'python')).toEqual({ kind: 'exec', command: ['pylsp'] });
+
+    await proxy.request('sb1', 'python', 'completion', {
+      path: '/workspace/main.py',
+      position: { line: 0, character: 0 },
+    });
+    expect(openExecStream).toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled(); // the TCP fallback must not be dialled
+  });
+
+  it('lists env-declared and global languages together for the editor', async () => {
+    const proxy = new LspProxy({
+      envLanguages: async () => ['python', 'rust'],
+      globalServers: new Map([['typescript', { kind: 'tcp', host: 'x', port: 1 }], ['python', { kind: 'tcp', host: 'x', port: 2 }]]),
+      hostPathFor: async (_sb, p) => p,
+      rootHostPath: async () => '/wt/sb1',
+      readFile: async () => '',
+    });
+    // Union, de-duped: python is declared by both and must appear once.
+    expect((await proxy.languages('sb1')).sort()).toEqual(['python', 'rust', 'typescript']);
   });
 
   it('evicts a session when its stream dies, so the next request reconnects', async () => {

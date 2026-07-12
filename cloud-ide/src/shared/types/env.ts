@@ -41,6 +41,12 @@ export interface EnvironmentConfig {
   env?: Record<string,string>;  // e.g. {"PORT":"3000","NODE_ENV":"development"}
   platform?: 'linux/amd64' | 'linux/arm64'; // Support for M-series Macs or standard Linux
   timeout?: number; // Max build time in seconds; fail safe to exit safely
+
+  // Language servers to bake into the image, by EDITOR LANGUAGE ID (e.g. ['python','rust']).
+  // The single source of truth for LSP: LspInjector installs them at build time and
+  // LspProxy spawns them at runtime, both off shared/languageServers.ts. An env that
+  // declares none simply has no code intelligence (Monaco highlighting still works).
+  languageServers?: string[];
 }
 
 export const baseAliases: Record<string, string[]> = {

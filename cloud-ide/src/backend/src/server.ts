@@ -167,8 +167,21 @@ const sessionStore = new SessionStore();
 // server beside the gateway: it shares this disk (host paths ARE its paths, see
 // LspProxy) but is blind to anything installed in the image.
 const lspServers = parseLspServers(process.env.LSP_SERVERS);
+
+// The environment is the source of truth: EnvironmentConfig.languageServers named the
+// servers, LspInjector baked them into the image, and LspProxy spawns them in-container
+// from the same table (shared/languageServers.ts). Resolved once per session, not per
+// request — it is not on the hot path.
+const envLanguages = async (sandboxId: string): Promise<string[]> => {
+  const sandbox = await sandboxRepo.get(sandboxId);
+  if (!sandbox?.environmentId) return [];
+  const env = await envRepo.get(sandbox.environmentId);
+  return env?.builderConfig?.languageServers ?? [];
+};
+
 const lspProxy = new LspProxy({
-  serverFor: (lang) => lspServers.get(lang) ?? null,
+  envLanguages,
+  globalServers: lspServers,
   hostPathFor: (sb, p) => fileSystemManager.hostPathFor(sb, p),
   rootHostPath: (sb) => sandboxManager.getWorkspaceHostPath(sb),
   readFile: (sb, p) => fileSystemManager.readFile(sb, p),

@@ -24,8 +24,11 @@ export class LanguageServiceRegistry {
   }
 
   /**
-   * Install monaco providers for every registered transport. Call ONCE on
-   * editor mount; dispose the returned handles on unmount.
+   * Install monaco providers for every registered transport, returning the handles.
+   *
+   * Called on editor mount AND whenever the registry is replaced — which languages
+   * exist is fetched per sandbox, so the answer can land after Monaco has mounted.
+   * The caller disposes the previous handles before re-installing.
    */
   install(m: typeof monaco): monaco.IDisposable[] {
     const disposables: monaco.IDisposable[] = [];

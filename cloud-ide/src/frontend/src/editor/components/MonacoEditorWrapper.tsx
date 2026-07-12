@@ -1,5 +1,5 @@
 // frontend/src/editor/components/MonacoEditorWrapper.tsx
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import Editor, { OnMount, OnChange } from '@monaco-editor/react';
 import type * as MonacoNs from 'monaco-editor';
 import { EditorInputManager } from '../core/EditorInputManager';
@@ -38,6 +38,23 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
   // Latest settings, readable from the (mount-time) input manager closure.
   const settingsRef = useRef(globalSettings);
   settingsRef.current = globalSettings;
+  // The monaco namespace is only available from onMount; `mounted` re-runs the
+  // language-service effect once it is.
+  const monacoRef = useRef<typeof MonacoNs | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  // Language services, installed OUTSIDE onMount because the registry arrives late:
+  // which languages have a server is a property of the sandbox's environment, fetched
+  // at boot. When the answer lands the registry is replaced, and this re-installs the
+  // providers against it. Disposing the old handles first keeps duplicate completion
+  // items from a stale bridge out of the dropdown.
+  useEffect(() => {
+    const monaco = monacoRef.current;
+    if (!mounted || !monaco) return;
+
+    const installed = registry.install(monaco);
+    return () => installed.forEach((d) => d.dispose());
+  }, [registry, mounted]);
 
 
   // 1. Handle Editor Mount
@@ -67,9 +84,11 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
     // active tab's dirty dot never clears. Synced by the effect below.
     inputManagerRef.current = inputManager;
 
-    // 2. Install all language services (completion/hover/...) via their monaco
-    //    bridges. The registry owns the transports; this call is UI-only.
-    disposablesRef.current.push(...registry.install(monaco));
+    // 2. Language services (completion/hover/...) are NOT installed here — which
+    //    languages have a server is fetched per sandbox, so the registry can be
+    //    replaced after mount. The effect below owns that install/re-install.
+    monacoRef.current = monaco;
+    setMounted(true);
 
     // 2b. Install any custom syntax grammars. Built-in languages need nothing —
     //     Monaco already tokenizes them — so this is a no-op until a plugin adds

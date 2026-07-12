@@ -19,12 +19,27 @@ export function useWorkspaceBootstrap(sandboxId: string) {
   // One bus for the whole workspace instance.
   const eventBus = useMemo(() => new EditorEventBus(), []);
 
-  // Language-service registry built from the manifest. Each transport is a
-  // swappable backend (mock, WebSocket, ...) — see lsp/manifest.ts.
-  const langRegistry = useMemo(() => {
-    const reg = new LanguageServiceRegistry();
-    createLanguageTransports(sandboxId).forEach((t) => reg.register(t));
-    return reg;
+  // Language-service registry. WHICH languages have a server is a property of the
+  // sandbox's environment, so the manifest asks the backend instead of hardcoding a
+  // list. It starts empty (the editor must render immediately, LSP or not) and is
+  // REPLACED once the answer arrives — MonacoEditorWrapper re-installs its providers
+  // when the registry identity changes, so a late answer still lights up.
+  const [langRegistry, setLangRegistry] = useState(() => new LanguageServiceRegistry());
+
+  useEffect(() => {
+    let live = true;
+    const registry = new LanguageServiceRegistry();
+
+    createLanguageTransports(sandboxId).then((transports) => {
+      if (!live) return transports.forEach((t) => t.dispose?.());
+      transports.forEach((t) => registry.register(t));
+      setLangRegistry(registry);
+    });
+
+    return () => {
+      live = false;
+      registry.dispose();
+    };
   }, [sandboxId]);
 
   // Syntax-highlighting registry: how files map to languages + which grammars

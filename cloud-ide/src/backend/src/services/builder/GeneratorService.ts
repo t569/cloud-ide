@@ -8,6 +8,7 @@ import {
   StageOrchestrator,
   MiddlewareEngine,
   SecurityUserInjector,
+  LspInjector,
   DockerfileAssembler,
 } from '@cloud-ide/pipeline';
 
@@ -37,8 +38,14 @@ export class DockerGeneratorService {
     // execd into the image was redundant — and the `curl | bash` step it added failed
     // on any base without curl. The image's only obligation is `/bin/bash`, which
     // bootstrap.sh's shebang requires. See src/opensandbox/README.md audit item K.
+    // Order matters (these are lowering passes): SecurityUser unshifts the useradd to
+    // the FRONT of the runtime stage; Lsp appends the server install to the END, so it
+    // is the last layer and adding a language server can't invalidate the pip/npm/apt
+    // layers above it. Both land before the assembler's `USER sandbox-user`, so both
+    // still run as root.
     const engine = new MiddlewareEngine()
-      .use(new SecurityUserInjector());
+      .use(new SecurityUserInjector())
+      .use(new LspInjector(config.languageServers));
 
 
     const finalManifest = engine.execute(baseManifest);

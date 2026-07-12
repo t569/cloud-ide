@@ -15,6 +15,7 @@
 // nothing else here changes.
 
 import { Duplex } from 'node:stream';
+import { languageServerSpec } from '@cloud-ide/shared';
 import { LspSession, pathToUri, uriToPath } from './LspSession';
 import { connectTcp } from './tcpConnector';
 import { PORT_TO_LSP, toLspParams, fromLspResult } from './lspMethods';
@@ -37,7 +38,13 @@ export type LspServerConfig =
   | { kind: 'exec'; command: string[] };
 
 export interface LspProxyDeps {
-  serverFor(languageId: string): LspServerConfig | null;
+  /**
+   * Language ids this sandbox's ENVIRONMENT declares (EnvironmentConfig.languageServers).
+   * These were baked into the image by LspInjector, so they run in-container.
+   */
+  envLanguages(sandboxId: string): Promise<string[]>;
+  /** The LSP_SERVERS fallback: hand-run servers, and any TCP server. */
+  globalServers: Map<string, LspServerConfig>;
   hostPathFor(sandboxId: string, workspacePath: string): Promise<string>;
   rootHostPath(sandboxId: string): Promise<string>;
   readFile(sandboxId: string, workspacePath: string): Promise<string>;
@@ -100,8 +107,35 @@ export class LspProxy {
 
   constructor(private deps: LspProxyDeps) {}
 
-  isConfigured(languageId: string): boolean {
-    return this.deps.serverFor(languageId) !== null;
+  /**
+   * Which server serves this language for this sandbox, if any.
+   *
+   * The environment wins. If the env declared the language, the server was baked into
+   * its image and runs in-container — where the deps it must resolve actually live.
+   * Otherwise fall back to LSP_SERVERS, which is how a gearhead points at a
+   * hand-started server (and the only way to use a TCP one).
+   *
+   * Called once per session (see getSession), not per request, so the env lookup is
+   * not on the hot path and needs no cache.
+   */
+  async serverFor(sandboxId: string, languageId: string): Promise<LspServerConfig | null> {
+    const declared = await this.deps.envLanguages(sandboxId).catch((): string[] => []);
+    if (declared.includes(languageId)) {
+      // Same table LspInjector installed from — build and runtime cannot drift.
+      return { kind: 'exec', command: languageServerSpec(languageId).command };
+    }
+    return this.deps.globalServers.get(languageId) ?? null;
+  }
+
+  async isConfigured(sandboxId: string, languageId: string): Promise<boolean> {
+    return (await this.serverFor(sandboxId, languageId)) !== null;
+  }
+
+  /** Every language with a server for this sandbox — the editor builds its transports
+   *  from this instead of a hardcoded manifest. */
+  async languages(sandboxId: string): Promise<string[]> {
+    const declared = await this.deps.envLanguages(sandboxId).catch((): string[] => []);
+    return [...new Set([...declared, ...this.deps.globalServers.keys()])];
   }
 
   /** Number of live (sandbox, language) sessions — a health-page metric. */
@@ -118,10 +152,11 @@ export class LspProxy {
     const existing = this.sessions.get(key);
     if (existing) return existing;
 
-    const config = this.deps.serverFor(languageId);
-    if (!config) throw new NoLanguageServerError(`No language server configured for '${languageId}'`);
-
     const session = (async () => {
+      const config = await this.serverFor(sandboxId, languageId);
+      if (!config) {
+        throw new NoLanguageServerError(`No language server configured for '${languageId}'`);
+      }
       const { stream, paths, root } = await this.open(sandboxId, config);
       // The stream dies with the server (crash) or the container (destroy/pause).
       // Drop the cache entry so the NEXT request opens a fresh one, instead of

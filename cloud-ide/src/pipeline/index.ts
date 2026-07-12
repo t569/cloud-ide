@@ -3,4 +3,5 @@
 export { StageOrchestrator } from './StageOrchestrator';
 export { MiddlewareEngine } from './middleware/MiddlewareEngine';
 export { SecurityUserInjector } from './middleware/injectors/SecurityUserInjector';
+export { LspInjector } from './middleware/injectors/LspInjector';
 export { DockerfileAssembler } from './assembler/DockerfileAssembler';

@@ -70,26 +70,36 @@ implement `openExecStream` and nothing else would change.
 
 ## 🚀 Setup
 
-### 1. Put the server in the image (recommended)
+### 1. Declare it on the environment (recommended — this is the whole setup)
 
-Add it to the environment's image, so every sandbox from that env has it. Then it
-runs *next to the code*, with the same interpreter, venv, and package cache:
-
-```dockerfile
-# Python
-RUN pip install "python-lsp-server[all]"          # -> exec:pylsp
-# or:  npm i -g pyright                           # -> exec:pyright-langserver --stdio
-
-# Rust  (rust-analyzer is stdio-only; that's exactly what we want)
-RUN rustup component add rust-analyzer            # -> exec:rust-analyzer
-
-# Go
-RUN go install golang.org/x/tools/gopls@latest    # -> exec:gopls
+```jsonc
+// EnvironmentConfig
+{
+  "name": "My Rust env",
+  "baseImage": "rust:1.79",
+  "buildSteps": [ /* ... */ ],
+  "languageServers": ["rust"]        // <- that's it
+}
 ```
 
-No ports, no `socat`, no daemon to supervise: the gateway spawns the binary over
-`docker exec -i` when a file of that language is first opened, and kills it when the
-session ends.
+One field, and the rest is wired for you:
+
+| | |
+|---|---|
+| **build** | `LspInjector` appends the install as the **last** layer of the runtime stage (so it can't invalidate your dependency layers). |
+| **runtime** | `LspProxy` spawns the server in that sandbox over `docker exec -i`. |
+| **editor** | asks `GET /api/lsp/:sandboxId/languages` and builds its transports from the answer. |
+
+All three read the same table, [`shared/languageServers.ts`](../shared/languageServers.ts),
+so they cannot drift. Supported ids: `python`, `typescript`, `javascript`, `rust`, `go`.
+An unknown id **fails the build** rather than leaving the editor quietly dumb.
+
+No ports, no `socat`, no daemon to supervise, and **no frontend change** to add a
+language. The base image must already carry the toolchain the install needs (`pip`,
+`npm`, `rustup`, `go`) — that's the image's job, and the build fails loudly if not.
+
+To add a language to the table, add one entry (`install` + `command`) — the pipeline
+and the proxy both pick it up.
 
 ### 1b. …or run one beside the gateway (fallback)
 
@@ -105,32 +115,33 @@ socat TCP-LISTEN:2089,reuseaddr,fork EXEC:'typescript-language-server --stdio'
 > process. A shared daemon (e.g. `gopls serve -listen`) shares state across *every*
 > sandbox — prefer fork, or prefer `exec:`.
 
-### 2. Point the gateway at it
+### 2. `LSP_SERVERS` — the manual override (gearheads)
 
-Set `LSP_SERVERS` before starting the backend. Semicolon-separated,
+Only needed if you did **not** declare `languageServers` on the env: it points the
+gateway at a server you started yourself. Semicolon-separated,
 `language=exec:<argv>` or `language=host:port`.
 
 ```bash
-# in-sandbox (preferred)
-LSP_SERVERS="python=exec:pyright-langserver --stdio;rust=exec:rust-analyzer;go=exec:gopls" npm run dev
+# a server you installed in the image by hand
+LSP_SERVERS="python=exec:pyright-langserver --stdio" npm run dev
 
-# beside the gateway
+# a server beside the gateway
 LSP_SERVERS="python=127.0.0.1:2087;typescript=127.0.0.1:2089" npm run dev
 ```
 
-`exec:` requires a driver that can open an exec stream (`DockerPtyDriver`). On a
-driver without one the language reports `offline` and Monaco highlighting takes over —
-it never breaks the editor.
+**Precedence: the environment wins.** If the env declares a language, its in-container
+server is used and any `LSP_SERVERS` entry for that language is ignored — falling back
+to a gateway-side server would silently hand the editor one that can't see the
+sandbox's dependencies.
 
-The **language key must match the editor's language id** — the id the frontend
-detects and the transport sends. Today the manifest wires `python`; add others
-in `frontend/src/editor/lsp/manifest.ts`:
+`exec:` (either route) requires a driver that can open an exec stream
+(`DockerPtyDriver`). On a driver without one the language reports `offline`, Monaco
+highlighting takes over, and the health card says so — it never breaks the editor.
 
-```ts
-// frontend/src/editor/lsp/manifest.ts
-new HttpLSPTransport('python', sandboxId),
-new HttpLSPTransport('typescript', sandboxId),   // then add it to LSP_SERVERS too
-```
+The **language key must match the editor's language id** — the id
+`LanguageRegistry.detect()` returns and the transport sends. That's why the table is
+keyed by it. `manifest.ts` no longer hardcodes anything: it asks
+`GET /api/lsp/:sandboxId/languages` and builds a transport per answer.
 
 ### 3. Verify
 
@@ -180,4 +191,6 @@ as `offline` and falls back to Monaco highlighting.
 | `services/lsp/LspProxy.ts` | session registry keyed `sandbox:lang`; `parseLspServers`; deployment seams injected |
 | `api/LspRoutes.ts` | the routes above, mounted at `/api/lsp` |
 | `frontend/src/editor/lsp/transports/HttpLSPTransport.ts` | browser transport: debounced HTTP + SSE, incremental sync, offline fallback |
-| `frontend/src/editor/lsp/manifest.ts` | the one place you wire a language to a transport |
+| `shared/languageServers.ts` | **the one table**: language id → (install command, exec argv). Build + runtime both read it |
+| `pipeline/middleware/injectors/LspInjector.ts` | build-time pass: appends the install as the last runtime layer |
+| `frontend/src/editor/lsp/manifest.ts` | asks the backend which languages this sandbox has, builds a transport per answer |

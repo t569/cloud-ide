@@ -42,6 +42,8 @@ export function createSandboxRouter(
   router.get('/:sandboxId/sessions', controller.listSessions);
   router.get('/:sandboxId/activity', controller.listActivity);
   router.get('/:sandboxId/logs', controller.streamLogs);
+  // What the user installed beyond the base image — the input to env-promotion.
+  router.get('/:sandboxId/drift', controller.getToolDrift);
   router.post('/:sandboxId/exec', controller.execCommand);
   router.post('/:sandboxId/pause', controller.pauseSandbox);
   router.post('/:sandboxId/resume', controller.resumeSandbox);

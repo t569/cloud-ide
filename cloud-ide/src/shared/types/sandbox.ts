@@ -106,6 +106,14 @@ export interface SandboxRecord {
   requiresReprovision: boolean;
   createdAt: number;
   /**
+   * What was installed at boot, before the user touched anything (apt/pip/npm).
+   * Env-promotion diffs the live sandbox against this to find what YOU added.
+   * Captured in the background, so it may be absent: on an older sandbox, or if the
+   * container died before it completed. Absent ⇒ drift is not computable, and the
+   * promote flow says so rather than guessing.
+   */
+  toolBaseline?: { apt: string[]; pip: string[]; npm: string[] };
+  /**
    * Last time this sandbox was booted or resumed. IdleSweeper's grace period reads
    * it so a freshly-woken sandbox isn't paused again before its editor has attached.
    * Optional: records written before this field existed have none (treated as old).

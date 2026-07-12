@@ -14,6 +14,7 @@ import { JsonActivityRepository } from '../../database/json/JsonActivityReposito
 import { ExecConnectionInfo } from '../../types/engine';
 import { RustEngineClient } from './rustClient';
 import { ISandboxDriver, DriverCapabilities, ISandboxSession, PtyOptions } from './drivers/ISandboxDriver';
+import { captureSnapshot, ToolSnapshot } from '../promotion/toolSnapshot';
 import { WorktreeEngine } from '../storage/WorktreeEngine';
 import { WorkspaceProvisioner } from '../provisioning';
 import { WorktreeStrategy } from '../provisioning/strategies/git/WorktreeStrategy';
@@ -130,7 +131,41 @@ export class SandboxManager {
 
     await this.sandboxRepo.save(record);
     await this.activityRepo?.record(record.sandboxId, 'created', `Created from ${record.environmentId}`, ownerId);
+
+    // Baseline what the IMAGE ships with, before the user installs anything — the
+    // reference point env-promotion diffs against. Deliberately not awaited: boot must
+    // not get slower for a feature most sandboxes never use, and a missing baseline
+    // degrades to "drift not computable", never to a broken sandbox.
+    void this.captureToolBaseline(record.sandboxId);
+
     return record;
+  }
+
+  /**
+   * Snapshot the sandbox's installed packages and store it on the record.
+   *
+   * Fire-and-forget by design (see create): it races the user's first `pip install` only
+   * in theory — that needs a terminal, which needs the editor, which is seconds away, and
+   * the probes finish in well under that. If it loses that race the promoted env simply
+   * treats an already-present package as one the user added, which is a harmless
+   * over-count, not corruption.
+   */
+  private async captureToolBaseline(sandboxId: string): Promise<void> {
+    try {
+      const toolBaseline = await captureSnapshot((command) => this.execBuffered(sandboxId, { command }));
+
+      // Re-read: create() saved the record, and something else may have touched it since.
+      const record = await this.sandboxRepo.get(sandboxId);
+      if (!record) return; // destroyed already — nothing to baseline
+      await this.sandboxRepo.save({ ...record, toolBaseline });
+    } catch (err) {
+      console.warn(`[SandboxManager] Could not baseline tools for ${sandboxId}:`, err);
+    }
+  }
+
+  /** The packages installed in this sandbox right now. */
+  public async captureTools(sandboxId: string): Promise<ToolSnapshot> {
+    return captureSnapshot((command) => this.execBuffered(sandboxId, { command }));
   }
 
   public async getRecord(sandboxId: string): Promise<SandboxRecord | null> {

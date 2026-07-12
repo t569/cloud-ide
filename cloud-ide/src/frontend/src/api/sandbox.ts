@@ -2,6 +2,7 @@
 // base already ends in /api, so the path is /v1/sandboxes.
 import type { SandboxState, SandboxStatus } from '@cloud-ide/shared/types/sandbox';
 import type { SessionState } from '@cloud-ide/shared/types/session';
+import type { ToolDrift } from '@cloud-ide/shared/promotion';
 import { apiClient } from '@frontend/lib/apiClient';
 import { API_BASE_URL } from '../config/env';
 
@@ -62,6 +63,16 @@ export const deleteSandbox = (sandboxId: string, force = false) =>
   apiClient.delete<void>(
     `/v1/sandboxes/${encodeURIComponent(sandboxId)}${force ? '?force=true' : ''}`,
   );
+
+/**
+ * The packages installed in this sandbox since it booted — what the user added on top of
+ * the image, and the input to promoting it into a new environment.
+ *
+ * Reads the live container, so it wakes a paused sandbox. 409 when no boot baseline was
+ * recorded (a sandbox created before baselining existed): drift is then not computable.
+ */
+export const getSandboxDrift = (sandboxId: string) =>
+  apiClient.get<{ drift: ToolDrift }>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/drift`);
 
 /** Suspend compute (freezes the container); the workspace survives. Resume to wake. */
 export const pauseSandbox = (sandboxId: string) =>

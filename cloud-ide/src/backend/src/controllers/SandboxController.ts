@@ -7,6 +7,7 @@ import {
   VolumeMount,
 } from '@cloud-ide/shared/types/sandbox';
 import { DirtyWorktreeError, SandboxManager } from '../services/sandbox/SandboxManager';
+import { diffSnapshots } from '../services/promotion/toolSnapshot';
 import { ISessionRepository } from '../database/interfaces';
 import { JsonActivityRepository } from '../database/json/JsonActivityRepository';
 import { currentUser } from '../api/middleware/auth';
@@ -119,6 +120,46 @@ export class SandboxController {
 
     try {
       res.json(await this.activityRepo.listBySandbox(sandboxId));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  /**
+   * GET /:sandboxId/drift — the packages installed since boot, i.e. what the USER added
+   * on top of the image. The raw material for promoting a sandbox into a new environment.
+   *
+   * Needs the baseline captured at boot. Without it (an older sandbox, or a container
+   * that died before the probes finished) drift is not computable, and we say so rather
+   * than reporting the entire image as "your changes" — which would produce an
+   * environment that reinstalls everything the base image already has.
+   */
+  public getToolDrift = async (req: Request, res: Response): Promise<void> => {
+    const sandboxId = this.getStringParam(req.params.sandboxId);
+
+    if (!sandboxId) {
+      res.status(400).json({ error: 'sandboxId is required.' });
+      return;
+    }
+
+    try {
+      const record = await this.sandboxManager.getRecord(sandboxId);
+      if (!record) {
+        res.status(404).json({ error: 'Sandbox not found.' });
+        return;
+      }
+      if (!record.toolBaseline) {
+        res.status(409).json({
+          error:
+            'No tool baseline was recorded for this sandbox, so we cannot tell what you installed. Sandboxes created from now on are baselined at boot.',
+        });
+        return;
+      }
+
+      // Reads the LIVE container, so this wakes a paused sandbox — the packages are in
+      // its filesystem, not on the host, and there is no way to ask without running it.
+      const current = await this.sandboxManager.captureTools(sandboxId);
+      res.json({ drift: diffSnapshots(record.toolBaseline, current) });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

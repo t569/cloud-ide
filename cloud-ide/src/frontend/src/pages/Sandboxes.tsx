@@ -3,7 +3,7 @@
 // or delete it. Opening still routes through the shared launch flow, so a PAUSED
 // sandbox is resumed by POST /v1/sessions rather than by anything special here.
 import React, { useEffect, useRef, useState } from 'react';
-import { VscPulse, VscRefresh, VscServerProcess, VscRocket, VscClose, VscDebugPause, VscPlay, VscTrash, VscRootFolderOpened } from 'react-icons/vsc';
+import { VscPulse, VscRefresh, VscServerProcess, VscRocket, VscClose, VscDebugPause, VscPlay, VscTrash, VscRootFolderOpened, VscCloudUpload } from 'react-icons/vsc';
 import {
   listSandboxes,
   deleteSandbox,
@@ -22,6 +22,7 @@ import { getEnvironment, type SavedEnvironment } from '../env-manager/services/a
 import { launchEnvironment } from './launch';
 import { navigate } from './router';
 import { ApiError } from '../lib/apiClient';
+import { PromoteSandbox } from './PromoteSandbox';
 
 // Matches the env-manager's badge palette: emerald live, amber transitional, red dead.
 const STATE_STYLE: Record<SandboxState, { color: string; label: string }> = {
@@ -148,6 +149,7 @@ function SandboxDrawer({
 }) {
   const [busy, setBusy] = useState<null | string>(null);
   const [confirming, setConfirming] = useState(false);
+  const [promoting, setPromoting] = useState(false);
   // Set when a clean delete is rejected (409) because the worktree is dirty —
   // flips the confirm panel into offering a force-delete.
   const [forceNeeded, setForceNeeded] = useState(false);
@@ -166,6 +168,7 @@ function SandboxDrawer({
     setEnv(null);
     setConfirming(false);
     setForceNeeded(false);
+    setPromoting(false);
     setActionError(null);
     listSandboxSessions(sbx.sandboxId)
       .then((s) => live && setSessions(s))
@@ -331,7 +334,23 @@ function SandboxDrawer({
             )}
 
             <button
-              onClick={() => setConfirming(true)}
+              onClick={() => {
+                setPromoting(true);
+                setConfirming(false);
+              }}
+              disabled={busy !== null}
+              aria-label="Promote to environment"
+              title="Promote to a new environment"
+              className="flex items-center justify-center py-2.5 px-3.5 rounded-lg border border-[#5ec8d8]/30 bg-[#5ec8d8]/10 text-[#5ec8d8] hover:border-[#5ec8d8] disabled:opacity-50"
+            >
+              <VscCloudUpload />
+            </button>
+
+            <button
+              onClick={() => {
+                setConfirming(true);
+                setPromoting(false);
+              }}
               disabled={busy !== null}
               aria-label="Delete sandbox"
               className="flex items-center justify-center py-2.5 px-3.5 rounded-lg border border-[#f87171]/30 bg-[#f87171]/10 text-[#f87171] hover:border-[#f87171] disabled:opacity-50"
@@ -339,6 +358,19 @@ function SandboxDrawer({
               <VscTrash />
             </button>
           </div>
+
+          {/* Turn what you installed in here into a real, launchable environment. */}
+          {promoting && (
+            <PromoteSandbox
+              sandboxId={sbx.sandboxId}
+              environmentId={sbx.environmentId}
+              onCancel={() => setPromoting(false)}
+              onDone={() => {
+                setPromoting(false);
+                navigate('/environments'); // the new env is in the list, ready to build
+              }}
+            />
+          )}
 
           {/* delete confirm — spells out the blast radius. Escalates to a
               force-delete once the clean path is rejected for a dirty worktree. */}

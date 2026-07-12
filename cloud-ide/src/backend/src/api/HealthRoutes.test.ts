@@ -66,6 +66,22 @@ describe('probeLspServers', () => {
     expect(v.metrics).toMatchObject({ configured: 0 });
   });
 
+  it('reports an in-sandbox server as down when the driver cannot open exec streams', async () => {
+    const execServers = new Map<string, LspServerConfig>([
+      ['rust', { kind: 'exec', command: ['rust-analyzer'] }],
+    ]);
+
+    const supported = await probeLspServers(execServers, 0, undefined, true);
+    expect(supported.children?.[0].status).toBe('ok');
+
+    // Same config, a driver with no exec stream: the language is offline, so a green
+    // card would be a lie.
+    const unsupported = await probeLspServers(execServers, 0, undefined, false);
+    expect(unsupported.children?.[0].status).toBe('down');
+    expect(unsupported.children?.[0].detail).toMatch(/cannot open exec streams/);
+    expect(unsupported.status).toBe('degraded'); // still never 503s the node
+  });
+
   it('emits a child per server and rolls partial reachability up to degraded', async () => {
     const reach = async (host: string) => {
       if (host === 'dead') throw new Error('ECONNREFUSED');

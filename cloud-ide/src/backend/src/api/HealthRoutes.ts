@@ -107,6 +107,8 @@ export async function probeLspServers(
   servers: Map<string, LspServerConfig>,
   sessionCount: number,
   reach: (host: string, port: number) => Promise<void> = tcpReachable,
+  /** Can the active driver actually open an exec stream? (DockerPtyDriver can.) */
+  canExec = true,
 ): Promise<Verdict> {
   const entries = [...servers.entries()];
   if (entries.length === 0) {
@@ -119,11 +121,20 @@ export async function probeLspServers(
 
   const children: HealthCheck[] = await Promise.all(
     entries.map(async ([lang, cfg]): Promise<HealthCheck> => {
-      // An in-container server has nothing to probe from here: it is spawned per
-      // sandbox, on demand, and there is no sandbox in scope during a node-level
-      // health check. Report it as configured rather than inventing a verdict —
-      // a green light we can't actually verify would be worse than an honest one.
       if (cfg.kind === 'exec') {
+        // Configured to run in-sandbox, but the active driver has no exec stream:
+        // this language is silently offline. Say so — reporting `ok` here would be a
+        // green light we cannot back, which is worse than an honest red one.
+        if (!canExec) {
+          return {
+            name: lang,
+            status: 'down',
+            detail: `in-sandbox: ${cfg.command.join(' ')} — active driver cannot open exec streams; language is offline`,
+            latencyMs: 0,
+          };
+        }
+        // Otherwise there is nothing to probe from here: the server is spawned per
+        // sandbox, on demand, and no sandbox is in scope during a node health check.
         return {
           name: lang,
           status: 'ok',
@@ -259,7 +270,14 @@ export function systemProbes(deps: HealthDeps): Record<string, Probe> {
 
     // Language servers: one expandable card, a child per configured server. Never
     // worse than degraded — LSP is optional and must not pull the node from rotation.
-    lsp: () => probeLspServers(deps.lspServers, deps.lspSessionCount()),
+    lsp: () =>
+      probeLspServers(
+        deps.lspServers,
+        deps.lspSessionCount(),
+        undefined,
+        // Presence of the method IS the capability, same rule LspProxy applies.
+        typeof deps.driver.openExecStream === 'function',
+      ),
 
     'sandbox-driver': async () => {
       const caps = deps.driver.capabilities();

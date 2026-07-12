@@ -3,6 +3,8 @@
 // rewrite newlines, corrupting Content-Length framing), a dead process must kill the
 // stream (so LspProxy evicts the session instead of talking to a corpse), and a
 // destroyed stream must kill the process (so a closed tab doesn't leak a server).
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { spawnDuplex } from './execStream';
 
 const read = (stream: NodeJS.ReadableStream, until: number): Promise<string> =>
@@ -31,6 +33,32 @@ describe('spawnDuplex', () => {
     const stream = spawnDuplex('node', ['-e', 'process.exit(3)']);
     const err = await new Promise<Error>((resolve) => stream.on('error', resolve));
     expect(err.message).toMatch(/exited with code 3/);
+  });
+
+  // THE GATEWAY-CRASHER. Writing to a dead server's stdin raises EPIPE, and Node emits
+  // 'error' on the PIPE ITSELF as well as passing it to the write callback. Unhandled,
+  // that is an uncaught exception — so one language server dying at the wrong moment
+  // (rust-analyzer OOMing on a big crate) would take the gateway down for every tenant.
+  //
+  // Driven through an injected spawn because EPIPE is OS-specific: Linux raises it,
+  // Windows silently swallows the write. The wiring is what we actually need to pin.
+  it('routes a pipe error into the stream instead of crashing the process', async () => {
+    const child: any = new EventEmitter();
+    child.stdin = new PassThrough();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.exitCode = null;
+    child.kill = jest.fn();
+
+    const stream = spawnDuplex('node', ['x'], undefined, (() => child) as any);
+    const errored = new Promise<Error>((resolve) => stream.on('error', resolve));
+
+    // What the OS does on a write to a dead server. Before the fix, nothing listened for
+    // this and Node turned it into an uncaught exception.
+    child.stdin.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }));
+
+    expect((await errored).message).toMatch(/EPIPE/);
+    expect(stream.destroyed).toBe(true); // LspProxy evicts the session off this
   });
 
   it('kills the process when the stream is destroyed', async () => {

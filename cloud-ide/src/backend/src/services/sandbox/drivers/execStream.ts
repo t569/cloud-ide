@@ -30,8 +30,15 @@ import { Duplex } from 'node:stream';
  *   - stream is destroyed    -> process is killed (a closed tab or a torn-down
  *     sandbox can't leak a language server).
  */
-export function spawnDuplex(bin: string, args: string[], onStderr?: (line: string) => void): Duplex {
-  const child = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+export function spawnDuplex(
+  bin: string,
+  args: string[],
+  onStderr?: (line: string) => void,
+  // Seam for the test: EPIPE is OS-specific (Linux raises it, Windows does not), and a
+  // crash-the-gateway path deserves a check that doesn't depend on which one you're on.
+  spawnFn: typeof spawn = spawn,
+): Duplex {
+  const child = spawnFn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'] });
 
   const stream = new Duplex({
     write(chunk, _enc, cb) {
@@ -55,7 +62,18 @@ export function spawnDuplex(bin: string, args: string[], onStderr?: (line: strin
 
   child.stderr.on('data', (b: Buffer) => onStderr?.(b.toString('utf8').trimEnd()));
 
-  child.on('error', (err) => stream.destroy(err));
+  // A dead server's stdin emits EPIPE. Node emits 'error' on the pipe ITSELF as well as
+  // passing it to the write callback, and an unhandled 'error' on a stream is an UNCAUGHT
+  // EXCEPTION — so a language server that crashes at the wrong moment (rust-analyzer
+  // OOMing on a big crate, say) would take the whole gateway down with it, for every
+  // tenant. Route pipe errors into the Duplex, where LspSession fails its pending
+  // requests and LspProxy evicts the session — the same path a clean exit takes.
+  const fail = (err: Error) => stream.destroy(err);
+  child.stdin.on('error', fail);
+  child.stdout.on('error', fail);
+  child.stderr.on('error', fail);
+
+  child.on('error', fail);
   child.on('exit', (code, signal) => {
     const err =
       code === 0 || code === null

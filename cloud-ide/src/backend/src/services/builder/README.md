@@ -287,3 +287,47 @@ zero behavior change. v1 pushes the **versioned** (immutable) tag only.
 - [ ] Async `IBuildStore` + Redis lock for a **cluster-wide** concurrency guard.
 - [ ] `RegistryService`: push successful builds to a remote registry.
 - [ ] Skip-rebuild optimization end-to-end reporting (cache hit metrics).
+
+---
+
+## 🩺 Troubleshooting
+
+### Every package install fails — pip, npm, cargo, go (DNS)
+
+Symptoms differ per ecosystem and none of them say "DNS", which is what makes this so
+expensive to diagnose:
+
+| manager | what it prints |
+|---|---|
+| pip | `Could not fetch URL https://pypi.org/simple/...` / `No matching distribution found` |
+| npm | `EAI_AGAIN registry.npmjs.org` |
+| cargo | `Could not resolve host: index.crates.io` |
+| go | `dial tcp: lookup proxy.golang.org` |
+
+It looks like a version-resolution problem. It is not: **the build container has no DNS.**
+
+On WSL, Docker copies the distro's `/etc/resolv.conf` into every container. That file
+points at WSL's Windows-side DNS proxy (e.g. `172.17.208.1`), which is **not reachable
+from a container's network namespace** — so every hostname lookup fails.
+
+Confirm in one command (`FAILS` = this is your bug):
+
+```bash
+docker run --rm alpine sh -c 'getent hosts pypi.org >/dev/null && echo WORKS || echo FAILS'
+docker run --rm --dns 1.1.1.1 alpine sh -c 'getent hosts pypi.org >/dev/null && echo WORKS || echo FAILS'
+```
+
+Fix — give the daemon explicit resolvers (there is no `--dns` flag for `docker build`, so
+it has to be daemon-level):
+
+```bash
+sudo mkdir -p /etc/docker
+echo '{"dns": ["1.1.1.1", "8.8.8.8"]}' | sudo tee /etc/docker/daemon.json
+sudo service docker restart
+```
+
+### A base image tag that doesn't exist
+
+`python:3.10.20-alpine3.24` and friends fail at the *pull*, not the build — the error is
+`manifest unknown`, not a package error. Check the tag exists on Docker Hub before
+assuming the pipeline is at fault.

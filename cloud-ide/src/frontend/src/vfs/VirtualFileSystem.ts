@@ -10,6 +10,17 @@ import { apiClient } from '../lib/apiClient';
 /** The container-visible workspace root; the whole tree hangs under here. */
 const WORKSPACE_ROOT = '/workspace';
 
+/**
+ * Paths the VFS refuses to surface. `.git` is the worktree's plumbing — in a
+ * git worktree it's a file pointing at the real gitdir, and deleting it detaches
+ * the workspace from version control (the delete would also fail/half-apply and
+ * corrupt state). We keep it out of the map entirely: never listed, never opened,
+ * never deletable. Matches any path with a `.git` segment.
+ */
+function isHiddenPath(path: string): boolean {
+  return path.split('/').includes('.git');
+}
+
 /** One entry from GET /api/fs/:id/ls (backend VfsNode: name + container path + type). */
 interface VfsEntry {
   name: string;
@@ -105,6 +116,7 @@ export class VirtualFileSystem {
    */
   public applyPatch(changes: FsChange[]): FileNode[] {
     for (const { kind, path } of changes) {
+      if (isHiddenPath(path)) continue; // .git churn must never enter the tree
       if (kind === 'add' || kind === 'addDir') {
         if (this.fileMap.has(path)) continue; // keep whatever we already have
         this.fileMap.set(path, {
@@ -145,6 +157,9 @@ export class VirtualFileSystem {
     );
     await Promise.all(
       entries.map(async (entry) => {
+        // Never map (or recurse into) .git — keeps it out of the tree and out of
+        // reach of delete/write, and skips walking a large object store.
+        if (isHiddenPath(entry.path)) return;
         this.fileMap.set(entry.path, {
           path: entry.path,
           name: entry.name,

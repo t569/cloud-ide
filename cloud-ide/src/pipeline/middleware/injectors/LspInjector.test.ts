@@ -47,6 +47,19 @@ describe('LspInjector', () => {
     const cmd = runtimeSteps(m)[1].command!;
     // Both map to typescript-language-server — install it once, not twice.
     expect(cmd.match(/npm install -g/g)).toHaveLength(1);
+
+    // Same for clangd, which serves both c and cpp — and an apt install run twice
+    // would be a wasted layer, not just noise.
+    const cc = new LspInjector(['c', 'cpp']).inject(manifest());
+    expect(runtimeSteps(cc)[1].command!.match(/apt-get install/g)).toHaveLength(1);
+  });
+
+  it('combines distinct servers into one layer', () => {
+    const m = new LspInjector(['python', 'cpp']).inject(manifest());
+    const cmd = runtimeSteps(m)[1].command!;
+    expect(cmd).toContain('python-lsp-server');
+    expect(cmd).toContain('clangd');
+    expect(runtimeSteps(m)).toHaveLength(2); // one step, not one per language
   });
 
   it('is idempotent — a second pass replaces the step, it does not stack', () => {

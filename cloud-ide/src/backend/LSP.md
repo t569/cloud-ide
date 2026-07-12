@@ -91,8 +91,21 @@ One field, and the rest is wired for you:
 | **editor** | asks `GET /api/lsp/:sandboxId/languages` and builds its transports from the answer. |
 
 All three read the same table, [`shared/languageServers.ts`](../shared/languageServers.ts),
-so they cannot drift. Supported ids: `python`, `typescript`, `javascript`, `rust`, `go`.
-An unknown id **fails the build** rather than leaving the editor quietly dumb.
+so they cannot drift. An unknown id **fails the build** rather than leaving the editor
+quietly dumb.
+
+| id | server | notes |
+|---|---|---|
+| `python` | python-lsp-server | |
+| `typescript`, `javascript` | typescript-language-server | one install serves both |
+| `rust` | rust-analyzer | |
+| `go` | gopls | |
+| `c`, `cpp` | clangd | one install serves both; wants `compile_commands.json` for exact flags, heuristics otherwise |
+| `shell` | bash-language-server | the id is `shell`, not `bash` |
+
+Not included on purpose: `json`/`html`/`css` (Monaco already ships workers for these —
+a server would be a slower second copy) and `java`/`csharp`/`ruby` (jdtls, OmniSharp,
+Solargraph are heavyweight; add one when someone actually needs it).
 
 No ports, no `socat`, no daemon to supervise, and **no frontend change** to add a
 language. The base image must already carry the toolchain the install needs (`pip`,

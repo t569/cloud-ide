@@ -42,7 +42,35 @@ export const LANGUAGE_SERVERS: Record<string, LanguageServerSpec> = {
     install: 'go install golang.org/x/tools/gopls@latest',
     command: ['gopls'],
   },
+
+  // clangd — one binary, no runtime, and the fastest server in this table. It reads
+  // compile_commands.json for exact flags; without one it falls back to heuristics,
+  // which is still usable (generate it with `bear -- make` or CMAKE_EXPORT_COMPILE_COMMANDS).
+  // apt-based: a non-Debian base image will fail the build, loudly, which is correct.
+  c: {
+    install:
+      'apt-get update && apt-get install -y --no-install-recommends clangd && rm -rf /var/lib/apt/lists/*',
+    command: ['clangd', '--background-index'],
+  },
+  cpp: {
+    install:
+      'apt-get update && apt-get install -y --no-install-recommends clangd && rm -rf /var/lib/apt/lists/*',
+    command: ['clangd', '--background-index'],
+  },
+
+  // Shell. The editor's id for .sh/.bash/.zsh is `shell`, not `bash` — the key must be
+  // the id LanguageRegistry.detect() returns or the request never routes.
+  shell: {
+    install: 'npm install -g bash-language-server',
+    command: ['bash-language-server', 'start'],
+  },
 };
+
+// Deliberately NOT here:
+//   json / html / css / scss / less — Monaco already ships web workers for these with
+//     completion, validation and formatting. A server would be a second, slower copy.
+//   java / csharp / ruby — jdtls, OmniSharp and Solargraph are heavyweight (JVM/.NET
+//     runtimes, slow indexing). Add one when someone actually needs it, not on spec.
 
 export const SUPPORTED_LANGUAGE_SERVERS = Object.keys(LANGUAGE_SERVERS);
 

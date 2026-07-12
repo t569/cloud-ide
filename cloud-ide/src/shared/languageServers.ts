@@ -21,6 +21,19 @@ export interface LanguageServerSpec {
   command: string[];
 }
 
+// Debian/Ubuntu or Alpine — the two base families people actually use here. If neither
+// package manager exists we fail with a message that says what to do, rather than
+// "apt-get: not found" 40 lines into a build log.
+const CLANGD_INSTALL = [
+  'if command -v apt-get >/dev/null; then',
+  'apt-get update && apt-get install -y --no-install-recommends clangd && rm -rf /var/lib/apt/lists/*;',
+  'elif command -v apk >/dev/null; then',
+  'apk add --no-cache clangd;',
+  'else',
+  'echo "clangd: no apt-get or apk in this image — install clangd yourself or drop the c/cpp language server" >&2 && exit 1;',
+  'fi',
+].join(' ');
+
 export const LANGUAGE_SERVERS: Record<string, LanguageServerSpec> = {
   python: {
     install: 'pip install --no-cache-dir "python-lsp-server[all]"',
@@ -46,17 +59,11 @@ export const LANGUAGE_SERVERS: Record<string, LanguageServerSpec> = {
   // clangd — one binary, no runtime, and the fastest server in this table. It reads
   // compile_commands.json for exact flags; without one it falls back to heuristics,
   // which is still usable (generate it with `bear -- make` or CMAKE_EXPORT_COMPILE_COMMANDS).
-  // apt-based: a non-Debian base image will fail the build, loudly, which is correct.
-  c: {
-    install:
-      'apt-get update && apt-get install -y --no-install-recommends clangd && rm -rf /var/lib/apt/lists/*',
-    command: ['clangd', '--background-index'],
-  },
-  cpp: {
-    install:
-      'apt-get update && apt-get install -y --no-install-recommends clangd && rm -rf /var/lib/apt/lists/*',
-    command: ['clangd', '--background-index'],
-  },
+  //
+  // Distro-portable: this is the only server that comes from the system package manager,
+  // and hardcoding apt-get meant it failed outright on an alpine base. Try apt, then apk.
+  c: { install: CLANGD_INSTALL, command: ['clangd', '--background-index'] },
+  cpp: { install: CLANGD_INSTALL, command: ['clangd', '--background-index'] },
 
   // Shell. The editor's id for .sh/.bash/.zsh is `shell`, not `bash` — the key must be
   // the id LanguageRegistry.detect() returns or the request never routes.

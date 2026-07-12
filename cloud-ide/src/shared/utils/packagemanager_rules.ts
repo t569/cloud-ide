@@ -1,5 +1,22 @@
 import { BuildStep } from '../types/env';
 
+/**
+ * Package specs go into a `RUN` line, i.e. straight into a shell. This is THE injection
+ * point — every installCommand below funnels through it.
+ *
+ * Single quotes disable every shell metacharacter, which is what lets a real package spec
+ * survive intact: `numpy>=1.20,<2` would otherwise redirect stdout, `uvicorn[standard]`
+ * would glob, and `pkg@$(id)` would substitute. Previously each rule did a bare
+ * `pkgs.join(' ')` and the Validator had to compensate with a regex so strict it rejected
+ * every Go module path (`github.com/gorilla/mux@v1.7.4`) and every scoped npm package
+ * (`@types/node`).
+ *
+ * The Validator still bans a literal `'` in a package name, which is what makes this
+ * airtight rather than merely careful.
+ */
+export const joinPackages = (pkgs: string[]): string =>
+  pkgs.map((p) => `'${p}'`).join(' ');
+
 export interface PackageManagerRule {
   watchFiles: string[];
   installCommand: (packages: string[], isGlobal?: boolean, version?: string) => string;
@@ -30,7 +47,7 @@ export const PackageManagerRules: Record<string, PackageManagerRule> = {
   // APT PACKAGES
    apt: {
     watchFiles: [],
-    installCommand: (pkgs) => `apt-get update && apt-get install -y --no-install-recommends ${pkgs.join(' ')} && rm -rf /var/lib/apt/lists*`,
+    installCommand: (pkgs) => `apt-get update && apt-get install -y --no-install-recommends ${joinPackages(pkgs)} && rm -rf /var/lib/apt/lists*`,
     getBuildCommand(step, flags) {
       const cache = useBuildKit(flags) 
         ? `--mount=type=cache,target=/var/cache/apt,sharing=locked --mount=type=cache,target=/var/lib/apt,sharing=locked ` 
@@ -46,7 +63,7 @@ export const PackageManagerRules: Record<string, PackageManagerRule> = {
     watchFiles: ['package.json', 'package-lock.json'],
     installCommand: (pkgs, isGlobal, version) => {
       const prefix = version ? `npx -p node@${version} ` : '';
-      const pkgString = pkgs.join(' ');
+      const pkgString = joinPackages(pkgs);
       return `${prefix}npm install ${isGlobal ? '-g' : ''} ${pkgString}`.trim();
     },
     getBuildCommand(step, flags) {
@@ -63,7 +80,7 @@ export const PackageManagerRules: Record<string, PackageManagerRule> = {
     watchFiles: ['requirements.txt', 'Pipfile', 'pyproject.toml'],
     installCommand: (pkgs, isGlobal, version) => {
       const python = version ? `python${version}` : 'python3';
-      const pkgString = pkgs.join(' ');
+      const pkgString = joinPackages(pkgs);
       return isGlobal 
         ? `${python} -m pip install ${pkgString} --break-system-packages`
         : `${python} -m venv .venv && ./.venv/bin/pip install ${pkgString}`;
@@ -81,7 +98,7 @@ export const PackageManagerRules: Record<string, PackageManagerRule> = {
     watchFiles: ['Cargo.toml', 'Cargo.lock'],
     installCommand: (pkgs, _, version) => {
       const toolchain = version ? `+${version} ` : '';
-      return pkgs.length ? `cargo ${toolchain}install ${pkgs.join(' ')}` : `cargo ${toolchain}build --release`;
+      return pkgs.length ? `cargo ${toolchain}install ${joinPackages(pkgs)}` : `cargo ${toolchain}build --release`;
     },
     getBuildCommand(step, flags) {
       const cache = useBuildKit(flags) 
@@ -98,7 +115,11 @@ export const PackageManagerRules: Record<string, PackageManagerRule> = {
     watchFiles: ['go.mod', 'go.sum'],
     installCommand: (pkgs, _, version) => {
       const goBin = version ? `go${version}` : 'go';
-      return pkgs.length ? `${goBin} get ${pkgs.join(' ')}` : `${goBin} build -o app`;
+      if (!pkgs.length) return `${goBin} build -o app`;
+      // `go get` REQUIRES a module context. An image build usually has no go.mod, which is
+      // the "go.mod file not found in current directory" failure — the dep never installs
+      // and the build dies. Create a module if there isn't one, then add the deps to it.
+      return `(test -f go.mod || ${goBin} mod init sandbox) && ${goBin} get ${joinPackages(pkgs)}`;
     },
     getBuildCommand(step, flags) {
       const cache = useBuildKit(flags) 
@@ -115,7 +136,7 @@ export const PackageManagerRules: Record<string, PackageManagerRule> = {
     watchFiles: ['build.zig', 'build.zig.zon'],
     installCommand: (pkgs, _, version) => {
       const zigBin = version ? `zig-${version}` : 'zig';
-      return pkgs.length ? `${zigBin} fetch --save ${pkgs.join(' ')}` : `${zigBin} build -Doptimize=ReleaseSafe`;
+      return pkgs.length ? `${zigBin} fetch --save ${joinPackages(pkgs)}` : `${zigBin} build -Doptimize=ReleaseSafe`;
     },
     getBuildCommand(step, flags) {
       const cache = useBuildKit(flags) 
@@ -134,7 +155,7 @@ export const PackageManagerRules: Record<string, PackageManagerRule> = {
       // If version is provided, we use 'rbenv exec' or 'rvm' style switching
       // Otherwise, we default to standard gem/bundle
       const prefix = version ? `rbenv shell ${version} && ` : '';
-      const pkgString = pkgs.join(' ');
+      const pkgString = joinPackages(pkgs);
       
       return pkgs.length 
         ? `${prefix}gem install ${isGlobal ? '' : '--no-user-install'} ${pkgString}`

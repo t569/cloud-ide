@@ -118,8 +118,24 @@ export class Validator {
    * dependency resolution (execution order), and redundancy against env.ts.
    */
   private static validateSteps(config: EnvironmentConfig): void {
-    // Allows @ (npm), == (pip), ~ (versioning), and standard chars
-    const safeNameRegex = /^[a-zA-Z0-9\-_\.@~=]+$/; 
+    // What a real package spec is allowed to contain. This USED to be so narrow that it
+    // rejected most of the ecosystems we support:
+    //   github.com/gorilla/mux@v1.7.4   Go module path      (needed /)
+    //   @types/node                     scoped npm package  (needed /)
+    //   uvicorn[standard]               pip extras          (needed [ ])
+    //   'numpy>=1.20,<2'                pip version range   (needed < > ,)
+    //   torch==2.0.0+cpu                PEP 440 local ver   (needed +)
+    //
+    // It was narrow because package specs are interpolated into a RUN line, and it was the
+    // only thing standing between a user string and a shell. That defense now lives at the
+    // injection point instead — joinPackages() single-quotes every spec — so this list can
+    // cover what packages actually look like.
+    //
+    // What must STILL be impossible is escaping those quotes, so a literal `'` is banned,
+    // along with whitespace, backslashes and every shell metacharacter we don't need. Both
+    // halves are load-bearing: widen this without the quoting and you have a shell
+    // injection.
+    const safeNameRegex = /^[A-Za-z0-9._~+@=:,<>!^*/\[\]-]+$/;
     const targetPaths = new Set<string>();
     
     const [baseName, baseTag] = config.baseImage.toLowerCase().split(':');
@@ -176,7 +192,13 @@ export class Validator {
           
           // Security: Regex check for injection
           if (!safeNameRegex.test(pkg)) {
-            throw new Error(`Security Violation: Package '${pkg}' in step '${step.name}' contains invalid characters.`);
+            // A blank name is common (the UI doesn't force one), and "in step ''" told the
+            // user nothing about WHICH step to go fix.
+            const where = step.name?.trim() || `${step.type} step at index ${index}`;
+            throw new Error(
+              `Security Violation: Package '${pkg}' in ${where} contains invalid characters. ` +
+                `Package names may not contain quotes, spaces, or shell metacharacters.`,
+            );
           }
 
           const rawPkgName = pkg.toLowerCase().split(/[=@]/)[0]; // Strip version (@ or ==) for checking

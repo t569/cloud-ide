@@ -31,6 +31,47 @@ describe('Cloud IDE Pipeline Edge Cases', () => {
       expect(() => Validator.parseAndValidate(JSON.stringify(config)))
         .toThrow(/Security Violation/);
     });
+
+    // The allow-list used to be so narrow it rejected most real package syntax — a Go
+    // module path or a scoped npm package could not be installed AT ALL.
+    it('accepts real package syntax that the old regex rejected', () => {
+      const accepts = (type: 'apt' | 'npm' | 'pip' | 'go', packages: string[]) => {
+        const config: EnvironmentConfig = {
+          id: 'test', name: 'Test',
+          // A base whose aliases satisfy the execution-order check for this manager.
+          baseImage: type === 'pip' ? 'python:3.11' : type === 'npm' ? 'node:20' : type === 'go' ? 'golang:1.22' : 'ubuntu:22.04',
+          buildSteps: [{ name: 'Deps', type, packages }],
+        };
+        expect(() => Validator.parseAndValidate(JSON.stringify(config))).not.toThrow();
+      };
+
+      accepts('go', ['github.com/gorilla/mux@v1.7.4']); // module path — needs `/`
+      accepts('npm', ['@types/node@22.5.0']);           // scoped package — needs `/`
+      accepts('pip', ['uvicorn[standard]']);            // extras — needs `[ ]`
+      accepts('pip', ['numpy>=1.20,<2']);               // version range — needs `< > ,`
+      accepts('pip', ['torch==2.0.0+cpu']);             // PEP 440 local version — needs `+`
+    });
+
+    // The widened list is only safe BECAUSE the specs are single-quoted into the RUN line.
+    // A literal quote would break out of that, so it must stay rejected.
+    it('still rejects anything that could escape the shell quoting', () => {
+      for (const evil of ["git'; rm -rf /; '", 'curl `id`', 'pkg $(whoami)', 'a b', 'pkg\nrm -rf /']) {
+        const config: EnvironmentConfig = {
+          id: 'test', name: 'Test', baseImage: 'ubuntu:22.04',
+          buildSteps: [{ name: 'Hacker Step', type: 'apt', packages: [evil] }],
+        };
+        expect(() => Validator.parseAndValidate(JSON.stringify(config))).toThrow(/Security Violation/);
+      }
+    });
+
+    it('names the step in the error when the step has no name', () => {
+      const config: EnvironmentConfig = {
+        id: 'test', name: 'Test', baseImage: 'ubuntu:22.04',
+        buildSteps: [{ name: '', type: 'apt', packages: ['bad name'] }],
+      };
+      // "in step ''" told the user nothing about which step to go fix.
+      expect(() => Validator.parseAndValidate(JSON.stringify(config))).toThrow(/apt step at index 0/);
+    });
   });
 
   describe('Phase 2: Orchestrator Edge Cases', () => {

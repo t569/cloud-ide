@@ -14,6 +14,9 @@ const BLANK_CONFIG: EnvironmentConfig = {
   name: '',
   baseImage: 'ubuntu:22.04',
   buildSteps: [],
+  // Present so loading an env that predates the field resets the picker to empty
+  // rather than leaving the previous env's selection stuck in the form.
+  languageServers: [],
 };
 
 export const useEnvManager = (onSaved?: () => void) => {

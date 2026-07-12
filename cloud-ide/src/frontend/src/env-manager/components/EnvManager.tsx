@@ -87,7 +87,13 @@ export const EnvManager = ({ onLaunch, onViewSandboxes }: EnvManagerProps = {}) 
               )}
             </div>
 
-            <GeneralSettings register={register} setValue={setValue} baseImage={baseImage} environmentId={currentEnvId} />
+            <GeneralSettings
+              register={register}
+              setValue={setValue}
+              baseImage={baseImage}
+              environmentId={currentEnvId}
+              languageServers={currentConfig.languageServers ?? []}
+            />
 
             <BuildPipeline control={control} register={register} setValue={setValue} />
           </div>

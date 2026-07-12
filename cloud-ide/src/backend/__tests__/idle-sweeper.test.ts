@@ -20,12 +20,21 @@ const sbx = (over: Partial<SandboxRecord> = {}): SandboxRecord =>
     ...over,
   } as SandboxRecord);
 
-function harness(records: SandboxRecord[], viewed: string[] = []) {
+function harness(
+  records: SandboxRecord[],
+  viewed: string[] = [],
+  // What the ENGINE reports, which may disagree with the record. 'GONE' makes
+  // getStatus throw, as a real daemon does (404) for a container it has forgotten.
+  engineState?: SandboxRecord['state'] | 'GONE',
+) {
   const sandboxManager = {
     pause: jest.fn().mockResolvedValue(true),
     destroy: jest.fn().mockResolvedValue(true),
-    // Self-healing loop (1a) polls each sandbox's true state before the idle logic.
-    getStatus: jest.fn(async (id: string) => ({ sandboxId: id, state: 'RUNNING' })),
+    // The reconcile loop polls each sandbox's true state before the idle logic.
+    getStatus: jest.fn(async (id: string) => {
+      if (engineState === 'GONE') throw new Error('404 not found');
+      return { sandboxId: id, state: engineState ?? 'RUNNING' };
+    }),
   };
   const watchers = { isViewed: (id: string) => viewed.includes(id) };
   const sweeper = new IdleSweeper(
@@ -34,7 +43,11 @@ function harness(records: SandboxRecord[], viewed: string[] = []) {
     watchers as any,
   );
   sweeper.stop(); // we drive runSweep by hand; don't leave the interval armed
-  return { sweep: () => (sweeper as any).runSweep(), pause: sandboxManager.pause };
+  return {
+    sweep: () => (sweeper as any).runSweep(),
+    pause: sandboxManager.pause,
+    destroy: sandboxManager.destroy,
+  };
 }
 
 describe('IdleSweeper', () => {
@@ -70,5 +83,29 @@ describe('IdleSweeper', () => {
     await h.sweep();
 
     expect(h.pause).toHaveBeenCalledWith('sbx-1');
+  });
+
+  // A HEALTH CHECK MUST NEVER DELETE A WORKSPACE. This loop used to destroy() any
+  // sandbox the engine called ERROR/STOPPED or had forgotten — and destroy() runs
+  // `git worktree remove -f` + `git branch -D`, so a container that merely didn't
+  // survive a dockerd restart took the user's files with it, committed work included.
+  // The container is disposable; the worktree is the product. These two pin that.
+  it.each(['ERROR', 'STOPPED'] as const)(
+    'does not destroy a sandbox the engine reports as %s — its worktree holds the workspace',
+    async (state) => {
+      const h = harness([sbx({ sandboxId: 'sbx-dead' })], [], state);
+
+      await h.sweep();
+
+      expect(h.destroy).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not prune a record the engine has forgotten — it is the only pointer to the worktree', async () => {
+    const h = harness([sbx({ sandboxId: 'sbx-ghost' })], [], 'GONE');
+
+    await h.sweep();
+
+    expect(h.destroy).not.toHaveBeenCalled();
   });
 });

@@ -97,6 +97,14 @@ export interface TerminalProps extends Omit<ITerminalConfig, 'theme'> {
 
 export interface TerminalHandle {
   write: (data: string) => void;
+  /**
+   * Send text to the SHELL, as if the user typed/pasted it. Not `write` — that
+   * only paints the screen (it's the backend->UI direction), so a "paste" done
+   * with it showed the command but the PTY never received it and Enter ran an
+   * empty line. xterm's own paste() fires onData, so it flows through the
+   * middleware pipeline to the transport and honours bracketed-paste mode.
+   */
+  paste: (data: string) => void;
   clear: () => void;
 
   findNext: (keyword: string) => void;
@@ -159,6 +167,7 @@ export const TerminalComponent = forwardRef<TerminalHandle, TerminalProps>(({
   // Expose manual write/clear methods to the parent (for our EnvManager build logs)
  useImperativeHandle(ref, () => ({
     write: (data: string) => xterm?.write(data),
+    paste: (data: string) => xterm?.paste(data),
     clear: () => xterm?.clear(),
     findNext: (keyword: string) => searchAddon?.findNext(keyword),
     findPrevious: (keyword: string) => searchAddon?.findPrevious(keyword),

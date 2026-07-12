@@ -106,6 +106,65 @@ export function createEnvironmentRouter(
   });
 
   // ==========================================================================
+  // GET /:envId/builds/:buildId/logs   One build's logs — replay + live follow
+  //
+  // The same URL serves a finished build and a running one: we write everything
+  // captured so far, then, if that build is still going, keep the response open and
+  // forward new chunks until it settles. So the history drawer opens any row without
+  // caring which it is, and a row that is mid-build streams in.
+  // ==========================================================================
+  router.get('/:envId/builds/:buildId/logs', (req: Request, res: Response) => {
+    const envId = readId(req, res);
+    if (!envId) return;
+
+    const buildId = req.params.buildId;
+    if (typeof buildId !== 'string' || !buildId) {
+      res.status(400).json({ error: 'Invalid build ID parameter' });
+      return;
+    }
+
+    const captured = buildService.log(buildId);
+    if (captured === undefined) {
+      res.status(404).json({ error: 'No logs retained for this build.' });
+      return;
+    }
+
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('X-Accel-Buffering', 'no'); // don't let a proxy buffer the stream
+
+    // Replay, then follow. No await between these two, so a chunk cannot land in
+    // the gap and be lost: the emitter can only fire on a later tick.
+    res.write(captured);
+
+    const proc = buildService.runningProcess(buildId);
+    if (!proc) {
+      res.end(); // already finished — the replay is the whole log
+      return;
+    }
+
+    const onData = (chunk: string) => res.write(chunk);
+    const finish = (tail: string) => {
+      detach();
+      res.end(tail);
+    };
+    const onSucceeded = (m: string) => finish(`\r\n\x1b[1;32m[System]\x1b[0m ${m}\r\n`);
+    const onFailed = (m: string) => finish(`\r\n\x1b[1;31m[System Error]\x1b[0m ${m}\r\n`);
+    const detach = () => {
+      proc.off('data', onData);
+      proc.off('succeeded', onSucceeded);
+      proc.off('failed', onFailed);
+    };
+
+    proc.on('data', onData);
+    proc.on('succeeded', onSucceeded);
+    proc.on('failed', onFailed);
+    // A viewer closing the drawer must NOT cancel the build — unlike POST /build,
+    // this is a passive observer. Detach only.
+    res.on('close', detach);
+  });
+
+  // ==========================================================================
   // POST /           Create a NEW environment (id minted by us)
   // ==========================================================================
   router.post('/', async (req: Request, res: Response) => {

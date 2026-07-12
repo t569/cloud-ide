@@ -50,6 +50,17 @@ export class LanguageRegistry {
   }
 
   /**
+   * Every installed language, alphabetically — what the status bar's language picker
+   * offers. Includes 'plaintext', which is the point: it's how you tell the editor to
+   * stop syntax-highlighting a file it guessed wrong about.
+   */
+  list(): Array<{ id: string; label: string }> {
+    return Array.from(this.labels, ([id, label]) => ({ id, label })).sort((a, b) =>
+      a.label.localeCompare(b.label),
+    );
+  }
+
+  /**
    * Register every custom grammar with Monaco. Built-ins (no `grammar`) are
    * already tokenized by Monaco, so this is a no-op for them. Call ONCE on
    * editor mount; dispose the returned handles on unmount.

@@ -17,6 +17,14 @@ import { IBuilder, BuildProcess, BuildOptions } from './IBuilder';
  */
 const DEFAULT_BUILD_TIMEOUT_MS = Number(process.env.BUILD_TIMEOUT_MS) || 30 * 60 * 1000;
 
+// Captured build logs, so the history drawer can open a build that has already
+// finished (its POST stream is long gone) as well as follow a live one.
+// ponytail: in memory, bounded — logs die with the gateway while builds.json
+// survives, so an old build can show "logs not retained". They're debugging
+// output, not a record. Persist them next to builds.json if that stops being true.
+const MAX_LOG_BYTES = 2_000_000; // per build; a docker build log is ~tens of KB
+const MAX_LOGS = 100; // builds retained, evicted oldest-first
+
 // Counting semaphore: caps how many builds run at once. release() hands the slot
 // straight to the next waiter (FIFO), so `active` stays balanced.
 class Semaphore {
@@ -115,6 +123,12 @@ class PushingBuild extends EventEmitter implements BuildProcess {
 export class BuildService {
   // Live handles to running builds, so an out-of-band request can cancel them.
   private readonly active = new Map<string, BuildProcess>();
+  // Captured log per buildId (insertion-ordered, so eviction is oldest-first).
+  private readonly logs = new Map<string, string>();
+  // Live handle per buildId — present only while that build is running, which is
+  // exactly the "should I follow this stream or is the replay the whole story?"
+  // question the log route asks.
+  private readonly running = new Map<string, BuildProcess>();
   // Status-change bus for SSE subscribers (one listener per connected client).
   private readonly events = new EventEmitter();
   // Global build concurrency limit (per-env duplicates are blocked separately).
@@ -267,6 +281,7 @@ export class BuildService {
   // Record status transitions + track the live handle for cancellation.
   private wire(envId: string, proc: BuildProcess, versionedTag: string): void {
     this.active.set(envId, proc);
+    this.capture(envId, proc);
     proc.on('succeeded', () => {
       this.active.delete(envId);
       this.store.finish(envId, true, { imageTag: versionedTag }); // immutable ref
@@ -277,6 +292,55 @@ export class BuildService {
       this.store.finish(envId, false, { error: message });
       this.emitChange(envId);
     });
+  }
+
+  /**
+   * Tee this build's output into a replayable buffer keyed by buildId. Every build
+   * — cached, preflight-failed, queued, pushing — goes through wire(), so this is
+   * the single point that sees them all. The terminating [System] line matches what
+   * the build route writes to the live stream, so a replayed log reads identically.
+   */
+  private capture(envId: string, proc: BuildProcess): void {
+    const buildId = this.store.get(envId)?.buildId; // begin() ran first, so this exists
+    if (!buildId) return;
+
+    this.logs.set(buildId, '');
+    this.running.set(buildId, proc);
+
+    // Oldest-first eviction: Map preserves insertion order.
+    while (this.logs.size > MAX_LOGS) {
+      const oldest = this.logs.keys().next().value as string;
+      this.logs.delete(oldest);
+    }
+
+    proc.on('data', (chunk: string) => this.append(buildId, chunk));
+    proc.on('succeeded', (m: string) => {
+      this.append(buildId, `\r\n\x1b[1;32m[System]\x1b[0m ${m}\r\n`);
+      this.running.delete(buildId);
+    });
+    proc.on('failed', (m: string) => {
+      this.append(buildId, `\r\n\x1b[1;31m[System Error]\x1b[0m ${m}\r\n`);
+      this.running.delete(buildId);
+    });
+  }
+
+  /** Append to a build's log, keeping the TAIL once it exceeds the cap — the end of
+   *  a failed build is the part that says why it failed. */
+  private append(buildId: string, chunk: string): void {
+    const current = this.logs.get(buildId);
+    if (current === undefined) return; // evicted mid-build; nothing to grow
+    const next = current + chunk;
+    this.logs.set(buildId, next.length > MAX_LOG_BYTES ? next.slice(-MAX_LOG_BYTES) : next);
+  }
+
+  /** Everything captured for a build so far. undefined = unknown or evicted. */
+  log(buildId: string): string | undefined {
+    return this.logs.get(buildId);
+  }
+
+  /** The live handle for a build, or undefined once it has settled. */
+  runningProcess(buildId: string): BuildProcess | undefined {
+    return this.running.get(buildId);
   }
 
   /** Cancel a running or queued build. Returns false if the env isn't active. */

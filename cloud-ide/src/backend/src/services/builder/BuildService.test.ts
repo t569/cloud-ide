@@ -156,3 +156,70 @@ describe('BuildService registry push', () => {
     expect(store.get('c')?.status).toBe('succeeded');
   });
 });
+
+// Log capture: what makes a build history row openable. The buffer must survive the
+// build finishing (the POST stream is gone by then), and `runningProcess` is the
+// signal the log route uses to decide "replay only" vs "replay then follow".
+describe('BuildService log capture', () => {
+  let builder: FakeBuilder;
+  let store: InMemoryBuildStore;
+  let svc: BuildService;
+
+  beforeEach(() => {
+    jest.spyOn(DockerGeneratorService, 'generateDockerfile').mockReturnValue('FROM scratch');
+    builder = new FakeBuilder();
+    store = new InMemoryBuildStore();
+    svc = new BuildService(new BuilderRegistry([builder]), store, 1);
+  });
+  afterEach(() => jest.restoreAllMocks());
+
+  it('replays a finished build, and stops offering it as live', async () => {
+    await svc.start(env('a'));
+    await tick();
+    const buildId = store.get('a')!.buildId;
+
+    expect(svc.runningProcess(buildId)).toBeDefined(); // live: the route follows it
+    builder.builds[0].emit('data', 'step 1\n');
+    builder.builds[0].emit('data', 'step 2\n');
+    builder.builds[0].succeed('image built');
+
+    // The log outlives the process — this is what a history click reads.
+    expect(svc.runningProcess(buildId)).toBeUndefined(); // settled: replay is the whole log
+    const log = svc.log(buildId)!;
+    expect(log).toContain('step 1');
+    expect(log).toContain('step 2');
+    expect(log).toContain('image built'); // the terminating [System] line
+  });
+
+  it('keeps a failed build\'s tail — the part that says why', async () => {
+    await svc.start(env('b'));
+    await tick();
+    const buildId = store.get('b')!.buildId;
+
+    builder.builds[0].emit('data', 'compiling\n');
+    builder.builds[0].failWith('exit code 1');
+
+    const log = svc.log(buildId)!;
+    expect(log).toContain('compiling');
+    expect(log).toContain('exit code 1');
+    expect(svc.runningProcess(buildId)).toBeUndefined();
+  });
+
+  it('caps a runaway log instead of growing without bound', async () => {
+    await svc.start(env('c'));
+    await tick();
+    const buildId = store.get('c')!.buildId;
+
+    // 3MB of chatter against a 2MB cap.
+    for (let i = 0; i < 3; i++) builder.builds[0].emit('data', 'x'.repeat(1_000_000));
+    builder.builds[0].emit('data', 'THE ACTUAL ERROR');
+
+    const log = svc.log(buildId)!;
+    expect(log.length).toBeLessThanOrEqual(2_000_000);
+    expect(log).toContain('THE ACTUAL ERROR'); // the tail is kept, not the head
+  });
+
+  it('has no log for a build it never saw', () => {
+    expect(svc.log('b-nonexistent')).toBeUndefined();
+  });
+});

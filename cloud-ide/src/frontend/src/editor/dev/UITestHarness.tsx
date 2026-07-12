@@ -51,9 +51,10 @@ const Dashboard = () => {
             Zone 5: IDETerminal.tsx
           </div>
           <div className="flex-1 relative bg-ide-bg">
-             <IDETerminal 
-               sandboxId="test-sandbox-123" 
-               editorEventBus={mockEditorBus} 
+             <IDETerminal
+               sandboxId="test-sandbox-123"
+               editorEventBus={mockEditorBus}
+               onPreview={(url) => console.log('[Harness] Preview requested:', url)}
              />
           </div>
         </div>

@@ -27,6 +27,11 @@ import { config } from '../config/env';
 
 const PTY_PATH = /^\/api\/v1\/sandboxes\/([a-zA-Z0-9_-]+)\/pty$/;
 
+/** Does this upgrade belong to the PTY bridge? (Used by the server's dispatcher.) */
+export function isPtyUpgrade(pathname: string): boolean {
+  return PTY_PATH.test(pathname);
+}
+
 const WS_OPEN = 1; // WebSocket.OPEN — local const so the registry is testable without ws
 const WS_NORMAL_CLOSE = 1000; // clean close (tab closed) ⇒ kill the shell now, no grace
 
@@ -197,11 +202,11 @@ export function attachPtyGateway(server: http.Server, deps: PtyGatewayDeps): voi
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '', 'http://localhost');
     const match = PTY_PATH.exec(url.pathname);
-    // Only our PTY route is a WebSocket endpoint today; anything else is closed.
-    if (!match) {
-      socket.destroy();
-      return;
-    }
+    // Not ours — RETURN, do not destroy. Node fires every 'upgrade' listener, so
+    // destroying here would kill sockets belonging to another handler (the preview
+    // ingress's hot-reload socket is the one this used to break). server.ts closes
+    // whatever no handler claims.
+    if (!match) return;
 
     // Cross-Site WebSocket Hijacking: the upgrade handshake is NOT covered by CORS
     // and carries cookies, so any origin could otherwise open a shell in a logged-in

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { VscClose, VscHistory, VscRefresh, VscLoading, VscCloudUpload, VscCheck } from 'react-icons/vsc';
+import { VscClose, VscHistory, VscRefresh, VscLoading, VscCloudUpload, VscCheck, VscOutput } from 'react-icons/vsc';
 import { toast } from '@frontend/notifications';
 import {
   BuildState,
@@ -7,6 +7,7 @@ import {
   listBuilds,
   rollbackEnvironment,
 } from '../services/api/environmentApi';
+import { BuildLogModal } from './BuildLogModal';
 import { timeAgo } from '../utils/timeAgo';
 
 const STATUS_COLOR: Record<string, string> = {
@@ -34,17 +35,27 @@ const BuildRow = ({
   isCurrent,
   deploying,
   onDeploy,
+  onViewLogs,
 }: {
   b: BuildState;
   isCurrent: boolean;
   deploying: boolean;
   onDeploy: () => void;
+  onViewLogs: () => void;
 }) => {
   const color = STATUS_COLOR[b.status] ?? '#9ca3af';
   const canDeploy = b.status === 'succeeded' && !!b.imageTag;
   return (
     <div className="p-3 rounded-lg border border-white/[0.06] bg-[#1f1f1f] animate-fade-up">
-      <div className="flex items-center justify-between">
+      {/* The row header is the log affordance: click a build (live or finished) to
+          read its output. Deploy stays a separate button — one click must not both
+          open logs and retag :latest. */}
+      <button
+        type="button"
+        onClick={onViewLogs}
+        title="View build logs"
+        className="group flex w-full items-center justify-between text-left"
+      >
         <span className="flex items-center gap-1.5 text-xs font-medium" style={{ color }}>
           {b.status === 'building' ? (
             <VscLoading size={12} className="animate-spin" />
@@ -52,9 +63,15 @@ const BuildRow = ({
             <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }} />
           )}
           {STATUS_LABEL[b.status] ?? b.status}
+          <VscOutput
+            size={12}
+            className="text-gray-500 opacity-0 transition-opacity group-hover:opacity-100"
+          />
         </span>
-        <span className="text-[11px] text-gray-500">{b.startedAt ? timeAgo(b.startedAt) : '—'}</span>
-      </div>
+        <span className="text-[11px] text-gray-500 group-hover:text-gray-300">
+          {b.startedAt ? timeAgo(b.startedAt) : '—'}
+        </span>
+      </button>
 
       <div className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px] font-jetbrains text-gray-500">
         <span>Duration</span>
@@ -113,6 +130,8 @@ export const BuildHistoryDrawer = ({
   // Which image :latest currently points at (seeded from the record, updated on deploy).
   const [currentImage, setCurrentImage] = useState<string>(env.imageName);
   const [deploying, setDeploying] = useState<string | null>(null);
+  // The build whose logs are open, if any.
+  const [logTarget, setLogTarget] = useState<BuildState | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -145,10 +164,13 @@ export const BuildHistoryDrawer = ({
   }, [load]);
 
   useEffect(() => {
+    // The log modal has its own Escape handler; while it's open, Escape belongs to
+    // it alone — otherwise one keypress closes the logs AND the drawer behind them.
+    if (logTarget) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, logTarget]);
 
   const name = env.builderConfig?.name || env.id;
 
@@ -209,11 +231,27 @@ export const BuildHistoryDrawer = ({
                 isCurrent={!!b.imageTag && b.imageTag === currentImage}
                 deploying={deploying === b.imageTag}
                 onDeploy={() => b.imageTag && handleDeploy(b.imageTag)}
+                onViewLogs={() => setLogTarget(b)}
               />
             ))
           )}
         </div>
       </div>
+
+      {/* Logs for one build — replays a finished build, follows a running one.
+          Stops the click from reaching the backdrop, which would close the drawer. */}
+      {logTarget?.buildId && (
+        <div onClick={(e) => e.stopPropagation()}>
+          <BuildLogModal
+            env={env}
+            build={logTarget}
+            onClose={() => {
+              setLogTarget(null);
+              load(); // a build we watched finish has a new status/imageTag
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 };

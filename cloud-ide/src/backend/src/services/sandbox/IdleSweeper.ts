@@ -39,10 +39,12 @@ export class IdleSweeper {
   ) {
     // Allows overriding via .env (e.g., SWEEP_INTERVAL_MS=3600000 for 1 hr in dev mode)
     // to prevent aggressive pausing while debugging locally. Defaults to 5 minutes.
+    // (It read `50 * 60 * 1000` — 50 minutes — while every comment around it claimed 5,
+    // so scale-to-zero ran an order of magnitude later than intended and idle sandboxes
+    // burned compute for the best part of an hour.)
     const intervalMs = process.env.SWEEP_INTERVAL_MS
     ? parseInt(process.env.SWEEP_INTERVAL_MS, 10)
-    : 50 * 60 * 1000;
-    // Run the sweep every 5 minutes
+    : 5 * 60 * 1000;
     console.log(`[IdleSweeper] Initialized. Sweeping every ${intervalMs / 1000} seconds.`);
     this.sweepInterval = setInterval(() => this.runSweep(), intervalMs);
   }
@@ -60,31 +62,43 @@ export class IdleSweeper {
     // 1. Get all currently running sandboxes
     const allSandboxes = await this.sandboxRepo.list(); 
 
-    // 1b. Self-Healing Loop: Check true status from Rust Core
+    // 1b. Reconcile the recorded state with the engine's.
+    //
+    // This loop used to DESTROY any sandbox the engine reported as ERROR/STOPPED, or
+    // that it had forgotten (a 404 throws out of getStatus). destroy() removes the
+    // worktree — `git worktree remove -f` plus `git branch -D` — so a container that
+    // simply didn't survive a dockerd restart took the user's workspace with it, and
+    // committed work went with the deleted branch. A sweep must never be able to
+    // delete a workspace; the two are not the same object.
+    //
+    // A dead container is now just a stale record: `getStatus` writes the real state
+    // back, and the next open recovers onto the still-intact worktree
+    // (SandboxManager.recover). So we leave the record ALONE — it is the only thing
+    // that still points at the user's files.
+    // ponytail: records for sandboxes nobody ever reopens accumulate. They are a few
+    // hundred bytes plus a worktree; reap them on an explicit age policy (and only
+    // with the user's say-so), never as a side effect of a health check.
     for (const sandbox of allSandboxes) {
-       try {
-           // Poll the Rust engine. This will throw or return an error state if the container doesn't exist
-           const status = await this.sandboxManager.getStatus(sandbox.sandboxId);
-           
-           if (status.state === 'ERROR' || status.state === 'STOPPED') {
-              console.warn(`[IdleSweeper] Sandbox ${sandbox.sandboxId} is in ${status.state} state in Rust. Triggering cleanup.`);
-              // Never force: a dirty worktree makes destroy throw, preserving
-              // uncommitted work. Log and let a human (or force-destroy) decide.
-              await this.sandboxManager.destroy(sandbox.sandboxId)
-                .catch((err) => console.warn(`[IdleSweeper] Cleanup of ${sandbox.sandboxId} skipped: ${err.message}`));
-              continue;
-           }
-       } catch (error: any) {
-           // Rust returns a 404/NOT_FOUND equivalent
-           console.error(`[IdleSweeper] Sandbox ${sandbox.sandboxId} NOT_FOUND in Rust. Pruning ghost record.`);
-           // Call destroy to ensure DB and Worktree are cleaned up!
-           await this.sandboxManager.destroy(sandbox.sandboxId)
-             .catch((err) => console.warn(`[IdleSweeper] Prune of ${sandbox.sandboxId} skipped: ${err.message}`));
-           continue;
-       }
+      try {
+        const status = await this.sandboxManager.getStatus(sandbox.sandboxId);
+        if (status.state === 'ERROR' || status.state === 'STOPPED') {
+          console.warn(
+            `[IdleSweeper] Sandbox ${sandbox.sandboxId} is ${status.state}; its worktree is kept and will be recovered on next open.`,
+          );
+        }
+      } catch {
+        console.warn(
+          `[IdleSweeper] Sandbox ${sandbox.sandboxId} is unknown to the engine; keeping the record so its workspace can be recovered.`,
+        );
+      }
     }
 
-    const runningSandboxes = allSandboxes.filter(sbx => sbx.state === 'RUNNING');
+    // Re-read: getStatus above wrote the engine's truth back to each record, so the
+    // list we started with is stale. Using it would try to pause containers we just
+    // learned are dead.
+    const runningSandboxes = (await this.sandboxRepo.list()).filter(
+      (sbx) => sbx.state === 'RUNNING',
+    );
 
     const now = Date.now();
 

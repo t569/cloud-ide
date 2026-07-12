@@ -12,10 +12,22 @@ const ENV = { id: 'my-env', imageName: 'cloud-ide-my-env:abc123', builderConfig:
 const sbx = (over: Partial<SandboxRecord>): SandboxRecord =>
   ({ sandboxId: 'sbx-1', userId: 'user-1', state: 'RUNNING', ...over } as SandboxRecord);
 
-function harness(existing: SandboxRecord[]) {
+/**
+ * `engineState` is what the DAEMON says, which is not necessarily what the record
+ * says — that gap is the whole point of the recovery path. Omit it and the daemon
+ * simply agrees with the record. Pass 'GONE' to make getStatus throw, which is what
+ * a real daemon does (404) for a container it has forgotten.
+ */
+function harness(existing: SandboxRecord[], engineState?: SandboxRecord['state'] | 'GONE') {
   const sandboxManager = {
     provision: jest.fn().mockResolvedValue(sbx({ sandboxId: 'sbx-new' })),
     resume: jest.fn().mockResolvedValue(true),
+    recover: jest.fn().mockResolvedValue(sbx({ sandboxId: 'sbx-recovered' })),
+    getStatus: jest.fn(async (id: string) => {
+      if (engineState === 'GONE') throw new Error('404 not found');
+      const state = engineState ?? existing.find((s) => s.sandboxId === id)?.state ?? 'RUNNING';
+      return { sandboxId: id, state };
+    }),
   };
   const sandboxRepo = { getSandboxesByEnvId: jest.fn().mockResolvedValue(existing) };
   const controller = new SessionController(
@@ -41,6 +53,55 @@ test('resumes a PAUSED sandbox rather than leaving it un-woken', async () => {
   const h = harness([sbx({ sandboxId: 'sbx-paused', state: 'PAUSED' })]);
   await h.run();
   expect(h.sandboxManager.resume).toHaveBeenCalledWith('sbx-paused');
+  expect(h.sandboxManager.provision).not.toHaveBeenCalled();
+});
+
+// ---------------------------------------------------------------------------
+// Workspace recovery. THE BUG THIS EXISTS TO CATCH: a container paused for a long
+// time does not survive a dockerd/WSL/host restart. Reuse only matched RUNNING or
+// PAUSED, so an ERROR record fell through to a cold provision() — which mints a
+// BRAND-NEW worktree. The user's files were still on disk, but nothing pointed at
+// them, and the editor opened an empty workspace. A dead container must be recovered
+// onto its existing worktree, never replaced by a fresh empty one.
+// ---------------------------------------------------------------------------
+
+test('recovers a dead-container sandbox onto its worktree instead of cold-booting an empty one', async () => {
+  const dead = sbx({ sandboxId: 'sbx-dead', state: 'ERROR', worktreeId: 'wt-keepme' });
+  const h = harness([dead]);
+  await h.run();
+
+  expect(h.sandboxManager.recover).toHaveBeenCalledWith(dead, expect.anything());
+  expect(h.sandboxManager.provision).not.toHaveBeenCalled(); // a cold boot would strand the worktree
+  expect(h.body().sandboxId).toBe('sbx-recovered');
+});
+
+test('a record the engine has forgotten is recovered, not abandoned', async () => {
+  // The record still says PAUSED; the daemon 404s it. The record is the ONLY thing
+  // that still points at the worktree, so it must be recovered from, not ignored.
+  const lost = sbx({ sandboxId: 'sbx-lost', state: 'PAUSED', worktreeId: 'wt-keepme' });
+  const h = harness([lost], 'GONE');
+  await h.run();
+
+  expect(h.sandboxManager.recover).toHaveBeenCalledWith(lost, expect.anything());
+  expect(h.sandboxManager.provision).not.toHaveBeenCalled();
+});
+
+test('a record that says PAUSED but is really dead is recovered, not resumed into a void', async () => {
+  // Stale belief: the record says PAUSED, the engine says STOPPED.
+  const stale = sbx({ sandboxId: 'sbx-stale', state: 'PAUSED', worktreeId: 'wt-keepme' });
+  const h = harness([stale], 'STOPPED');
+  await h.run();
+
+  expect(h.sandboxManager.recover).toHaveBeenCalled();
+  expect(h.body().sandboxId).toBe('sbx-recovered');
+});
+
+test('a resume that fails falls back to recovery rather than a wiped workspace', async () => {
+  const h = harness([sbx({ sandboxId: 'sbx-paused', state: 'PAUSED', worktreeId: 'wt-keepme' })]);
+  h.sandboxManager.resume.mockResolvedValue(false); // the container is gone under us
+  await h.run();
+
+  expect(h.sandboxManager.recover).toHaveBeenCalled();
   expect(h.sandboxManager.provision).not.toHaveBeenCalled();
 });
 

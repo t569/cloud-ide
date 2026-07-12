@@ -106,13 +106,14 @@ export const TerminalContextMenu = ({ x, y, isVisible, selectedText, onClose, te
   const handlePaste = async () => {
     try {
       const text = await navigator.clipboard.readText();
-      
-      // Pipe the pasted text into the terminal's input stream
-      terminalRef.current?.write(text); 
-      
-      // UX Polish: If the user pasted a massive block of text, snap the viewport 
+
+      // paste(), NOT write(): write() only echoes to the canvas, so the shell never
+      // received the text and pressing Enter submitted an empty line.
+      terminalRef.current?.paste(text);
+
+      // UX Polish: If the user pasted a massive block of text, snap the viewport
       // back down to the bottom so they can see the resulting prompt.
-      terminalRef.current?.scrollToBottom(); 
+      terminalRef.current?.scrollToBottom();
     } catch (err) {
       console.error('Failed to read clipboard', err);
     }

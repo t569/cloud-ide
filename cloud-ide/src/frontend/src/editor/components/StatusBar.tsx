@@ -42,6 +42,10 @@ interface StatusBarProps {
   git: GitState | null; // null when the workspace isn't a git repo
   language: string | null; // display name of the active file's language; null when no file is open
   lsp: LSPStatus | null; // language-server state; null when no server is wired for this language
+  /** Click the LSP read-out: reports the live state, and reconnects when offline. */
+  onLspClick?: () => void;
+  /** Click the language read-out: opens the language-mode picker. */
+  onLanguageClick?: () => void;
 }
 
 // These read-outs are placeholders until cursor/format/git are wired to Monaco, so a
@@ -49,7 +53,16 @@ interface StatusBarProps {
 const soon = (label: string) => () =>
   toast.info(`${label} isn't wired up yet — coming soon.`, { title: 'Not implemented' });
 
-export const StatusBar = ({ settings, cursor, formatting, git, language, lsp }: StatusBarProps) => (
+export const StatusBar = ({
+  settings,
+  cursor,
+  formatting,
+  git,
+  language,
+  lsp,
+  onLspClick,
+  onLanguageClick,
+}: StatusBarProps) => (
   <div
     className="flex h-6 items-center justify-between border-t border-ide-border bg-ide-panel text-[11px] select-none"
     style={{ fontFamily: settings.fontFamily }}
@@ -88,12 +101,16 @@ export const StatusBar = ({ settings, cursor, formatting, git, language, lsp }: 
         {formatting.eol}
       </StatusBarItem>
       {language && (
-        <StatusBarItem onClick={soon('Language mode')} title="Select language mode">
+        <StatusBarItem onClick={onLanguageClick} title="Select language mode">
           {language}
         </StatusBarItem>
       )}
       {lsp && (
-        <StatusBarItem onClick={soon('Language server')} title={`Language server: ${lsp}`} className="gap-1.5">
+        <StatusBarItem
+          onClick={onLspClick}
+          title={lsp === 'offline' ? 'Language server offline — click to reconnect' : `Language server: ${lsp}`}
+          className="gap-1.5"
+        >
           <span style={{ color: LSP_UI[lsp].color }}>●</span>
           {LSP_UI[lsp].label}
         </StatusBarItem>

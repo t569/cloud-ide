@@ -5,6 +5,7 @@ import { EventEmitter } from 'events';
 import { ISessionRepository, ISandboxRepository, IEnvironmentRepository } from '../database/interfaces';
 import { SandboxManager } from '../services/sandbox/SandboxManager';
 import { SessionRecord } from '../database/models';
+import type { SandboxRecord } from '@cloud-ide/shared/types/sandbox';
 import { config } from '../config/env';
 import { SID_COOKIE, SESSION_COOKIE_OPTIONS } from '../api/middleware/security';
 import { currentUser } from '../api/middleware/auth';
@@ -88,39 +89,34 @@ export class SessionController {
       // Legacy records carry no userId; adopt them, matching userOwnsSandbox.
       let targetSandboxId: string;
       const existingSandboxes = await this.sandboxRepo.getSandboxesByEnvId(environmentId);
-      const availableSandbox = existingSandboxes.find(
-        (sbx) =>
-          (!sbx.userId || sbx.userId === userId) &&
-          (sbx.state === 'RUNNING' || sbx.state === 'PAUSED'),
-      );
+      const owned = existingSandboxes.filter((sbx) => !sbx.userId || sbx.userId === userId);
 
-      if (availableSandbox) {
-        console.log(`[SessionController] Found warm sandbox: ${availableSandbox.sandboxId}`);
-        targetSandboxId = availableSandbox.sandboxId;
+      // The spec a cold boot OR a recovery boots from. Use the *stored* tag, not
+      // toImageName(id): a build may tag by content (contentTag(config)), so the
+      // ':latest' toImageName derives need not exist. imageName is gated non-empty
+      // above and is retagged on rollback.
+      const spec = {
+        imageTag: environment.imageName,
+        // Stamped onto the record; this is what getSandboxesByEnvId matches next
+        // time, so it must be the env id and not the (rebuild-unstable) tag.
+        environmentId,
+        // Applied at container boot, so the terminal/exec inherits them (Step 9c).
+        envVars: environment.builderConfig?.env,
+      };
 
-        // Idle-paused by the sweeper — wake it before handing the id back, or the
-        // caller polls a sandbox that never reaches RUNNING and times out.
-        if (availableSandbox.state === 'PAUSED') {
-          await this.sandboxManager.resume(targetSandboxId);
-        }
+      // Prefer a sandbox we believe is alive; otherwise fall back to ANY record this
+      // user has for the env. A record in ERROR/STOPPED still owns the worktree that
+      // holds their files, so it is the thing to recover — NOT something to ignore in
+      // favour of a cold boot, which would mint an empty worktree and strand the old
+      // one (this is what wiped workspaces after a long pause).
+      const candidate =
+        owned.find((sbx) => sbx.state === 'RUNNING' || sbx.state === 'PAUSED') ?? owned[0];
+
+      if (candidate) {
+        targetSandboxId = await this.reviveSandbox(candidate, spec);
       } else {
-        console.log(`[SessionController] No warm sandbox found. Delegating to Rust...`);
-        // 4. No sandbox exists. Provision one from the environment's BUILT image.
-        // Use the *stored* tag, not toImageName(id): a build may tag by content
-        // (contentTag(config)), so the ':latest' toImageName derives need not exist.
-        // imageName is gated non-empty above and is retagged on rollback.
-        const newSandbox = await this.sandboxManager.provision(
-          {
-            imageTag: environment.imageName,
-            // Stamped onto the record; this is what getSandboxesByEnvId matches next
-            // time, so it must be the env id and not the (rebuild-unstable) tag.
-            environmentId,
-            // Applied at container boot, so the terminal/exec inherits them (Step 9c).
-            envVars: environment.builderConfig?.env,
-            // If repoUrl was provided, pass it down so Rust can map the volume
-          },
-          userId,
-        );
+        console.log(`[SessionController] No sandbox for this env. Cold-booting...`);
+        const newSandbox = await this.sandboxManager.provision(spec, userId);
         targetSandboxId = newSandbox.sandboxId;
       }
 
@@ -146,6 +142,49 @@ export class SessionController {
       res.status(500).json({ error: 'Failed to establish session' });
     }
   };
+
+  /**
+   * Get a usable sandbox out of an existing record, and return the id to connect to.
+   *
+   * The record's stored state is a cached belief, not the truth — a container that was
+   * paused for a long time may have been lost to a dockerd/WSL/host restart while the
+   * record still says PAUSED. So we ask the daemon, and act on what it says:
+   *
+   *   RUNNING  -> use it.
+   *   PAUSED   -> resume it (the idle sweeper froze it; this is the common path).
+   *   anything else, or the daemon has never heard of it -> the CONTAINER is dead, but
+   *   the WORKSPACE is not: it is a worktree on the host disk. Boot a replacement
+   *   container onto that same worktree and hand back its new id.
+   *
+   * The returned id may differ from `record.sandboxId` — a recovery re-provisions.
+   */
+  private async reviveSandbox(
+    record: SandboxRecord,
+    spec: Parameters<SandboxManager['provision']>[0],
+  ): Promise<string> {
+    let state: SandboxRecord['state'];
+    try {
+      state = (await this.sandboxManager.getStatus(record.sandboxId)).state;
+    } catch {
+      // The daemon 404s a container it has forgotten. Not an error — just gone.
+      state = 'ERROR';
+    }
+
+    if (state === 'RUNNING') {
+      console.log(`[SessionController] Reusing warm sandbox: ${record.sandboxId}`);
+      return record.sandboxId;
+    }
+
+    // Idle-paused by the sweeper — wake it before handing the id back, or the caller
+    // polls a sandbox that never reaches RUNNING and times out.
+    if (state === 'PAUSED' && (await this.sandboxManager.resume(record.sandboxId))) {
+      console.log(`[SessionController] Resumed paused sandbox: ${record.sandboxId}`);
+      return record.sandboxId;
+    }
+
+    const revived = await this.sandboxManager.recover(record, spec);
+    return revived.sandboxId;
+  }
 
   /**
    * @route DELETE /api/v1/sessions/:sessionId

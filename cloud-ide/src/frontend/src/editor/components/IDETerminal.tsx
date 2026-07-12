@@ -4,6 +4,7 @@ import { TerminalTabs, TerminalSession } from '../../terminal/components/Termina
 import { createTerminalTransport } from '../../terminal/transport/createTerminalTransport';
 import { getSandboxCapabilities } from '../../api/sandbox';
 import { EditorEventBus } from '../core/EditorEventBus';
+import { API_BASE_URL } from '../../config/env';
 
 
 // DESIGN SYSTEM
@@ -17,9 +18,11 @@ import { toXtermTheme } from '../utils/themeAdapters';
 interface IDETerminalProps {
   sandboxId: string;
   editorEventBus: EditorEventBus; // We inject the Editor's nervous system here!
+  /** Called with the proxied ingress URL when the user clicks a sniffed dev-server link. */
+  onPreview: (url: string) => void;
 }
 
-export const IDETerminal = ({ sandboxId, editorEventBus }: IDETerminalProps) => {
+export const IDETerminal = ({ sandboxId, editorEventBus, onPreview }: IDETerminalProps) => {
   const [sessions, setSessions] = useState<TerminalSession[]>([]);
   const hasBooted = useRef(false);
   // Driver PTY capability, resolved once before the first tab boots. Ref (not state)
@@ -87,9 +90,15 @@ export const IDETerminal = ({ sandboxId, editorEventBus }: IDETerminalProps) => 
     editorEventBus.emit('FILE_OPEN_REQUESTED', { path });
   };
 
-  const handleLinkClick = (url: string) => {
-    // e.g., intercepting "http://localhost:3000" to open a proxy preview tab
-    console.log(`[Terminal Bridge] Intercepted URL click: ${url}`);
+  // The LinkSnifferPlugin spots `localhost:5173` in the terminal output and offers it
+  // as a badge. That localhost is INSIDE the container — the browser can't reach it —
+  // so we hand back the Gateway's ingress URL instead, which proxies to whatever is
+  // listening on that port in the sandbox. This is the "exposed port".
+  const handleLinkClick = (rawUrl: string) => {
+    const port = rawUrl.match(/:(\d{2,5})/)?.[1];
+    if (!port) return;
+    // API_BASE_URL ends in /api; the ingress router is mounted at the server root.
+    onPreview(`${API_BASE_URL.replace(/\/api$/, '')}/preview/${sandboxId}/${port}/`);
   };
 
   return (

@@ -32,6 +32,21 @@ export function isExternal(path: string): boolean {
   return path !== WORKSPACE_ROOT && !path.startsWith(`${WORKSPACE_ROOT}/`);
 }
 
+/** Formats a browser renders natively — served as bytes from /fs/:id/raw and shown
+ *  by ImageViewer. Reading one as text yields mojibake, so the open path skips the
+ *  text fetch entirely for these. */
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif'];
+
+export function isImage(path: string): boolean {
+  const ext = path.split('.').pop()?.toLowerCase();
+  return !!ext && IMAGE_EXTENSIONS.includes(ext);
+}
+
+/** The bytes endpoint for a workspace file — what an <img src> points at. */
+export function rawFileUrl(sandboxId: string, path: string): string {
+  return `${API_BASE_URL}/fs/${encodeURIComponent(sandboxId)}/raw?path=${encodeURIComponent(path)}`;
+}
+
 export class VFSController {
   private vfs: VirtualFileSystem;
   // An array to hold all our event un-subscribers to prevent memory leaks
@@ -118,6 +133,18 @@ export class VFSController {
       // which prefixes /workspace, missed the map, threw, and left a blank tab
       // wedged in 'conflict' forever.
       const external = isExternal(path);
+
+      // An image has no text to load: ImageViewer points an <img> straight at the
+      // bytes route. Sending it through readFile() would decode a PNG as UTF-8 and
+      // drop a screenful of mojibake into Monaco. Read-only — we have no editor for
+      // pixels, and a text write-back would corrupt the file.
+      if (isImage(path)) {
+        this.dispatch({
+          type: 'OPEN_FILE',
+          payload: { path, readOnly: true, isImage: true },
+        });
+        return;
+      }
 
       this.dispatch({ type: 'OPEN_FILE', payload: { path, readOnly: external } });
       this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'syncing' } });

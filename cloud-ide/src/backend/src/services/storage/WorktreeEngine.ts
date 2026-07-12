@@ -52,8 +52,10 @@ export class WorktreeEngine {
 
         try {
         await fs.mkdir(this.worktreesRoot, { recursive: true });
-        
-        // 1a. Idempotency Check: Check if worktree directory already exists
+
+        // 1a. Idempotency Check: Check if worktree directory already exists.
+        // This is what lets SandboxManager.recover() re-boot a container onto an
+        // existing workspace — the files are right here and must be left untouched.
         try {
             await fs.access(targetPath);
             console.log(`[WorktreeEngine] Worktree for ${sandboxId} already exists. Reusing path.`);
@@ -62,9 +64,29 @@ export class WorktreeEngine {
             // Directory does not exist, proceed to create
         }
 
-        await execAsync(`git worktree add -b ${branchName} ${targetPath}`, { 
-            cwd: this.baseRepoPath 
-        });
+        // Drop any stale administrative entry for a checkout that no longer exists,
+        // or `worktree add` refuses the path.
+        await execAsync('git worktree prune', { cwd: this.baseRepoPath }).catch(() => {});
+
+        // The branch OUTLIVES the checkout (see removeWorktree — we no longer delete
+        // it), so it may already exist: the directory was removed but the commits were
+        // not. `add -b` would fail on that ("branch already exists"), which would break
+        // the one path whose whole job is not to lose a workspace. Check out the
+        // EXISTING branch instead — which also restores the committed files, turning a
+        // lost checkout into a recoverable one rather than a fatal error.
+        const branchExists = await execAsync(
+            `git show-ref --verify --quiet refs/heads/${branchName}`,
+            { cwd: this.baseRepoPath },
+        ).then(() => true).catch(() => false);
+
+        if (branchExists) {
+            console.log(`[WorktreeEngine] Branch ${branchName} survives; restoring its checkout.`);
+            await execAsync(`git worktree add ${targetPath} ${branchName}`, { cwd: this.baseRepoPath });
+        } else {
+            await execAsync(`git worktree add -b ${branchName} ${targetPath}`, {
+                cwd: this.baseRepoPath,
+            });
+        }
         return targetPath;
         } catch (error: any) {
         throw new Error(`Failed to provision worktree: ${error.message}`);
@@ -98,18 +120,33 @@ export class WorktreeEngine {
     }
 
     /**
-    * Safely deletes the worktree from the disk and the Git tracking database.
+    * Removes the worktree's CHECKOUT from disk, and nothing more.
+    *
+    * The branch `sbx-<id>` is deliberately KEPT. It used to be deleted here ("to keep
+    * the repo clean"), which quietly made this the most destructive call in the system:
+    * the branch is the only durable record of the sandbox's commits, so deleting it
+    * left them unreachable and due for gc. Committing your work — the thing you do to
+    * make it safe — is what made the worktree clean, which is exactly the condition
+    * under which destroy() proceeds to call this. So the safe habit was the one that
+    * lost the history.
+    *
+    * A dangling branch costs a ref and whatever its objects weigh. That is the correct
+    * price for being able to answer "where did my work go?" with `git branch --list
+    * 'sbx-*'` instead of a shrug.
+    * ponytail: no branch reaping. If the ref count ever actually matters, reap on an
+    * explicit age policy — never as a side effect of tearing a container down.
     */
-
     public async removeWorktree(sandboxId: string): Promise<void> {
         const targetPath = path.join(this.worktreesRoot, sandboxId);
         try {
         await execAsync(`git worktree remove -f ${targetPath}`, { cwd: this.baseRepoPath });
-        // Also delete the branch to keep repo clean
-        await execAsync(`git branch -D sbx-${sandboxId}`, { cwd: this.baseRepoPath }).catch(() => {});
         } catch (error: any) {
         console.warn(`[WorktreeEngine] Worktree removal failed gracefully: ${error.message}`);
         await fs.rm(targetPath, { recursive: true, force: true }).catch(() => {});
+        // The checkout is gone but git still has it registered; prune the stale
+        // administrative entry so a later worktree can reuse the path. This does NOT
+        // touch the branch.
+        await execAsync('git worktree prune', { cwd: this.baseRepoPath }).catch(() => {});
         }
     }
 }

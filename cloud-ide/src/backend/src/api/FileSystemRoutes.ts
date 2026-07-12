@@ -126,6 +126,38 @@ export function createFileSystemRouter(
   });
 
   /**
+   * GET /api/fs/:sandboxId/raw?path=/workspace/logo.png
+   *
+   * The file's BYTES, with a content-type — what an <img> needs. /read cannot serve
+   * this: it decodes as UTF-8 and JSON-wraps the result, which corrupts every byte
+   * a PNG has. Same trust boundary as every other route here (hostPathFor runs the
+   * lexical + symlink guard, and /:sandboxId enforces ownership).
+   */
+  router.get('/:sandboxId/raw', async (req: Request, res: Response) => {
+    try {
+      const { sandboxId } = req.params;
+      const filePath = req.query.path as string;
+
+      if (!sandboxId || typeof sandboxId !== 'string') {
+        return res.status(400).json({ error: 'Invalid Sandbox id' });
+      }
+      if (!filePath || typeof filePath !== 'string') {
+        return res.status(400).json({ error: 'Valid file path is required' });
+      }
+
+      const hostPath = await fsManager.hostPathFor(sandboxId, filePath);
+      // sendFile sets Content-Type from the extension and streams — a big asset
+      // never buffers through the gateway's heap.
+      res.sendFile(hostPath, (err) => {
+        if (err && !res.headersSent) res.status(404).json({ error: 'File not found' });
+      });
+    } catch (error: any) {
+      console.warn(`[VFS] Raw read refused: ${error.message}`);
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  /**
    * POST /api/fs/:sandboxId/write
    */
   router.post('/:sandboxId/write', async (req: Request, res: Response) => {

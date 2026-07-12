@@ -4,19 +4,32 @@
 // (e.g. a Vite dev server on :3000) to the browser via the Gateway.
 //
 //   GET /preview/:sandboxId/:port/*  ->  {daemon-resolved endpoint for :port}/*
+//   WS  /preview/:sandboxId/:port/*  ->  the same, upgraded (dev-server hot reload)
 //
 // ponytail: path-based routing instead of wildcard subdomains (*.cloudide.com).
 // Same proxy core; switch to a `router` keyed on req.headers.host once real DNS exists.
+import type http from 'node:http';
+import type { Socket } from 'node:net';
+import type { Duplex } from 'node:stream';
 import { Router, Request, Response, NextFunction } from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { SandboxManager } from '../services/sandbox/SandboxManager';
 import { ISandboxRepository } from '../database/interfaces';
-import { requireSandboxOwnership } from './middleware/security';
+import { requireSandboxOwnership, userOwnsSandbox } from './middleware/security';
+import { readUserId } from './middleware/auth';
+import { config } from '../config/env';
+import { parsePreviewTarget, stripPreviewPrefix } from './previewPath';
 
-export function createPreviewRouter(
+export interface PreviewIngress {
+  router: Router;
+  /** Handles a WebSocket upgrade on a /preview path. Wired in server.ts. */
+  upgrade: (req: http.IncomingMessage, socket: Duplex, head: Buffer) => void;
+}
+
+export function createPreviewIngress(
   sandboxManager: SandboxManager,
   sandboxRepo: ISandboxRepository,
-): Router {
+): PreviewIngress {
   const router = Router();
 
   /** Reject malformed ids/ports before they reach the repository or the proxy. */
@@ -30,22 +43,25 @@ export function createPreviewRouter(
   };
 
   /**
-   * Wake-on-Demand (3c): if the target sandbox is PAUSED (frozen by the
-   * IdleSweeper), thaw it before letting the proxy touch it — mirrors the
-   * interception pattern used by the exec stream in SandboxController.
-   * Runs only for a verified owner (see the mount below).
+   * Wake-on-Demand (3c): if the target sandbox is PAUSED (frozen by the IdleSweeper),
+   * thaw it before letting the proxy touch it. Shared by the HTTP and WS paths — a
+   * hot-reload socket reconnecting to a sandbox that has since been frozen must wake
+   * it too, or the socket dies and the preview goes permanently stale.
    */
-  const wakeOnDemand = async (req: Request, res: Response, next: NextFunction) => {
-    const { sandboxId } = req.params as { sandboxId: string; port: string };
+  const wake = async (sandboxId: string): Promise<void> => {
+    const status = await sandboxManager.getStatus(sandboxId);
+    if (status.state === 'PAUSED') {
+      console.log(`[Ingress] Auto-resuming sleeping sandbox: ${sandboxId}`);
+      await sandboxManager.resume(sandboxId);
+      // Same thaw grace period the exec path uses before routing traffic
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  };
 
+  const wakeOnDemand = async (req: Request, res: Response, next: NextFunction) => {
+    const { sandboxId } = req.params as { sandboxId: string };
     try {
-      const status = await sandboxManager.getStatus(sandboxId);
-      if (status.state === 'PAUSED') {
-        console.log(`[Ingress] Auto-resuming sleeping sandbox: ${sandboxId}`);
-        await sandboxManager.resume(sandboxId);
-        // Same thaw grace period the exec path uses before routing traffic
-        await new Promise((resolve) => setTimeout(resolve, 300));
-      }
+      await wake(sandboxId);
       next();
     } catch {
       res.status(404).json({ error: `Sandbox ${sandboxId} not found.` });
@@ -57,21 +73,40 @@ export function createPreviewRouter(
    * daemon per-request for a host-routable endpoint for that port — sandboxes have no
    * IP we can reach directly. Resolution fails until something is actually listening
    * on `port` inside the container, which surfaces below as a 502.
-   * ponytail: HTTP only — WebSocket upgrade (HMR) needs server.on('upgrade')
-   * wiring in server.ts; add when a preview actually needs live reload.
+   *
+   * WebSockets are carried by the `upgrade` handler below calling `proxy.upgrade()`.
+   *
+   * NOT by `ws: true` — that looks like the obvious switch and is a trap. It makes the
+   * library subscribe its OWN `server.on('upgrade')` listener on the first request,
+   * and that listener has no pathFilter, so it would proxy EVERY upgrade the gateway
+   * receives — the PTY terminal socket included — into this preview proxy, with none
+   * of the origin/ownership checks below. It would also silently turn our explicit
+   * `proxy.upgrade()` call into a no-op (it skips servers it has already subscribed).
+   *
+   * The target is parsed from the URL rather than `req.params`, because an upgrade is
+   * a raw IncomingMessage that never went through Express and so has no params. For an
+   * HTTP request Express has already stripped the mount prefix off `req.url`, so we
+   * read `originalUrl` — one grammar, both paths.
    */
   const proxy = createProxyMiddleware({
     target: 'http://127.0.0.1', // never used: router() below always overrides
     changeOrigin: true,
     router: async (req) => {
-      const { sandboxId, port } = (req as Request).params as { sandboxId: string; port: string };
-      return sandboxManager.resolveEndpoint(sandboxId, Number(port));
+      const pathname = (req as Request).originalUrl ?? req.url ?? '';
+      const target = parsePreviewTarget(pathname);
+      if (!target) throw new Error(`Not a preview path: ${pathname}`);
+      return sandboxManager.resolveEndpoint(target.sandboxId, target.port);
     },
     on: {
       error: (err, _req, res) => {
         console.error(`[Ingress] Proxy error: ${err.message}`);
         const response = res as Response;
-        if ('headersSent' in response && !response.headersSent) {
+        // On a WS upgrade `res` is a raw socket, which has no status()/headersSent.
+        if (typeof response?.status !== 'function') {
+          (res as unknown as Duplex)?.destroy?.();
+          return;
+        }
+        if (!response.headersSent) {
           response.status(502).json({ error: `Sandbox service unreachable: ${err.message}` });
         }
       },
@@ -84,5 +119,59 @@ export function createPreviewRouter(
   // unauthorized caller cannot even cause a resume. Validation runs first so a
   // malformed id 400s rather than hitting the repo.
   router.use('/:sandboxId/:port', validateParams, requireSandboxOwnership(sandboxRepo), wakeOnDemand, proxy);
-  return router;
+
+  /**
+   * The WebSocket half. An upgrade bypasses Express entirely, so every guard the HTTP
+   * chain applies has to be re-applied here BY HAND — the middleware above does not
+   * run for it. Order mirrors the router: parse, origin, ownership, wake, then proxy.
+   */
+  const upgrade = (req: http.IncomingMessage, socket: Duplex, head: Buffer): void => {
+    const pathname = new URL(req.url ?? '', 'http://localhost').pathname;
+    const target = parsePreviewTarget(pathname);
+    if (!target) {
+      socket.destroy();
+      return;
+    }
+
+    // Cross-Site WebSocket Hijacking: an upgrade handshake is NOT covered by CORS and
+    // carries cookies, so any origin could otherwise open a socket into a logged-in
+    // user's dev server. Two origins are legitimate here: our SPA, and the previewed
+    // page itself — it is served from THIS origin (inside the iframe at
+    // /preview/...), so its hot-reload socket presents the gateway's own origin.
+    const origin = req.headers.origin;
+    const allowed = [config.FRONTEND_ORIGIN, config.PUBLIC_API_URL];
+    if (origin && !allowed.includes(origin)) {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
+    // readUserId, not currentUser: an upgrade has no Response to set a cookie on, and
+    // a caller with no identity must be refused, not handed a fresh one.
+    void userOwnsSandbox(sandboxRepo, readUserId(req.headers.cookie), target.sandboxId)
+      .then(async (owns) => {
+        if (!owns) {
+          socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+        await wake(target.sandboxId);
+
+        // Express strips the mount prefix for HTTP; nothing did it for this upgrade.
+        // The dev server must be asked for /@vite/client, not /preview/<id>/<port>/@vite/client.
+        //
+        // Preserve the full path on `originalUrl` exactly as Express would — router()
+        // above reads it to work out which sandbox/port to resolve, and it must still
+        // see the un-stripped URL after this rewrite.
+        (req as { originalUrl?: string }).originalUrl = req.url;
+        req.url = stripPreviewPrefix(req.url ?? '');
+
+        // `upgrade` types the socket as Duplex; it is always a net.Socket at runtime,
+        // which is what http-proxy-middleware's signature wants.
+        proxy.upgrade!(req, socket as Socket, head);
+      })
+      .catch(() => socket.destroy());
+  };
+
+  return { router, upgrade };
 }

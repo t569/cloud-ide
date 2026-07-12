@@ -5,27 +5,46 @@ import { TerminalComponent, TerminalHandle } from '@frontend/terminal/components
 import { toast } from '@frontend/notifications';
 import { BuildStreamTransport } from '../services/BuildStreamTransport';
 import { BaseImageIcon } from './icons/BaseImageIcon';
-import { SavedEnvironment, getBuildStatus, cancelBuild } from '../services/api/environmentApi';
+import { SavedEnvironment, BuildState, getBuildStatus, cancelBuild } from '../services/api/environmentApi';
 
 type Status = 'building' | 'done' | 'error' | 'cancelled';
 
 const STATUS_META: Record<Status, { color: string; label: string; Icon: IconType }> = {
   building: { color: '#fbbf24', label: 'Building…', Icon: VscLoading },
   done: { color: '#34d399', label: 'Stream finished', Icon: VscPass },
-  error: { color: '#f87171', label: 'Build request failed', Icon: VscError },
+  error: { color: '#f87171', label: 'Build failed', Icon: VscError },
   cancelled: { color: '#fbbf24', label: 'Cancelled', Icon: VscStopCircle },
 };
 
-export const BuildLogModal = ({ env, onClose }: { env: SavedEnvironment; onClose: () => void }) => {
+/** A history row's status, as this modal's four-state view of it. */
+const toStatus = (b: BuildState): Status =>
+  b.status === 'succeeded' ? 'done' : b.status === 'failed' ? 'error' : 'building';
+
+/**
+ * `build` omitted -> START a new build for this env and stream it (the Architect's
+ * "Build" button). `build` given -> VIEW that build's logs (a history row): replays
+ * what the backend captured and keeps following if it's still running.
+ */
+export const BuildLogModal = ({
+  env,
+  build,
+  onClose,
+}: {
+  env: SavedEnvironment;
+  build?: BuildState;
+  onClose: () => void;
+}) => {
   const terminalRef = useRef<TerminalHandle>(null);
   const transport = useRef(new BuildStreamTransport()).current;
   const cancelledRef = useRef(false);
-  // Which env we've already POSTed a build for — survives StrictMode's remount so
-  // we don't fire a second /build that 409s against the first live reservation.
+  // What we've already opened a stream for — survives StrictMode's remount so we
+  // don't fire a second /build that 409s against the first live reservation.
   const startedForRef = useRef<string | null>(null);
   const teardownTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [status, setStatus] = useState<Status>('building');
+  const [status, setStatus] = useState<Status>(build ? toStatus(build) : 'building');
   const [cancelling, setCancelling] = useState(false);
+
+  const buildId = build?.buildId;
 
   useEffect(() => {
     // StrictMode does mount -> cleanup -> mount synchronously; a remount cancels the
@@ -35,17 +54,30 @@ export const BuildLogModal = ({ env, onClose }: { env: SavedEnvironment; onClose
       teardownTimer.current = null;
     }
 
-    if (startedForRef.current !== env.id) {
-      startedForRef.current = env.id;
+    const key = `${env.id}:${buildId ?? 'new'}`;
+    if (startedForRef.current !== key) {
+      startedForRef.current = key;
       transport.onError(() => {
         if (!cancelledRef.current) setStatus('error');
       });
-      transport.startBuild(env.id).finally(async () => {
+
+      // Viewing an existing build never POSTs — opening the history must not kick
+      // off a rebuild of the environment.
+      const stream = buildId
+        ? transport.streamLog(env.id, buildId)
+        : transport.startBuild(env.id);
+
+      stream.finally(async () => {
         if (cancelledRef.current) {
           setStatus('cancelled');
           return;
         }
-        // The stream is plain text; ask the backend for the authoritative outcome.
+        // A build that had already finished keeps the status we opened with; the
+        // replay tells us nothing new.
+        if (build && toStatus(build) !== 'building') return;
+
+        // Otherwise this was (or became) the env's live build — the stream is plain
+        // text, so ask the backend for the authoritative outcome.
         try {
           const state = await getBuildStatus(env.id);
           setStatus((s) => (s === 'error' ? s : state.status === 'failed' ? 'error' : 'done'));
@@ -63,7 +95,7 @@ export const BuildLogModal = ({ env, onClose }: { env: SavedEnvironment; onClose
         startedForRef.current = null;
       }, 0);
     };
-  }, [transport, env.id]);
+  }, [transport, env.id, buildId, build]);
 
   // Esc to close
   useEffect(() => {
@@ -98,6 +130,9 @@ export const BuildLogModal = ({ env, onClose }: { env: SavedEnvironment; onClose
             <div className="flex items-center gap-2 min-w-0">
               <BaseImageIcon imageName={env.builderConfig?.baseImage ?? ''} size={18} />
               <span className="text-sm font-semibold text-gray-100 truncate">Build · {name}</span>
+              {buildId && (
+                <span className="font-jetbrains text-[11px] text-gray-500 truncate">{buildId}</span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-3">

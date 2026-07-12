@@ -176,10 +176,14 @@ export interface OpenFileContext {
   path: string;
   isDirty: boolean;
   isDeleted?: boolean; // New flag to indicate if the file has been deleted from the VFS
-  content?: string;
+  // NOTE: no `content` — a file's text lives in its Monaco model (seeded by
+  // FILE_LOADED) and in the VFS map, never in React state. A vestigial `content`
+  // field here is what made the editor pass `value={undefined}` to Monaco.
   // Set for files outside /workspace: they live only in the container, are not in
   // the worktree (so not in git), and have no write route. Monaco enforces it.
   readOnly?: boolean;
+  /** An image: rendered by ImageViewer, not Monaco (see isImage). */
+  isImage?: boolean;
 }
 
 export interface IEditorState {

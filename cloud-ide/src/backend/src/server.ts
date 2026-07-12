@@ -14,7 +14,11 @@ import http from 'http';
 import cors from 'cors';
 
 // 1. IMPORT OUR CENTRALIZED CONFIG FIRST
-import { config } from './config/env';
+import { config, assertSecureProductionConfig } from './config/env';
+
+// Fail fast on an insecure multi-tenant config, before we open a port. Mirrors the
+// AUTH_SECRET boot-guard: refuse to run rather than run exploitable.
+assertSecureProductionConfig();
 
 // Import our Transports (REST Controllers)
 import { SandboxController } from './controllers/SandboxController';
@@ -32,10 +36,11 @@ import { createFileSystemRouter } from './api/FileSystemRoutes';
 import { createLspRouter } from './api/LspRoutes';
 import { LspProxy, parseLspServers } from './services/lsp/LspProxy';
 import { createHealthRouter } from './api/HealthRoutes';
-import { createPreviewRouter } from './api/PreviewRoutes';
+import { createPreviewIngress } from './api/PreviewRoutes';
+import { isPreviewUpgrade } from './api/previewPath';
 import { createEnvironmentRouter } from './api/routes/environment.routes';
 import { createImageRouter } from './api/routes/images.routes';
-import { attachPtyGateway } from './api/PtyGateway';
+import { attachPtyGateway, isPtyUpgrade } from './api/PtyGateway';
 
 import { EventEmitter } from 'events';
 import { JsonEnvironmentRepository } from './database/json/JsonEnvironmentRepository';
@@ -210,7 +215,8 @@ app.use('/api/fs', createFileSystemRouter(fileSystemManager, sandboxRepo, fsEven
 app.use('/api/lsp', createLspRouter(lspProxy, sandboxRepo));
 
 // NEW: Mount the Ingress Router (Step 3) — proxies browser traffic into sandbox services
-app.use('/preview', createPreviewRouter(sandboxManager, sandboxRepo));
+const previewIngress = createPreviewIngress(sandboxManager, sandboxRepo);
+app.use('/preview', previewIngress.router);
 
 /**
  * 🌟 The Gateway HTTP Server
@@ -222,6 +228,24 @@ const server = http.createServer(app);
 // Interactive terminal: bridge WS /api/v1/sandboxes/:id/pty → a driver PTY session
 // (provider-agnostic; inert until a pty-capable driver is active). See PtyGateway.
 attachPtyGateway(server, { sandboxManager, sandboxRepo });
+
+// Preview hot-reload: a dev server's HMR socket, proxied into the sandbox. Each
+// upgrade handler ignores paths that aren't its own rather than destroying the
+// socket — Node fires EVERY 'upgrade' listener, so a handler that closed anything
+// unfamiliar would slam the door on its neighbours (which is precisely why HMR could
+// not have worked before: the PTY bridge destroyed every non-PTY upgrade).
+server.on('upgrade', (req, socket, head) => {
+  if (isPreviewUpgrade(new URL(req.url ?? '', 'http://localhost').pathname)) {
+    previewIngress.upgrade(req, socket, head);
+  }
+});
+
+// ...which means SOMEONE has to close the sockets nobody claimed. Registered last, so
+// it runs after both handlers above have had their look.
+server.on('upgrade', (req, socket) => {
+  const { pathname } = new URL(req.url ?? '', 'http://localhost');
+  if (!isPtyUpgrade(pathname) && !isPreviewUpgrade(pathname)) socket.destroy();
+});
 
 // 2. USE THE CONFIG OBJECT
 //

@@ -85,7 +85,14 @@ export class SandboxManager {
    * consults later. It must come from the identity seam (api/middleware/auth),
    * never from the request body — a client-supplied owner is not an owner.
    */
-  public async provision(spec: SandboxSpec, ownerId: string): Promise<SandboxRecord> {
+  public async provision(
+    spec: SandboxSpec,
+    ownerId: string,
+    // Adopt an EXISTING worktree instead of minting a fresh one. This is what makes
+    // a container disposable: `recover` below boots a replacement onto the same host
+    // directory, so a dead container costs the user nothing. Omit for a cold boot.
+    existingWorktreeId?: string,
+  ): Promise<SandboxRecord> {
     // 0. Ensure the central bare repo exists (memoized — runs once per process;
     // a failure resets the memo so a transient error doesn't brick provisioning)
     this.baseRepoReady ??= this.worktreeEngine.initializeBaseRepo().catch((err) => {
@@ -95,9 +102,10 @@ export class SandboxManager {
     await this.baseRepoReady;
 
     // 1. Generate a dedicated ID for the storage layer
-    const worktreeId = crypto.randomUUID();
+    const worktreeId = existingWorktreeId ?? crypto.randomUUID();
 
-    // 2. Request the host path from the Engine
+    // 2. Request the host path from the Engine (idempotent: an existing worktree is
+    //    reused as-is, files and all — it does NOT get re-created empty)
     const hostPath = await this.worktreeEngine.createWorktree(worktreeId);
 
     // 3. Use your Provisioner Strategy to mutate the spec flawlessly
@@ -303,6 +311,51 @@ export class SandboxManager {
     return success;
   }
 
+
+  /**
+   * Boot a REPLACEMENT container onto an existing sandbox's worktree.
+   *
+   * A container that has been paused for a long time does not survive a dockerd
+   * restart, a WSL shutdown, or a host reboot: it comes back STOPPED, or the daemon
+   * has forgotten it entirely and 404s. The workspace is fine — it is a git worktree
+   * bind-mounted from the host SSD, and it never lived in the container at all.
+   *
+   * So a dead container is not a dead workspace, and must not be treated as one.
+   * We throw the container away and boot a fresh one onto the SAME worktreeId. The
+   * daemon mints a new sandboxId, so the OLD RECORD IS REPLACED, not mutated — the
+   * caller must use the returned record's id.
+   *
+   * The bug this exists to kill: the launch path only reused RUNNING/PAUSED records,
+   * so an ERROR one fell through to a cold `provision()`, which minted a brand-new
+   * `randomUUID()` worktree. The user's files were still on disk, but nothing pointed
+   * at them any more, and the editor opened an empty workspace.
+   */
+  public async recover(record: SandboxRecord, spec: SandboxSpec): Promise<SandboxRecord> {
+    if (!record.worktreeId) {
+      throw new Error(`Sandbox ${record.sandboxId} has no worktree to recover onto.`);
+    }
+    console.log(
+      `[SandboxManager] Recovering ${record.sandboxId} onto worktree ${record.worktreeId} (container is gone).`,
+    );
+
+    // Best-effort: the container may already be gone, which is the normal case here.
+    // NOTE: driver.destroySandbox, NOT this.destroy() — destroy() removes the
+    // worktree, which is precisely the data we are here to save.
+    await this.driver.destroySandbox(record.sandboxId).catch(() => undefined);
+    await this.sandboxRepo.delete(record.sandboxId);
+
+    // A legacy record may carry no userId (same adoption rule as userOwnsSandbox);
+    // the recovered sandbox keeps whoever owned it, and `ownerId` must be a string.
+    const ownerId = record.userId ?? '';
+    const revived = await this.provision(spec, ownerId, record.worktreeId);
+    await this.activityRepo?.record(
+      revived.sandboxId,
+      'state',
+      'Recovered onto the existing workspace after its container was lost',
+      ownerId,
+    );
+    return revived;
+  }
 
   /**
    * @description Destroys the container and removes the record from the database.

@@ -16,19 +16,28 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'node:crypto';
 import { ISandboxRepository } from '../../database/interfaces';
-import { config, IS_PRODUCTION } from '../../config/env';
+import { config, IS_PRODUCTION, CROSS_SITE_COOKIES } from '../../config/env';
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 export const CSRF_COOKIE = 'csrf-token'; // readable by JS (double-submit)
 export const SID_COOKIE = 'sid';         // httpOnly session bearer
 
-// Secure flag on only when this server is actually served over HTTPS, so local
-// http dev still receives cookies.
-const COOKIE_SECURE = config.PUBLIC_API_URL.startsWith('https');
+// Secure flag on when this server is served over HTTPS, so local http dev still
+// receives cookies — and ALWAYS when we're cross-site, because SameSite=None is
+// only honoured on a Secure cookie (the boot guard in config/env refuses the
+// cross-site + plain-http combination outright, so this can't silently no-op).
+const COOKIE_SECURE = config.PUBLIC_API_URL.startsWith('https') || CROSS_SITE_COOKIES;
+
+// 'lax' while the app and API share a host (the local :5173 → :3000 case; ports do
+// not affect same-site). Split them across hosts and Lax would drop the cookie on
+// every credentialed request — including the ones the browser makes on our behalf
+// for the preview <iframe> and the raw-image <img>, which is exactly where it would
+// bite first. See CROSS_SITE_COOKIES.
+const COOKIE_SAME_SITE = CROSS_SITE_COOKIES ? ('none' as const) : ('lax' as const);
 
 export const SESSION_COOKIE_OPTIONS = {
   httpOnly: true as const,
-  sameSite: 'lax' as const,
+  sameSite: COOKIE_SAME_SITE,
   secure: COOKIE_SECURE,
   path: '/',
 };
@@ -126,8 +135,15 @@ export function csrfProtection(req: Request, res: Response, next: NextFunction) 
 
   if (!token) {
     // First contact — issue a token. httpOnly:false so the SPA can read it.
+    // Same SameSite/Secure policy as the session cookie: if this one is dropped
+    // cross-site, every mutating request 403s on a token it can never read back.
     token = crypto.randomBytes(32).toString('hex');
-    res.cookie(CSRF_COOKIE, token, { httpOnly: false, sameSite: 'lax', secure: COOKIE_SECURE, path: '/' });
+    res.cookie(CSRF_COOKIE, token, {
+      httpOnly: false,
+      sameSite: COOKIE_SAME_SITE,
+      secure: COOKIE_SECURE,
+      path: '/',
+    });
   }
 
   if (MUTATING_METHODS.has(req.method)) {

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspaceSession, FileNode } from '../types/editor';
 import { LocalStorageManager } from '../utils/LocalStoragemanager';
 import { isExternal } from '../core/VFSController';
+import { toast } from '../../notifications';
 
 import { EditorTabs } from './EditorTabs';
 import { StatusBar } from './StatusBar';
@@ -9,9 +10,12 @@ import { TopNavBar } from './TopNavBar';
 import { ActivityBar } from './ActivityBar';
 import { FileExplorer } from './FileExplorer';
 import { MonacoEditorWrapper } from './MonacoEditorWrapper';
+import { ImageViewer } from './ImageViewer';
+import { LanguagePicker } from './LanguagePicker';
 import { CommandPalette } from './CommandPalette';
 import { IDETerminal } from './IDETerminal';
 import { ComingSoon } from './ComingSoon';
+import { PreviewPane } from '../../preview/PreviewPane';
 import { VscSearch, VscExtensions, VscSettingsGear } from 'react-icons/vsc';
 
 import { DesignSystemProvider, useDesignSystem } from '../context/DesignSystemContext';
@@ -123,11 +127,48 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
   const activeFile =
     workspaceState.openFiles.find((f) => f.path === workspaceState.activeFilePath) || null;
 
-  // Language of the active file, for the status bar. Same detect() Monaco uses.
-  const activeLanguageId = activeFile ? languages.detect(activeFile.path) : null;
+  // Manual language-mode overrides, per file path. detect() is a guess off the
+  // filename, and the picker is how the user corrects it (an extensionless script, a
+  // .txt that's really JSON). Not persisted — a reload re-detects. ponytail: hang it
+  // off LocalStorageManager alongside the open-tab set if that turns out to annoy.
+  const [languageOverrides, setLanguageOverrides] = useState<Record<string, string>>({});
+  const [languagePickerOpen, setLanguagePickerOpen] = useState(false);
+
+  // Language of the active file, for the status bar AND Monaco — one resolution, so
+  // the read-out can never disagree with what the editor is actually tokenizing.
+  const activeLanguageId = activeFile
+    ? languageOverrides[activeFile.path] ?? languages.detect(activeFile.path)
+    : null;
   const activeLanguage = activeLanguageId ? languages.displayName(activeLanguageId) : null;
   // Live LSP connection state for that language (null if no server is wired).
   const lspStatus = useLspStatus(langRegistry, activeLanguageId);
+
+  // Clicking the LSP read-out reports the real connection state, and retries the
+  // connection when it's down — the one action available on an offline server.
+  const handleLspClick = () => {
+    const transport = activeLanguageId ? langRegistry.get(activeLanguageId) : undefined;
+    if (!transport || !activeLanguage) return;
+
+    if (lspStatus === 'connected') {
+      toast.success(`${activeLanguage} language server is connected.`, { title: 'Language server' });
+      return;
+    }
+    if (lspStatus === 'connecting') {
+      toast.info(`Connecting to the ${activeLanguage} language server…`, { title: 'Language server' });
+      return;
+    }
+
+    // offline — reconnect. connect() is documented safe to call repeatedly.
+    toast.info(`Reconnecting to the ${activeLanguage} language server…`, { title: 'Language server' });
+    transport.connect?.().catch((err: Error) =>
+      toast.error(err.message, { title: `${activeLanguage} server unreachable` }),
+    );
+  };
+
+  // A dev server the user started in the terminal, proxied through the Gateway's
+  // ingress so the browser can actually reach it (the container's localhost can't
+  // be reached from here). Null = no preview open.
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   return (
     <div className="h-screen w-screen flex flex-col bg-ide-bg text-ide-text font-sans overflow-hidden">
@@ -213,14 +254,29 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
               openFiles={workspaceState.openFiles}
               eventBus={eventBus}
             />
-            <div className="flex-1 relative">
-              <MonacoEditorWrapper
-                activeFile={activeFile}
-                globalSettings={settings}
-                eventBus={eventBus}
-                registry={langRegistry}
-                languages={languages}
-              />
+            <div className="flex flex-1 min-h-0">
+              <div className="relative flex-1 min-w-0">
+                <MonacoEditorWrapper
+                  activeFile={activeFile}
+                  globalSettings={settings}
+                  eventBus={eventBus}
+                  registry={langRegistry}
+                  languages={languages}
+                  languageId={activeLanguageId}
+                />
+                {/* An image tab covers Monaco rather than replacing it — swapping the
+                    component out would tear down and rebuild the editor (and every
+                    model's undo history) on each hop between a PNG and a source file. */}
+                {activeFile?.isImage && (
+                  <ImageViewer sandboxId={sandboxId} path={activeFile.path} />
+                )}
+              </div>
+
+              {previewUrl && (
+                <div className="w-1/2 min-w-0 shrink-0">
+                  <PreviewPane url={previewUrl} onClose={() => setPreviewUrl(null)} />
+                </div>
+              )}
             </div>
           </div>
 
@@ -246,7 +302,11 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
                 style={{ height: `${layout.bottomPanelHeight}px` }}
                 className="bg-ide-panel flex flex-col flex-shrink-0"
               >
-                <IDETerminal sandboxId={sandboxId} editorEventBus={eventBus} />
+                <IDETerminal
+                  sandboxId={sandboxId}
+                  editorEventBus={eventBus}
+                  onPreview={setPreviewUrl}
+                />
               </div>
             </>
           )}
@@ -260,7 +320,20 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
             git={{ branch: 'main', hasChanges: false }}
             language={activeLanguage}
             lsp={lspStatus}
+            onLspClick={handleLspClick}
+            onLanguageClick={() => setLanguagePickerOpen(true)}
           />
+
+          {languagePickerOpen && activeFile && (
+            <LanguagePicker
+              languages={languages.list()}
+              current={activeLanguageId}
+              onSelect={(id) =>
+                setLanguageOverrides((prev) => ({ ...prev, [activeFile.path]: id }))
+              }
+              onClose={() => setLanguagePickerOpen(false)}
+            />
+          )}
         </div>
       </div>
     </div>

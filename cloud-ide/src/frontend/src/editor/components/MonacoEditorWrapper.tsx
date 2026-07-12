@@ -15,6 +15,13 @@ interface MonacoEditorProps {
   eventBus: EditorEventBus;
   registry: LanguageServiceRegistry;
   languages: LanguageRegistry;
+  /**
+   * The language to render the active file as — already resolved by the workspace,
+   * which applies any user override from the status-bar picker on top of detect().
+   * Passed in rather than re-detected here, or a manual override would be silently
+   * overwritten by the guess it was chosen to replace.
+   */
+  languageId: string | null;
 }
 
 /** Where a go-to-definition wants the cursor. Monaco hands us either shape. */
@@ -29,12 +36,15 @@ function revealRange(editor: any, target: RevealTarget) {
   editor.focus();
 }
 
-export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, registry, languages }: MonacoEditorProps) => {
+export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, registry, languages, languageId }: MonacoEditorProps) => {
   const editorRef = useRef<any>(null);
   const inputManagerRef = useRef<EditorInputManager | null>(null);
   const disposablesRef = useRef<any[]>([]); // Track disposables for cleanup
   // A go-to-definition target whose file is still loading — revealed on FILE_LOADED.
   const pendingRevealRef = useRef<{ path: string; selection: RevealTarget } | null>(null);
+  // True only while FILE_LOADED is seeding a model from the VFS, so the change
+  // event that seeding emits isn't mistaken for the user typing.
+  const loadingRef = useRef(false);
   // Latest settings, readable from the (mount-time) input manager closure.
   const settingsRef = useRef(globalSettings);
   settingsRef.current = globalSettings;
@@ -128,14 +138,29 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
       },
     }));
 
-    // Listen for incoming file data from the VFS
+    // Listen for incoming file data from the VFS.
+    //
+    // The VFS is authoritative for a model's content, INCLUDING when the model
+    // already exists. Opening a tab dispatches OPEN_FILE synchronously, which
+    // re-renders <Editor> with the new `path`; @monaco-editor/react then creates
+    // an EMPTY model for that path immediately. The content fetch lands after.
+    // We used to only fill in a model we created ourselves, so whenever that
+    // empty model got there first the fetched content was dropped on the floor —
+    // any file whose blob wasn't already cached (everything `npm` had just
+    // generated) opened blank.
     const unsubscribeLoaded = eventBus.on('FILE_LOADED', ({ path, content, language }) => {
-      // Check if a model for this file already exists in Monaco's memory
-      let model = monaco.editor.getModel(monaco.Uri.parse(path));
+      const uri = monaco.Uri.parse(path);
+      let model = monaco.editor.getModel(uri);
 
       if (!model) {
-        // Create a new text buffer for this file
-        model = monaco.editor.createModel(content, language, monaco.Uri.parse(path));
+        model = monaco.editor.createModel(content, language, uri);
+      } else if (model.getValue() !== content) {
+        // setValue fires a content change synchronously; suppress the resulting
+        // CONTENT_CHANGED so loading a file doesn't mark the fresh tab dirty and
+        // queue a pointless write-back of what we just read.
+        loadingRef.current = true;
+        model.setValue(content);
+        loadingRef.current = false;
       }
 
       // Tell the editor to display this model
@@ -166,6 +191,7 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
 
   // 2. Handle Text Changes
   const handleEditorChange: OnChange = (value, event) => {
+    if (loadingRef.current) return; // seeding a model from the VFS, not a user edit
     if (activeFile) {
       // Monaco's deltas are 1-based and sorted end-to-start (safe to apply in
       // order); convert to 0-based LSP ranges for incremental language-server sync.
@@ -222,8 +248,13 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
       <Editor
         height="100%"
         path={activeFile.path} // Monaco uses this to maintain internal view states (cursor pos, undo history) across tabs!
-        language={languages.detect(activeFile.path)}
-        value={activeFile.content} // NOTE: You will need to add 'content' to your mock state to test this
+        // Changing this calls monaco.editor.setModelLanguage on the live model, which
+        // is what makes the picker retokenize the open file immediately.
+        language={languageId ?? undefined}
+        // No `value`: content is not React state. The model IS the buffer — seeded
+        // by FILE_LOADED above, edited in place, and synced to disk by the VFS. A
+        // `value` prop here would need every keystroke to round-trip through the
+        // reducer to avoid reverting the buffer on tab switch.
         theme="cloud-ide-dark"
         onMount={handleEditorMount}
         onChange={handleEditorChange}

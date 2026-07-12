@@ -56,14 +56,43 @@ export class BuildStreamTransport implements ITransportStream {
     this.controller = new AbortController();
     this.emit(`\x1b[1;36m[Cloud IDE]\x1b[0m Requesting build for "${envId}"...\n`);
 
+    await this.pump(
+      () =>
+        postStream(`${API_BASE_URL}/environment/${encodeURIComponent(envId)}/build`, {
+          signal: this.controller!.signal,
+        }),
+      'Build request failed',
+    );
+  }
+
+  /**
+   * Replay + follow ONE build's logs (GET .../builds/:buildId/logs). Same terminal,
+   * same pump — the endpoint writes what it captured, then streams the rest if that
+   * build is still running, so this works for a finished build and a live one alike.
+   */
+  async streamLog(envId: string, buildId: string): Promise<void> {
+    if (this.building) return;
+    this.building = true;
+    this.controller = new AbortController();
+
+    await this.pump(
+      () =>
+        fetch(
+          `${API_BASE_URL}/environment/${encodeURIComponent(envId)}/builds/${encodeURIComponent(buildId)}/logs`,
+          { credentials: 'include', signal: this.controller!.signal },
+        ),
+      'Could not load build logs',
+    );
+  }
+
+  /** Drain a streaming Response into the terminal. Shared by both entry points. */
+  private async pump(open: () => Promise<Response>, failureLabel: string): Promise<void> {
     try {
-      const res = await postStream(`${API_BASE_URL}/environment/${encodeURIComponent(envId)}/build`, {
-        signal: this.controller.signal,
-      });
+      const res = await open();
 
       if (!res.ok || !res.body) {
         const detail = await res.text().catch(() => '');
-        throw new Error(`Build request failed (HTTP ${res.status}). ${detail}`.trim());
+        throw new Error(`${failureLabel} (HTTP ${res.status}). ${detail}`.trim());
       }
 
       const reader = res.body.getReader();

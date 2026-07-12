@@ -87,10 +87,24 @@ export class LspProxy {
     return session;
   }
 
-  /** Absolute host path -> the /workspace-rooted path the frontend speaks. */
+  /**
+   * Absolute host path -> the path the frontend speaks.
+   *
+   * Inside the worktree that's a `/workspace`-rooted path. OUTSIDE it — a
+   * go-to-definition landing in the stdlib or site-packages, which is most of
+   * them — the path is returned untouched, and the editor opens it read-only
+   * (see VFSController.isExternal).
+   *
+   * This used to prefix unconditionally, so `/usr/lib/python3.11/os.py` came back
+   * as `/workspace/usr/lib/python3.11/os.py`: a path that doesn't exist, pointing
+   * at a file we'd then have happily created in the worktree.
+   */
   private hostToWorkspace(root: string, hostAbs: string): string {
-    const rel = hostAbs.startsWith(root) ? hostAbs.slice(root.length) : hostAbs;
-    return `/workspace/${rel.replace(/^[/\\]+/, '')}`;
+    // Separator-agnostic: the host is posix in prod, win32 in dev.
+    const inRoot =
+      hostAbs === root || hostAbs.startsWith(`${root}/`) || hostAbs.startsWith(`${root}\\`);
+    if (!inRoot) return hostAbs;
+    return `/workspace/${hostAbs.slice(root.length).replace(/^[/\\]+/, '')}`;
   }
 
   async request(sandboxId: string, languageId: string, method: string, params: any): Promise<unknown> {

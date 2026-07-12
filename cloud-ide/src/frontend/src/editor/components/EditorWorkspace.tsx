@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspaceSession, FileNode } from '../types/editor';
 import { LocalStorageManager } from '../utils/LocalStoragemanager';
+import { isExternal } from '../core/VFSController';
 
 import { EditorTabs } from './EditorTabs';
 import { StatusBar } from './StatusBar';
@@ -89,13 +90,19 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
           });
         walk(tree);
 
+        // An external file (stdlib, site-packages, /etc) is never in the tree —
+        // the tree only mirrors the worktree — so the presence check can't speak
+        // for it. Restore it anyway: the open path re-reads it from the container,
+        // and a failed read now closes the tab on its own.
+        const restorable = (p: string) => present.has(p) || isExternal(p);
+
         // FILE_OPEN_REQUESTED loads content + opens the tab (reusing the exact
         // path a user click takes), so every restored tab has a live buffer.
         session.openFiles
-          .filter((p) => present.has(p))
+          .filter(restorable)
           .forEach((path) => eventBus.emit('FILE_OPEN_REQUESTED', { path }));
 
-        if (session.activeFilePath && present.has(session.activeFilePath)) {
+        if (session.activeFilePath && restorable(session.activeFilePath)) {
           eventBus.emit('TAB_ACTIVATED', { path: session.activeFilePath });
         }
       }

@@ -1,6 +1,7 @@
 // frontend/src/editor/components/MonacoEditorWrapper.tsx
 import React, { useRef, useEffect } from 'react';
 import Editor, { OnMount, OnChange } from '@monaco-editor/react';
+import type * as MonacoNs from 'monaco-editor';
 import { EditorInputManager } from '../core/EditorInputManager';
 import { LanguageServiceRegistry } from '../lsp';
 import { LanguageRegistry } from '../languages';
@@ -16,10 +17,24 @@ interface MonacoEditorProps {
   languages: LanguageRegistry;
 }
 
+/** Where a go-to-definition wants the cursor. Monaco hands us either shape. */
+type RevealTarget = MonacoNs.IRange | MonacoNs.IPosition;
+
+/** Put the cursor on a definition target and scroll it into view. */
+function revealRange(editor: any, target: RevealTarget) {
+  const lineNumber = 'startLineNumber' in target ? target.startLineNumber : target.lineNumber;
+  const column = 'startColumn' in target ? target.startColumn : target.column;
+  editor.setPosition({ lineNumber, column });
+  editor.revealLineInCenterIfOutsideViewport(lineNumber);
+  editor.focus();
+}
+
 export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, registry, languages }: MonacoEditorProps) => {
   const editorRef = useRef<any>(null);
   const inputManagerRef = useRef<EditorInputManager | null>(null);
   const disposablesRef = useRef<any[]>([]); // Track disposables for cleanup
+  // A go-to-definition target whose file is still loading — revealed on FILE_LOADED.
+  const pendingRevealRef = useRef<{ path: string; selection: RevealTarget } | null>(null);
   // Latest settings, readable from the (mount-time) input manager closure.
   const settingsRef = useRef(globalSettings);
   settingsRef.current = globalSettings;
@@ -69,18 +84,50 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
     });
     disposablesRef.current.push({ dispose: unsubscribeFormat });
 
+    // Go-to-definition into a file we have no model for — the stdlib, something
+    // under site-packages, or just an unopened workspace file. Monaco's default is
+    // to give up silently, which is why go-to-def looked broken. Route it through
+    // the normal open path (FILE_OPEN_REQUESTED already knows how to fetch an
+    // out-of-workspace file read-only) and reveal the target once it loads.
+    disposablesRef.current.push(monaco.editor.registerEditorOpener({
+      openCodeEditor: (
+        _source: MonacoNs.editor.ICodeEditor,
+        resource: MonacoNs.Uri,
+        selection?: RevealTarget,
+      ) => {
+        const existing = monaco.editor.getModel(resource);
+        if (existing) {
+          editor.setModel(existing);
+          if (selection) revealRange(editor, selection);
+          return true;
+        }
+        // Not loaded yet: stash where to jump, then ask the VFS for the file. The
+        // FILE_LOADED handler below performs the reveal once the model exists.
+        pendingRevealRef.current = selection ? { path: resource.path, selection } : null;
+        eventBus.emit('FILE_OPEN_REQUESTED', { path: resource.path });
+        return true;
+      },
+    }));
+
     // Listen for incoming file data from the VFS
     const unsubscribeLoaded = eventBus.on('FILE_LOADED', ({ path, content, language }) => {
       // Check if a model for this file already exists in Monaco's memory
       let model = monaco.editor.getModel(monaco.Uri.parse(path));
-      
+
       if (!model) {
         // Create a new text buffer for this file
         model = monaco.editor.createModel(content, language, monaco.Uri.parse(path));
       }
-      
+
       // Tell the editor to display this model
       editor.setModel(model);
+
+      // A go-to-definition was waiting on this file — jump to the symbol.
+      const pending = pendingRevealRef.current;
+      if (pending?.path === path) {
+        pendingRevealRef.current = null;
+        revealRange(editor, pending.selection);
+      }
     });
 
     // Add to your cleanup logic

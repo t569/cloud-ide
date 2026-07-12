@@ -8,6 +8,8 @@ import { encodeMessage, MessageBuffer } from './framing';
 class FakeLsp extends Duplex {
   private inbound = new MessageBuffer();
   seen: any[] = [];
+  /** What textDocument/definition resolves to; set per-test. */
+  definition: unknown = null;
   _read(): void {}
   _write(chunk: Buffer, _enc: BufferEncoding, cb: () => void): void {
     this.inbound.append(chunk);
@@ -16,6 +18,9 @@ class FakeLsp extends Duplex {
       if (msg.method === 'initialize') this.reply({ jsonrpc: '2.0', id: msg.id, result: { capabilities: {} } });
       if (msg.method === 'textDocument/completion') {
         this.reply({ jsonrpc: '2.0', id: msg.id, result: { items: [{ label: 'os', kind: 9 }] } }); // 9 = Module
+      }
+      if (msg.method === 'textDocument/definition') {
+        this.reply({ jsonrpc: '2.0', id: msg.id, result: this.definition });
       }
     }
     cb();
@@ -67,6 +72,31 @@ describe('LspProxy', () => {
     const { proxy } = makeProxy(new FakeLsp());
     await expect(proxy.request('sb1', 'ruby', 'completion', { path: '/workspace/x.rb' }))
       .rejects.toBeInstanceOf(NoLanguageServerError);
+  });
+
+  // Go-to-definition mostly lands OUTSIDE the worktree (the stdlib, site-packages).
+  // Such a target must come back as its real absolute path, so the editor opens it
+  // read-only. It used to be prefixed regardless — /usr/lib/python3.11/os.py came
+  // back as /workspace/usr/lib/python3.11/os.py, a file that does not exist and
+  // which a write would have created in the worktree.
+  it('maps a definition inside the worktree to /workspace, and leaves an external one absolute', async () => {
+    const fake = new FakeLsp();
+    const { proxy } = makeProxy(fake);
+    const range = { start: { line: 2, character: 0 }, end: { line: 2, character: 4 } };
+    const ask = () => proxy.request('sb1', 'python', 'definition', {
+      path: '/workspace/main.py',
+      position: { line: 0, character: 8 },
+    });
+
+    fake.definition = [{ uri: 'file:///wt/sb1/lib/helper.py', range }];
+    expect(await ask()).toEqual([{ path: '/workspace/lib/helper.py', range }]);
+
+    fake.definition = [{ uri: 'file:///usr/lib/python3.11/os.py', range }];
+    expect(await ask()).toEqual([{ path: '/usr/lib/python3.11/os.py', range }]);
+
+    // A sibling worktree is not "inside" ours just because the string prefixes.
+    fake.definition = [{ uri: 'file:///wt/sb10/secrets.py', range }];
+    expect(await ask()).toEqual([{ path: '/wt/sb10/secrets.py', range }]);
   });
 });
 

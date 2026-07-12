@@ -12,7 +12,7 @@ interface WorkspaceState {
 
 type WorkspaceAction =
   | { type: 'SET_WORKSPACE_NAME'; payload: { name: string } }
-  | { type: 'OPEN_FILE'; payload: { path: string } }
+  | { type: 'OPEN_FILE'; payload: { path: string; readOnly?: boolean } }
   | { type: 'CLOSE_FILE'; payload: { path: string } }
   | { type: 'SET_ACTIVE_FILE'; payload: { path: string } }
   | { type: 'MARK_DIRTY'; payload: { path: string; isDirty: boolean } }
@@ -35,7 +35,10 @@ function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): Works
       if (exists) return { ...state, activeFilePath: action.payload.path };
       return {
         ...state,
-        openFiles: [...state.openFiles, { path: action.payload.path, isDirty: false }],
+        openFiles: [
+          ...state.openFiles,
+          { path: action.payload.path, isDirty: false, readOnly: action.payload.readOnly },
+        ],
         activeFilePath: action.payload.path,
       };
     }

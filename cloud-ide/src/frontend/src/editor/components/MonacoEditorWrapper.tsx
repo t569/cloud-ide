@@ -170,6 +170,11 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
           cursorBlinking: 'smooth',
           padding: { top: 16 }, // Give the text some breathing room from the tabs
           renderLineHighlight: 'all',
+          // Files outside /workspace are a view into the container, not a buffer we
+          // can save — there is no write route for them. Monaco blocks the edit so
+          // the user finds out before typing, not on a save that silently no-ops.
+          readOnly: !!activeFile.readOnly,
+          readOnlyMessage: { value: 'This file is outside /workspace — read-only.' },
         }}
       />
     </div>

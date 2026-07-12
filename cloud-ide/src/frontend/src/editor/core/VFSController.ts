@@ -5,6 +5,10 @@ import { API_BASE_URL } from '../../config/env';
 import { LanguageRegistry } from '../languages';
 import React from 'react';
 
+/** The container-visible workspace root — everything under it is editable; a path
+ *  outside it is a read-only view into the container (see isExternal). */
+const WORKSPACE_ROOT = '/workspace';
+
 /**
  * Sanitizes a workspace path before it reaches the VFS or the backend filesystem.
  * This is the front-end's single choke point for path safety: it rejects
@@ -20,6 +24,12 @@ export function safePath(rawPath: string): string | null {
   if (segments.length === 0) return null;
   if (segments.some(seg => seg === '..')) return null;
   return '/' + segments.join('/');
+}
+
+/** Is this path outside the workspace? Those files live only in the container,
+ *  are opened read-only, and never enter the VFS map. Expects a safePath(). */
+export function isExternal(path: string): boolean {
+  return path !== WORKSPACE_ROOT && !path.startsWith(`${WORKSPACE_ROOT}/`);
 }
 
 export class VFSController {
@@ -101,15 +111,29 @@ export class VFSController {
       const path = safePath(rawPath);
       if (!path) { console.warn('[Controller] Rejected unsafe path:', rawPath); return; }
 
-      this.dispatch({ type: 'OPEN_FILE', payload: { path } });
+      // A path outside /workspace (a terminal click on /etc/nginx.conf, a
+      // go-to-definition into site-packages) isn't in the VFS map and never will
+      // be — the map only mirrors the worktree. Read it straight from the
+      // container, read-only. Previously this fell through to vfs.readFile(),
+      // which prefixes /workspace, missed the map, threw, and left a blank tab
+      // wedged in 'conflict' forever.
+      const external = isExternal(path);
+
+      this.dispatch({ type: 'OPEN_FILE', payload: { path, readOnly: external } });
       this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'syncing' } });
 
       try {
-        const content = await this.vfs.readFile(path);
+        const content = external
+          ? await this.vfs.readExternalFile(path)
+          : await this.vfs.readFile(path);
         this.eventBus.emit('FILE_LOADED', { path, content, language: this.languages.detect(path) });
         this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'synced' } });
       } catch (error) {
-        this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'conflict' } });
+        // Nothing to show (gone, binary, a directory, unreadable): close the tab
+        // we optimistically opened rather than leaving an empty one behind.
+        console.warn(`[Controller] Could not open ${path}:`, error);
+        this.dispatch({ type: 'CLOSE_FILE', payload: { path } });
+        this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status: 'synced' } });
       }
     }));
 

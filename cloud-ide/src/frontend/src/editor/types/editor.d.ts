@@ -176,7 +176,10 @@ export interface OpenFileContext {
   path: string;
   isDirty: boolean;
   isDeleted?: boolean; // New flag to indicate if the file has been deleted from the VFS
-  content?: string; 
+  content?: string;
+  // Set for files outside /workspace: they live only in the container, are not in
+  // the worktree (so not in git), and have no write route. Monaco enforces it.
+  readOnly?: boolean;
 }
 
 export interface IEditorState {

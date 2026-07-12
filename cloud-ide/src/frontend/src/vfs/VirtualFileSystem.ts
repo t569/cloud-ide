@@ -203,6 +203,23 @@ export class VirtualFileSystem {
   }
 
   /**
+   * Reads a file from OUTSIDE the workspace (a stdlib source, site-packages, a
+   * path the terminal printed). Served read-only from inside the container.
+   *
+   * Deliberately never touches `fileMap`: the map is the sync queue's world, so
+   * an entry there would be autosaved back through POST /write — which maps the
+   * path into the worktree and would forge `<worktree>/etc/hosts`. Keeping these
+   * files out of the map is what makes them structurally unwritable, rather than
+   * relying on a read-only flag being checked everywhere.
+   */
+  public async readExternalFile(path: string): Promise<string> {
+    const { content } = await apiClient.get<{ content: string }>(
+      `/fs/${encodeURIComponent(this.sandboxId)}/read-external?path=${encodeURIComponent(path)}`,
+    );
+    return content;
+  }
+
+  /**
    * Updates file content in memory instantly (Optimistic Update) and queues it for the backend.
    * Called by the controller every time the user types a keystroke in Monaco.
    */

@@ -45,3 +45,47 @@ describe('FileSystemManager path containment', () => {
     await expect(fm.readFile('sbx', '/workspace/evil/secret.txt')).rejects.toThrow(/symlink/);
   });
 });
+
+// Files outside /workspace exist only in the container, so readExternalFile must
+// go through exec — never the host. If it ever regressed to resolveHostPath, a
+// read of /etc/hosts would silently serve <worktree>/etc/hosts (wrong file), and
+// a write would forge one.
+describe('FileSystemManager.readExternalFile', () => {
+  let execBuffered: jest.Mock;
+  let fm: FileSystemManager;
+
+  const withExec = (result: { stdout: string; stderr?: string; exitCode: number }) => {
+    execBuffered = jest.fn().mockResolvedValue({ stderr: '', ...result });
+    fm = new FileSystemManager({
+      execBuffered,
+      // Reaching for the host path at all is the bug this guards against.
+      getWorkspaceHostPath: async () => { throw new Error('must not touch the host'); },
+    } as any);
+  };
+
+  it('reads through the container as argv, capped, and never touches the host', async () => {
+    withExec({ stdout: '127.0.0.1 localhost', exitCode: 0 });
+
+    expect(await fm.readExternalFile('sbx', '/etc/hosts')).toBe('127.0.0.1 localhost');
+
+    const [sandboxId, payload] = execBuffered.mock.calls[0];
+    expect(sandboxId).toBe('sbx');
+    // argv, not a shell string: no injection surface even though the path is user input.
+    expect(Array.isArray(payload.command)).toBe(true);
+    expect(payload.command).toEqual(['head', '-c', expect.any(String), '--', '/etc/hosts']);
+    expect(Number(payload.command[2])).toBeGreaterThan(0);
+  });
+
+  it('refuses a relative path, a NUL byte, a non-zero exit, and binary content', async () => {
+    withExec({ stdout: '', exitCode: 0 });
+    await expect(fm.readExternalFile('sbx', 'etc/hosts')).rejects.toThrow(/absolute/);
+    await expect(fm.readExternalFile('sbx', '/etc/ho\0sts')).rejects.toThrow(/absolute/);
+    expect(execBuffered).not.toHaveBeenCalled(); // rejected before it ever ran
+
+    withExec({ stdout: '', exitCode: 1 }); // missing file, or a directory
+    await expect(fm.readExternalFile('sbx', '/nope')).rejects.toThrow(/Cannot read/);
+
+    withExec({ stdout: 'ELF\0\0\0', exitCode: 0 });
+    await expect(fm.readExternalFile('sbx', '/bin/ls')).rejects.toThrow(/text file/);
+  });
+});

@@ -19,6 +19,13 @@ import { VfsNode } from '@cloud-ide/shared';
 
 const CONTAINER_WORKSPACE = '/workspace';
 
+// Cap on an out-of-workspace read (see readExternalFile). Big enough for any
+// source file a go-to-definition can land in; small enough that a stray click on
+// a core dump or a log doesn't buffer the gateway to death.
+// ponytail: a flat cap, not a streaming read. Stream it if someone needs to open
+// something genuinely large read-only.
+const EXTERNAL_READ_LIMIT_BYTES = 2_000_000;
+
 /**
  * Realpath the deepest EXISTING ancestor of `p` (p itself may not exist yet —
  * e.g. a file about to be written). Resolves any symlinks in that existing
@@ -136,6 +143,41 @@ export class FileSystemManager {
   public async readFile(sandboxId: string, filePath: string): Promise<string> {
     const hostPath = await this.resolveHostPath(sandboxId, filePath);
     return fs.readFile(hostPath, 'utf-8');
+  }
+
+  /**
+   * Reads a file that lives OUTSIDE /workspace — a stdlib source a go-to-definition
+   * lands in, a package under site-packages, /etc/hosts printed by the terminal.
+   *
+   * These files exist ONLY inside the container: the host sees nothing but the
+   * bind-mounted worktree. So this deliberately does NOT go through
+   * resolveHostPath — that maps a path into the worktree (`/etc/hosts` would
+   * become `<worktree>/etc/hosts`), which is the wrong file and, on a write,
+   * would forge one. It reads through the container instead.
+   *
+   * Read-only by design, and there is no external write counterpart: a file
+   * outside /workspace is not in the worktree, so it is not in git — writing one
+   * would produce an edit with no history that vanishes on the next rebuild.
+   *
+   * This grants no new privilege: the caller owns this sandbox (the route's IDOR
+   * guard) and already has an interactive shell inside it.
+   */
+  public async readExternalFile(sandboxId: string, containerPath: string): Promise<string> {
+    if (!containerPath.startsWith('/') || containerPath.includes('\0')) {
+      throw new Error(`Not an absolute container path: ${containerPath}`);
+    }
+
+    // argv — never a shell string; the path is user input. `head -c` caps the read
+    // so clicking a 2GB core dump can't OOM the gateway, and `--` stops a path like
+    // `-z` being parsed as a flag. A directory (or a missing file) exits non-zero.
+    const { stdout, exitCode } = await this.sandboxManager.execBuffered(sandboxId, {
+      command: ['head', '-c', String(EXTERNAL_READ_LIMIT_BYTES), '--', containerPath],
+    });
+
+    if (exitCode !== 0) throw new Error(`Cannot read ${containerPath}`);
+    // A NUL byte means it isn't text. Monaco would render mojibake, so refuse.
+    if (stdout.includes('\0')) throw new Error(`Not a text file: ${containerPath}`);
+    return stdout;
   }
 
   /**

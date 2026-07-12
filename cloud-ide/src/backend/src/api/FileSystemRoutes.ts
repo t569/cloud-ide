@@ -96,6 +96,33 @@ export function createFileSystemRouter(
   });
 
   /**
+   * GET /api/fs/:sandboxId/read-external?path=/usr/lib/python3.11/os.py
+   *
+   * A file OUTSIDE /workspace, served read-only from inside the container (the
+   * host only has the worktree). There is no write counterpart, on purpose —
+   * see FileSystemManager.readExternalFile. Ownership is enforced by the
+   * /:sandboxId guard, same as every other route here.
+   */
+  router.get('/:sandboxId/read-external', async (req: Request, res: Response) => {
+    try {
+      const { sandboxId } = req.params;
+      const filePath = req.query.path as string;
+
+      if (!filePath || typeof filePath !== 'string') {
+        return res.status(400).json({ error: 'Valid file path is required' });
+      }
+
+      const content = await fsManager.readExternalFile(sandboxId, filePath);
+      res.status(200).json({ content });
+    } catch (error: any) {
+      // Unreadable, absent, a directory, or binary — all "there is nothing to
+      // show you here", which the editor turns into a message instead of a tab.
+      console.warn(`[VFS] External read refused: ${error.message}`);
+      res.status(404).json({ error: error.message });
+    }
+  });
+
+  /**
    * POST /api/fs/:sandboxId/write
    */
   router.post('/:sandboxId/write', async (req: Request, res: Response) => {

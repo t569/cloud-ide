@@ -1,5 +1,37 @@
 # ☁️ Cloud IDE Architecture & Implementation Plan (v2.0)
 
+## 🗺️ Documentation Map
+
+Where each part of the system is documented. Paths are relative to `src/`.
+
+**Start here**
+- [`README.md`](./README.md) — clone → running stack, the host checks, the one ordered path.
+- `ARCHITECTURE.md` (this file) — the system overview and the phase/step roadmap.
+
+**Backend — the API gateway**
+- [`backend/README.md`](./backend/README.md) — the gateway's shape and responsibilities.
+- [`backend/HEALTH.md`](./backend/HEALTH.md) · [`backend/LSP.md`](./backend/LSP.md) · [`backend/TERMINAL_BACKEND.md`](./backend/TERMINAL_BACKEND.md) — health board, language servers, terminal transport.
+- [`backend/.../sandbox/network/README.md`](./backend/src/services/sandbox/network/README.md) — **egress policy + tenant isolation** (what a sandbox can reach, how to add domains).
+- [`backend/.../sandbox/drivers/README.md`](./backend/src/services/sandbox/drivers/README.md) — the provider-agnostic sandbox driver seam.
+- [`backend/.../builder/README.md`](./backend/src/services/builder/README.md) — image build pipeline.
+- [`opensandbox/README.md`](./opensandbox/README.md) — the OpenSandbox daemon (what it is, the API we speak).
+
+**Frontend — the IDE**
+- [`frontend/README.md`](./frontend/README.md) — the SPA's shape.
+- [`frontend/src/editor/README.md`](./frontend/src/editor/README.md) + [`SECURITY.md`](./frontend/src/editor/SECURITY.md) — Monaco editor + VFS wiring, and its trust boundary.
+- [`frontend/src/env-manager/README.md`](./frontend/src/env-manager/README.md) — the environment architect UI.
+- [`frontend/src/terminal/README.md`](./frontend/src/terminal/README.md) — the xterm terminal + link routing.
+- [`frontend/src/vfs/README.md`](./frontend/src/vfs/README.md) + [`VFS.md`](./VFS.md) — the virtual file system (client + host-direct model).
+- [`frontend/src/pages/README.md`](./frontend/src/pages/README.md) — the top-level routes.
+
+**Shared & pipeline**
+- [`shared/README.md`](./shared/README.md) — the DTOs/types shared across gateway, frontend, and daemon.
+- [`pipeline/README.md`](./pipeline/README.md) — the Dockerfile-generation pipeline.
+
+**Plans** — approved implementation plans live in [`docs/plans/`](./docs/plans/) (e.g. the egress/network layer).
+
+---
+
 ## Phase 1: Completed Infrastructure (The Foundation)
 
 ### 1. The Kernel Space (Rust Execution Engine)

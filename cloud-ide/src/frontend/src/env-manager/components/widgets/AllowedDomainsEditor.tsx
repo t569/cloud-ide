@@ -6,6 +6,7 @@
 // react-hook-form's register() doesn't handle — the parent wires it via setValue().
 import React, { useState } from 'react';
 import { VscClose, VscAdd } from 'react-icons/vsc';
+import { normalizeDomain } from '../../utils/domain';
 
 interface Props {
   domains: string[];
@@ -19,14 +20,8 @@ export const AllowedDomainsEditor = ({ domains, onChange }: Props) => {
   const [draft, setDraft] = useState('');
 
   const add = () => {
-    // Normalize: trim, lowercase, drop a scheme/path if pasted (we want a bare host or
-    // wildcard). Dedupe silently.
-    const d = draft
-      .trim()
-      .toLowerCase()
-      .replace(/^https?:\/\//, '')
-      .replace(/\/.*$/, '');
-    if (!d || domains.includes(d)) {
+    const d = normalizeDomain(draft); // bare host/wildcard; '' if blank
+    if (!d || domains.includes(d)) {  // dedupe silently
       setDraft('');
       return;
     }

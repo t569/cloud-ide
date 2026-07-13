@@ -35,6 +35,12 @@ execd_image = "opensandbox/execd:v1.0.6"
 # Egress configuration
 # -----------------------------------------------------------------
 image = "opensandbox/egress:v1.0.3"
+# dns+nft, not plain dns. Plain "dns" filters only what a sandbox RESOLVES — it cannot
+# stop `curl 172.17.0.3` (raw IP, no lookup), so a neighbour's dev server stays reachable
+# and the cross-tenant injection is NOT closed. "dns+nft" adds nftables enforcement: under
+# a deny-default policy, outbound to any address that is not an allowed-domain IP (every
+# other sandbox included) is dropped. The mode choice is the whole isolation fix.
+mode = "dns+nft"
 
 [storage]
 # Volume and storage configuration

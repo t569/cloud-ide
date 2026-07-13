@@ -18,6 +18,8 @@ import { RustEngineClient } from './rustClient';
 import { ISandboxDriver, DriverCapabilities, ISandboxSession, PtyOptions } from './drivers/ISandboxDriver';
 import { captureSnapshot, ToolSnapshot } from '../promotion/toolSnapshot';
 import { WorktreeEngine } from '../storage/WorktreeEngine';
+import { defaultNetworkPolicy } from './network/policy';
+import { egressEnforceable } from './network/egressCapability';
 import { WorkspaceProvisioner } from '../provisioning';
 import { WorktreeStrategy } from '../provisioning/strategies/git/WorktreeStrategy';
 
@@ -61,6 +63,10 @@ export function specForEnvironment(env: EnvironmentRecord): SandboxSpec {
     environmentId: env.id,
     // Applied at container boot, so exec/terminal inherit them.
     envVars: env.builderConfig?.env,
+    // Deny-default egress derived from the env's toolchain: registries it needs are
+    // allowed, everything else (incl. raw-IP reach to other sandboxes) is denied. This
+    // is what isolates tenants. Built here so cold boot and recovery share one policy.
+    networkPolicy: defaultNetworkPolicy(env.builderConfig),
   };
 }
 /**
@@ -137,7 +143,16 @@ export class SandboxManager {
     const mutatedSpec = provisioner.prepareSpec(spec);
     
     // 4. Normalize any user-defined volumes (replaces prepareProvisionSpec)
-    const finalSpec = this.normalizeUserVolumes(mutatedSpec);
+    //    ...and attach an egress policy, but ONLY if this host can enforce it. Env launches
+    //    arrive with a policy (specForEnvironment); the raw POST /v1/sandboxes verb gets the
+    //    safe minimum. Either way we send it only when egressEnforceable() — a kernel that
+    //    can't run the nftables sidecar would 500 every boot, so there we degrade to no
+    //    policy (no isolation) with a loud one-time warning rather than break provisioning.
+    const enforce = await egressEnforceable();
+    const finalSpec: SandboxSpec = {
+      ...this.normalizeUserVolumes(mutatedSpec),
+      networkPolicy: enforce ? (mutatedSpec.networkPolicy ?? defaultNetworkPolicy()) : undefined,
+    };
 
     // 5. Boot the container through the driver (OpenSandbox daemon over HTTP — no Rust
     //    in this path, whatever RustEngineClient is still called)

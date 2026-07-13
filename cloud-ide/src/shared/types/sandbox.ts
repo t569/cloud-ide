@@ -81,10 +81,38 @@ export interface ISandboxProvider {
   unexposePort(sandboxId: string, port: number): Promise<void>;
 }
 
-// all the endpoints we can and cannot allow
+/**
+ * One outbound rule: allow or deny traffic to a domain (or wildcard).
+ *
+ * The shape is provider-agnostic but modelled on what real sandbox providers accept —
+ * an ordered allow/deny list keyed by FQDN. Note it is DOMAIN-based, not CIDR: you
+ * cannot write a raw-IP rule here. That is deliberate and load-bearing for isolation
+ * (see NetworkPolicySpec.defaultAction).
+ */
+export interface EgressRule {
+  action: 'allow' | 'deny';
+  target: string; // FQDN or wildcard domain, e.g. 'registry.npmjs.org' or '*.github.com'
+}
+
+/**
+ * A sandbox's outbound network policy.
+ *
+ * `defaultAction` is the crux, and it doubles as the TENANT-ISOLATION control:
+ *
+ *  - `'deny'` — block everything except what `rules` allow. Because rules are domains
+ *    and a neighbouring sandbox is reached by raw IP (`172.17.0.x`, no DNS), deny-default
+ *    means east-west traffic to other sandboxes has no matching rule and is dropped. This
+ *    is how the cross-tenant injection closes — isolation is a *consequence* of
+ *    deny-default egress, enforced by the provider's `dns+nft` sidecar, not a second
+ *    mechanism.
+ *  - `'allow'` — permit everything except what `rules` deny. Dev-friendly (open internet)
+ *    but provides NO isolation on its own.
+ *
+ * Providers implement this at boot (the sidecar is created with the container).
+ */
 export interface NetworkPolicySpec {
-  allowOutboundDomains: string[]; // e.g., ["registry.npmjs.org", "github.com"]
-  blockAllOterTraffic: boolean;
+  defaultAction: 'allow' | 'deny';
+  rules: EgressRule[];
 }
 
 // The persisted database record of the compute unit.

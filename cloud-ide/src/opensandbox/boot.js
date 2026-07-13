@@ -80,6 +80,30 @@ if (!/^allowed_host_paths\s*=/m.test(template)) {
 fs.writeFileSync(resolvedConfig, template.replace(/^allowed_host_paths\s*=.*$/m, allowlist));
 console.log(`🔓 [OpenSandbox] Bind mounts allowed under ${worktreesRoot}`);
 
+// 4b. Ensure the egress sidecar image is present.
+// Every sandbox now boots with an egress policy (tenant isolation), so the daemon
+// creates a per-sandbox egress sidecar from this image. If it is missing, that boot
+// fails deep inside the daemon with an opaque error — so pull it here, once, and fail
+// early with guidance instead. `^image =` matches the [egress] image (execd's key is
+// `execd_image`), so we stay in sync with the toml rather than hardcoding a tag.
+const egressImage = (template.match(/^image\s*=\s*"([^"]+)"/m) || [])[1];
+if (egressImage) {
+  try {
+    execSync(`docker image inspect ${egressImage}`, { stdio: 'ignore' });
+    console.log(`🛡️  [OpenSandbox] Egress sidecar image present (${egressImage}).`);
+  } catch (_) {
+    console.log(`📥 [OpenSandbox] Pulling egress sidecar image ${egressImage}...`);
+    try {
+      execSync(`docker pull ${egressImage}`, { stdio: 'inherit' });
+    } catch (err) {
+      console.error(`\n❌ [OpenSandbox] Could not pull the egress sidecar image ${egressImage}.`);
+      console.error('   Every sandbox boots with an egress policy and needs it. Fix Docker network/DNS');
+      console.error('   (npm run doctor) or pull it manually, then retry.\n');
+      process.exit(1);
+    }
+  }
+}
+
 // 5. Boot the Server
 console.log('🚀 [OpenSandbox] Booting Daemon...');
 // .sandbox.toml binds 127.0.0.1 with no api_key => OpenSandbox flags it "insecure"

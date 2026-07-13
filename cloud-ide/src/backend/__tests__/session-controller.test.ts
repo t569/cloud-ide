@@ -68,8 +68,10 @@ test.each(['ERROR', 'STOPPED', 'PAUSED'] as const)(
 test("never adopts another user's sandbox; cold-boots with the stored tag + envVars", async () => {
   const h = harness([sbx({ sandboxId: 'sbx-theirs', userId: 'user-2' })]);
   await h.run();
+  // objectContaining: specForEnvironment also attaches a networkPolicy now; this test
+  // is about the image/env/vars carried through, not the exact field set.
   expect(h.sandboxManager.provision).toHaveBeenCalledWith(
-    { imageTag: ENV.imageName, environmentId: ENV.id, envVars: ENV.builderConfig.env },
+    expect.objectContaining({ imageTag: ENV.imageName, environmentId: ENV.id, envVars: ENV.builderConfig.env }),
     'user-1',
   );
   expect(h.body().sandboxId).toBe('sbx-new');

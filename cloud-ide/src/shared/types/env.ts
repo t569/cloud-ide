@@ -47,6 +47,12 @@ export interface EnvironmentConfig {
   // LspProxy spawns them at runtime, both off shared/languageServers.ts. An env that
   // declares none simply has no code intelligence (Monaco highlighting still works).
   languageServers?: string[];
+
+  // Extra outbound domains this environment's sandboxes may reach at runtime, on top of
+  // the package registries derived from its build steps (see network/policy.ts). This is
+  // the escape hatch for the deny-default egress policy: an app that calls
+  // 'api.stripe.com' declares it here, or it is blocked. Wildcards allowed ('*.acme.io').
+  allowedDomains?: string[];
 }
 
 export const baseAliases: Record<string, string[]> = {

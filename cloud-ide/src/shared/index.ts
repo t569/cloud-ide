@@ -44,6 +44,7 @@ export type {
   VolumeMount,
   VolumeMountKind,
   NetworkPolicySpec,
+  EgressRule,
 } from './types/sandbox';
 
 export type { SessionRecord, SessionState } from './types/session';

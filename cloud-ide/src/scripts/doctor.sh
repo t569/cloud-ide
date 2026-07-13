@@ -92,6 +92,35 @@ else
   info "Install docker-buildx-plugin, or drop --use-buildkit from the assembler flags."
 fi
 
+# ---------------------------------------------------------------- egress isolation
+# Sandboxes boot with a deny-default egress policy for tenant isolation, enforced by a
+# per-sandbox sidecar that installs nftables rules. That needs nf_tables in the shared
+# kernel. A real Linux host has it; the stock WSL2 5.10 kernel does NOT — nf_tables is
+# absent and unloadable — so the sidecar can't start there. This is NOT fatal: the gateway
+# probes for it (SANDBOX_EGRESS=auto) and boots WITHOUT a policy when it's missing, so
+# sandboxes still run — just without cross-tenant isolation. Hence a warning, not a fail.
+EGRESS_IMAGE=$(sed -n 's/^[[:space:]]*image[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' opensandbox/.sandbox.toml 2>/dev/null | head -1)
+: "${EGRESS_IMAGE:=opensandbox/egress:v1.0.3}"
+if docker image inspect "$EGRESS_IMAGE" >/dev/null 2>&1; then
+  # The exact op the sidecar dies on: a udp REDIRECT rule on the nat OUTPUT chain. A bare
+  # chain create is too lenient (it passes on the broken kernel), so we replicate the real one.
+  if docker run --rm --network=none --cap-add=NET_ADMIN --entrypoint sh "$EGRESS_IMAGE" \
+       -c 'iptables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 15353' >/dev/null 2>&1; then
+    pass "egress isolation enforceable (kernel has nftables) — sandboxes boot isolated"
+  else
+    info "${YLW}egress isolation UNAVAILABLE on this kernel${OFF} — sandboxes boot WITHOUT tenant isolation."
+    info "  The sidecar needs nf_tables; this kernel lacks it ($(uname -r 2>/dev/null))."
+    info "  Fix:  wsl --update   (modern kernel), then restart WSL and re-run this."
+    info "  Not fatal — SANDBOX_EGRESS=auto degrades gracefully; set =off to silence the warning."
+  fi
+else
+  info "egress sidecar image not pulled yet ($EGRESS_IMAGE) — capability is checked at first boot."
+fi
+# NOTE on the DNS check above vs egress: they COEXIST, no conflict. In dns+nft mode the
+# sidecar intercepts the sandbox's port-53 traffic via nftables and forwards through its
+# own whitelisted upstreams (1.1.1.1/8.8.8.8), so a global docker DNS never bypasses the
+# policy — it is only the resolver for no-egress (build-time / degraded) containers.
+
 echo ""
 if [ "$FAILED" -eq 0 ]; then
   echo "${GRN}All clear.${OFF}"

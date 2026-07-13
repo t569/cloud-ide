@@ -80,6 +80,19 @@ export class OpenSandboxEngine implements RustEngineAPI {
       entrypoint: ['sleep', 'infinity'],
     };
 
+    // Egress policy → per-sandbox sidecar. Sending this is what makes the daemon put the
+    // sandbox in an isolated netns behind a dns+nft filter (drops NET_ADMIN, denies
+    // raw-IP east-west under deny-default) — the tenant-isolation fix. The daemon field
+    // is `networkPolicy` with `egress` rules (populate_by_name aliases; see
+    // server schema.py NetworkPolicy). Dropped for so long that every sandbox booted
+    // allow-all with no sidecar. Omitted only when no policy is supplied at all.
+    if (spec.networkPolicy) {
+      payload.networkPolicy = {
+        defaultAction: spec.networkPolicy.defaultAction,
+        egress: spec.networkPolicy.rules.map((r) => ({ action: r.action, target: r.target })),
+      };
+    }
+
     const res = await this.request('POST', `${this.apiBaseUrl}/sandboxes`, payload);
     if (!res.ok) throw new Error(`Engine rejected boot: ${res.status} ${await res.text()}`);
 

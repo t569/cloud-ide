@@ -9,12 +9,14 @@
 //   • binary frame = raw stdin (in) / stdout+stderr (out)
 //   • text frame   = JSON control: {type:'resize',cols,rows} in, {type:'exit',code} out
 //
-// REATTACH ACROSS SOCKET DROPS (step 6). The PTY lifecycle is decoupled from the
-// WebSocket lifecycle: a `PtyRegistry` keeps the shell alive for a grace period after
-// the socket drops, keyed by `sandboxId + termId`. A reconnect with the same termId
-// re-binds to the SAME shell and replays whatever it printed while detached — so a
-// network blip / laptop sleep no longer resets your `vim`, `tail -f`, or dev server. A
-// clean close (the user closing the tab, code 1000) kills it immediately instead.
+// SHELLS OUTLIVE SOCKETS. The PTY lifecycle is decoupled from the WebSocket lifecycle: a
+// `PtyRegistry` keeps the shell alive when the socket drops — whether from a network blip
+// OR the user closing the terminal tab — keyed by `sandboxId + termId`. A reconnect with
+// the same termId re-binds to the SAME shell and replays whatever it printed while detached.
+// This is what lets you run a dev server, close the terminal, keep coding, and reopen the
+// terminal to find it still serving (with its output intact). A detached shell is reaped
+// only when: the shell process exits (`exit`/Ctrl-D — the deliberate "kill it" path), the
+// sandbox is destroyed, or the per-sandbox cap evicts an old detached one.
 import type http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -33,14 +35,20 @@ export function isPtyUpgrade(pathname: string): boolean {
 }
 
 const WS_OPEN = 1; // WebSocket.OPEN — local const so the registry is testable without ws
-const WS_NORMAL_CLOSE = 1000; // clean close (tab closed) ⇒ kill the shell now, no grace
 
-// How long a detached shell is kept alive waiting for a reconnect. Long enough to ride
-// out a sleep/blip, short enough that abandoned shells don't hoard compute.
-const DETACH_GRACE_MS = Number(process.env.PTY_DETACH_GRACE_MS) || 60_000;
-// Cap on output buffered while detached, so a runaway `yes` can't grow unbounded. The
-// oldest bytes are dropped past this — a reconnect then shows a small gap, not an OOM.
+// A dev server started in a terminal must OUTLIVE its terminal tab — that is what "coding
+// with a live server" needs. So a closed socket (tab closed OR a network drop) no longer
+// kills the shell: it is kept alive and reattachable by termId. It dies only when the shell
+// itself exits (`exit`/Ctrl-D), the sandbox is destroyed (its container takes the shell with
+// it), or the per-sandbox cap evicts an old detached one. A paused (idle) sandbox freezes
+// the shell at zero compute cost, so a forgotten one is cheap.
+//
+// Cap on output buffered while detached, so a chatty dev server can't grow unbounded. Oldest
+// bytes drop past this — a reattach shows a small gap, not an OOM.
 const DETACHED_BUFFER_MAX = Number(process.env.PTY_DETACH_BUFFER_MAX) || 1_000_000;
+// Bound on shells per sandbox, so closed-and-forgotten terminals can't pile up. Only
+// DETACHED shells are ever evicted (oldest first); an attached, active terminal never is.
+const MAX_TERMINALS_PER_SANDBOX = Number(process.env.PTY_MAX_PER_SANDBOX) || 8;
 
 // The subset of the ws socket the bridge touches — structural so tests can fake it.
 export interface PtySocket {
@@ -55,7 +63,7 @@ interface LiveTerminal {
   ws: PtySocket | null;          // null while detached
   buffer: Buffer[];              // output emitted while detached, replayed on reattach
   bufferedBytes: number;
-  grace: ReturnType<typeof setTimeout> | null;
+  detachedAt: number | null;     // when the socket dropped; null while attached (for LRU eviction)
   exited: boolean;               // shell process ended — do not keep alive
 }
 
@@ -70,6 +78,9 @@ interface LiveTerminal {
  */
 export class PtyRegistry {
   private terminals = new Map<string, LiveTerminal>();
+
+  // Injectable so the eviction logic is testable without spinning up the default of 8.
+  constructor(private maxPerSandbox: number = MAX_TERMINALS_PER_SANDBOX) {}
 
   /** Live terminal count — for tests/introspection. */
   get size(): number {
@@ -92,20 +103,39 @@ export class PtyRegistry {
     }
 
     const session = await openSession();
-    const live: LiveTerminal = { session, ws: null, buffer: [], bufferedBytes: 0, grace: null, exited: false };
+    const live: LiveTerminal = { session, ws: null, buffer: [], bufferedBytes: 0, detachedAt: null, exited: false };
     this.terminals.set(key, live);
     // Wire the shell's output/exit ONCE; only the socket binding changes per (re)connect.
     session.onData((chunk) => this.onOutput(live, chunk));
     session.onExit((code) => this.onExit(key, live, code));
     this.bind(key, live, ws);
+    this.evictOverCap(key);
+  }
+
+  /**
+   * Keep detached shells for one sandbox under the cap. The key is `${sandboxId} ${termId}`,
+   * so terminals of a sandbox share its id prefix. Evict the OLDEST detached ones — never an
+   * attached, active terminal — until at or under the cap. This bounds forgotten shells
+   * without ever yanking a live one out from under the user.
+   */
+  private evictOverCap(newKey: string): void {
+    const sandboxId = newKey.split(' ')[0];
+    const mine = [...this.terminals.entries()].filter(([k]) => k.split(' ')[0] === sandboxId);
+    let over = mine.length - this.maxPerSandbox;
+    if (over <= 0) return;
+
+    const detachedOldestFirst = mine
+      .filter(([, t]) => t.detachedAt !== null)
+      .sort((a, b) => a[1].detachedAt! - b[1].detachedAt!);
+    for (const [k, t] of detachedOldestFirst) {
+      if (over-- <= 0) break;
+      this.destroy(k, t);
+    }
   }
 
   private bind(key: string, live: LiveTerminal, ws: PtySocket): void {
     if (live.ws && live.ws !== ws) live.ws.close(); // a newer socket supersedes a stale one
-    if (live.grace) {
-      clearTimeout(live.grace);
-      live.grace = null;
-    }
+    live.detachedAt = null; // reattached — no longer a candidate for eviction
     live.ws = ws;
 
     // Replay whatever the shell printed while detached, in order, then resume live.
@@ -133,7 +163,7 @@ export class PtyRegistry {
       }
     });
 
-    ws.on('close', (code?: number) => this.detach(key, live, ws, code));
+    ws.on('close', () => this.detach(key, live, ws));
     // 'error' is always followed by 'close' on the ws socket, so let detach() handle it.
     ws.on('error', () => {});
   }
@@ -160,25 +190,18 @@ export class PtyRegistry {
     this.destroy(key, live);
   }
 
-  private detach(key: string, live: LiveTerminal, ws: PtySocket, code?: number): void {
+  private detach(key: string, live: LiveTerminal, ws: PtySocket): void {
     if (live.ws !== ws) return; // a newer socket already took over; ignore the stale close
     live.ws = null;
     if (live.exited) return; // shell already gone; onExit did the cleanup
 
-    // Clean intentional close (tab closed) → reclaim now. Abnormal drop → hold the shell
-    // for a reconnect, then reap if none comes.
-    if (code === WS_NORMAL_CLOSE) {
-      this.destroy(key, live);
-      return;
-    }
-    live.grace = setTimeout(() => this.destroy(key, live), DETACH_GRACE_MS);
+    // The socket dropped (tab closed OR network blip) — but the SHELL stays alive so a dev
+    // server running in it keeps serving. It is reattachable by termId; reaped only on shell
+    // exit, sandbox destroy, or cap eviction. `detachedAt` marks it as an eviction candidate.
+    live.detachedAt = Date.now();
   }
 
   private destroy(key: string, live: LiveTerminal): void {
-    if (live.grace) {
-      clearTimeout(live.grace);
-      live.grace = null;
-    }
     if (!live.exited) live.session.close();
     this.terminals.delete(key);
   }

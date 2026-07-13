@@ -86,10 +86,7 @@ describe('PtyRegistry — frame protocol', () => {
   });
 });
 
-describe('PtyRegistry — reattach across drops', () => {
-  beforeEach(() => jest.useFakeTimers());
-  afterEach(() => jest.useRealTimers());
-
+describe('PtyRegistry — shells outlive sockets', () => {
   it('reattaches to the same shell and replays output buffered while detached', async () => {
     const reg = new PtyRegistry();
     const session = fakeSession();
@@ -97,10 +94,10 @@ describe('PtyRegistry — reattach across drops', () => {
     const open = async () => { creates++; return session; };
 
     const ws1 = fakeSocket();
-    await reg.attach('k', ws1, open);
+    await reg.attach('sbx t1', ws1, open);
     expect(creates).toBe(1);
 
-    ws1.fire('close', 1006); // abnormal drop
+    ws1.fire('close', 1006); // socket dropped
     expect(reg.size).toBe(1);        // shell kept alive
     expect(session.closed).toBe(false);
 
@@ -108,39 +105,80 @@ describe('PtyRegistry — reattach across drops', () => {
     expect(ws1.sent.length).toBe(0);
 
     const ws2 = fakeSocket();
-    await reg.attach('k', ws2, open);
+    await reg.attach('sbx t1', ws2, open);
     expect(creates).toBe(1);          // reattached — NO new shell
     expect(ws2.sent[0]).toEqual({ data: Buffer.from('while-detached'), binary: true }); // replayed
 
     session.emitData('live-again');
     expect(ws2.sent[1]).toEqual({ data: Buffer.from('live-again'), binary: true });
+  });
 
-    jest.advanceTimersByTime(120_000); // grace was cancelled on reattach
-    expect(session.closed).toBe(false);
+  it('closing the terminal tab (clean 1000) keeps the shell alive — a dev server survives', async () => {
+    const reg = new PtyRegistry();
+    const session = fakeSession();
+    const ws1 = fakeSocket();
+    let creates = 0;
+    const open = async () => { creates++; return session; };
+    await reg.attach('sbx t1', ws1, open);
+
+    ws1.fire('close', 1000); // user closed the tab
+    expect(session.closed).toBe(false); // NOT killed — the dev server keeps running
     expect(reg.size).toBe(1);
+
+    // Reopening the terminal reattaches to the same live shell.
+    const ws2 = fakeSocket();
+    await reg.attach('sbx t1', ws2, open);
+    expect(creates).toBe(1);
   });
 
-  it('a clean close (tab closed, 1000) reclaims the shell immediately', async () => {
+  it('the deliberate kill path: the shell process exiting reclaims it', async () => {
     const reg = new PtyRegistry();
     const session = fakeSession();
     const ws = fakeSocket();
-    await reg.attach('k', ws, async () => session);
+    await reg.attach('sbx t1', ws, async () => session);
 
-    ws.fire('close', 1000);
-    expect(session.closed).toBe(true);
+    session.emitExit(0); // `exit` / Ctrl-D
     expect(reg.size).toBe(0);
   });
 
-  it('an abnormal drop with no reconnect is reaped after the grace period', async () => {
-    const reg = new PtyRegistry();
-    const session = fakeSession();
-    const ws = fakeSocket();
-    await reg.attach('k', ws, async () => session);
+  it('caps detached shells per sandbox, evicting the oldest detached one', async () => {
+    const reg = new PtyRegistry(2); // cap of 2 for the test
+    const s = () => fakeSession();
+    const sessions = [s(), s(), s()];
 
-    ws.fire('close', 1006);
-    expect(reg.size).toBe(1);         // still alive during grace
-    jest.advanceTimersByTime(60_000);
-    expect(session.closed).toBe(true); // reaped
-    expect(reg.size).toBe(0);
+    // Two terminals for the sandbox, both detached (oldest = t1).
+    const ws1 = fakeSocket(); await reg.attach('sbx t1', ws1, async () => sessions[0]); ws1.fire('close');
+    const ws2 = fakeSocket(); await reg.attach('sbx t2', ws2, async () => sessions[1]); ws2.fire('close');
+    expect(reg.size).toBe(2);
+
+    // A third pushes over the cap → the oldest detached (t1) is evicted.
+    const ws3 = fakeSocket(); await reg.attach('sbx t3', ws3, async () => sessions[2]);
+    expect(reg.size).toBe(2);
+    expect(sessions[0].closed).toBe(true);  // t1 reaped
+    expect(sessions[1].closed).toBe(false); // t2 survives
+    expect(sessions[2].closed).toBe(false); // t3 is the active one
+  });
+
+  it('never evicts an ATTACHED (active) terminal to make room', async () => {
+    const reg = new PtyRegistry(1); // cap of 1
+    const active = fakeSession();
+    const wsA = fakeSocket(); await reg.attach('sbx t1', wsA, async () => active); // stays attached
+
+    const other = fakeSession();
+    const wsB = fakeSocket(); await reg.attach('sbx t2', wsB, async () => other);
+    // Over cap, but t1 is active and t2 is active — nothing detached to evict, so both stay.
+    expect(reg.size).toBe(2);
+    expect(active.closed).toBe(false);
+  });
+
+  it('scopes the cap per sandbox — a busy sandbox never evicts another sandbox’s shells', async () => {
+    const reg = new PtyRegistry(1);
+    const a = fakeSession(); const b = fakeSession();
+    const wsA = fakeSocket(); await reg.attach('sbxA t1', wsA, async () => a); wsA.fire('close');
+    const wsB = fakeSocket(); await reg.attach('sbxB t1', wsB, async () => b); wsB.fire('close');
+    // Each sandbox has 1 (its cap); neither evicts the other.
+    expect(reg.size).toBe(2);
+    expect(a.closed).toBe(false);
+    expect(b.closed).toBe(false);
   });
 });

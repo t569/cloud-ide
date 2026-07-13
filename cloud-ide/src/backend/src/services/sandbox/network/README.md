@@ -3,6 +3,37 @@
 Egress policy and tenant isolation for sandboxes — provider-agnostic in shape, with
 OpenSandbox as the first (and today only) implementation.
 
+## Operator guide: what a sandbox can reach, and how to add to it
+
+A sandbox is **deny-default**: it can reach only the domains on its allow-list; everything
+else — the whole internet AND other sandboxes — is blocked. The allow-list is computed per
+sandbox in [`policy.ts`](./policy.ts) as the union of three things:
+
+1. **Universal** — every sandbox gets these (`COMMON_ALLOW` in `policy.ts`):
+   `github.com`, `codeload.github.com`, `raw.githubusercontent.com`, `objects.githubusercontent.com`.
+2. **Per-ecosystem** — added for each language the environment uses (`REGISTRIES` in
+   `policy.ts`): e.g. `npm → registry.npmjs.org`, `pip → pypi.org, files.pythonhosted.org`,
+   `cargo → crates.io, index.crates.io, static.crates.io`, `go → proxy.golang.org, sum.golang.org`.
+   Derived from the env's build-step types and `languageServers`.
+3. **Per-environment** — whatever the environment declares in its `allowedDomains` config
+   field (`shared/types/env.ts`). Wildcards allowed (`*.acme.io`).
+
+**To add a domain, pick the narrowest scope that fits:**
+
+| You want | Add it to | Code change |
+|---|---|---|
+| One env to reach one API (`api.stripe.com`) | that environment's `allowedDomains` | none — config only |
+| A new language's package registries | `REGISTRIES` in `policy.ts` | yes |
+| Every sandbox everywhere to reach it | `COMMON_ALLOW` in `policy.ts` | yes |
+
+**To see a sandbox's effective list today:** read `policy.ts` + the env's `allowedDomains`,
+or check the egress sidecar's startup log (`docker logs sandbox-egress-<id>`), which prints
+the rules it installed. There is not yet a runtime API or UI for this — see *Roadmap*.
+
+**A blocked domain looks like** a DNS failure inside the sandbox ("Name or service not
+known") or a connection timeout — not an obvious "blocked by policy" message. If a build or
+app can't reach something it should, the allow-list is the first place to look.
+
 ## Why this exists
 
 Every sandbox used to boot onto Docker's default bridge (`172.17.0.x`) with no outbound

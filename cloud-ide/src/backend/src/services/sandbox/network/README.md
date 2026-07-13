@@ -93,11 +93,18 @@ policy — it is only the resolver for no-egress (build-time / degraded) contain
 | Capability gate: off/on/auto + probe outcome | ✅ unit-tested (`egressCapability.test.ts`) |
 | Degraded boot omits the policy (payload identical to pre-egress) | ✅ by construction + equivalence |
 | `defaultNetworkPolicy` allow-list derivation | ✅ unit-tested (`policy.test.ts`) |
-| **Isolation actually closes the injection** | ⏳ needs an nf_tables kernel — `wsl --update` on this dev host, or production Linux |
+| **Isolation actually closes the injection** | ✅ **PROVEN live** on kernel 6.18 (see below) |
 
-The last row is the one check that cannot be run on the current WSL2 5.10 kernel. To
-complete it: `wsl --update`, restart, confirm `npm run doctor` reports egress enforceable,
-then boot two sandboxes and confirm the cross-tenant `curl 172.17.0.x` is refused.
+**Verified end-to-end (2026-07-13, WSL2 kernel 6.18.33.2 after `wsl --update`):** two
+sandboxes booted through our API, each got its own egress sidecar. Sandbox A's attempt to
+reach sandbox B's HTTP server by raw IP (`172.17.0.3:8000`) **timed out** — both via
+`docker exec` and via our gateway `/exec` endpoint, where the secret file was never
+received. Before egress this leaked `SECRET-OF-TENANT-B`. The allow-list works both ways:
+from A, `github.com` (allowed) returned HTTP 200 while `example.com` (not allowed) was
+refused at DNS. So it is a real deny-default policy, not a dead network.
+
+On the old WSL2 5.10 kernel the sidecar can't run (no nf_tables) and the gate degrades to
+no isolation — `wsl --update` is the fix, confirmed by this run.
 
 ## Roadmap (next slices, not built here)
 

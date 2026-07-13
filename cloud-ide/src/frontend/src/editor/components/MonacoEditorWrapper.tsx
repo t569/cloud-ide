@@ -1,5 +1,5 @@
 // frontend/src/editor/components/MonacoEditorWrapper.tsx
-import React, { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState, useCallback } from 'react';
 import Editor, { OnMount, OnChange } from '@monaco-editor/react';
 import type * as MonacoNs from 'monaco-editor';
 import { EditorInputManager } from '../core/EditorInputManager';
@@ -57,6 +57,24 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
   const monacoRef = useRef<typeof MonacoNs | null>(null);
   const [mounted, setMounted] = useState(false);
 
+  /**
+   * Every file the VFS has handed us, by path. THE BUFFER THAT MAKES THE HANDOFF
+   * ORDER-INDEPENDENT — and the fix for "the first file I click after booting a
+   * sandbox opens blank".
+   *
+   * FILE_LOADED used to be subscribed inside onMount, and EditorEventBus DROPS an
+   * event with no listener. Monaco's loader is async and takes hundreds of ms; the
+   * content fetch is a localhost round-trip and takes ~10. So the fetch ALWAYS won:
+   * the content was emitted into the void before the editor existed, and the model
+   * stayed empty forever. The same thing happened after closing every tab, because
+   * @monaco-editor/react disposes the current model AND our listener on unmount.
+   *
+   * A buffer + a pull removes the race instead of narrowing it: FILE_LOADED writes
+   * here (whether or not an editor exists yet), and `seed` is called from BOTH sides
+   * of the join — when content arrives, and when the editor/tab is ready for it.
+   */
+  const loadedRef = useRef(new Map<string, { content: string; language: string }>());
+
   // Language services, installed OUTSIDE onMount because the registry arrives late:
   // which languages have a server is a property of the sandbox's environment, fetched
   // at boot. When the answer lands the registry is replaced, and this re-installs the
@@ -84,12 +102,73 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
     revealRange(editorRef.current, pending.selection);
   };
 
+  /**
+   * Put `path`'s buffered content into its Monaco model, and show it if it is the tab
+   * the user is actually on. Safe to call at any time and any number of times: it
+   * no-ops until BOTH halves have landed (an editor to render into, and content to
+   * render), so whichever arrives second completes the handoff.
+   */
+  const seed = useCallback((path: string) => {
+    const monaco = monacoRef.current;
+    const editor = editorRef.current;
+    const loaded = loadedRef.current.get(path);
+    if (!monaco || !editor || !loaded) return; // not both halves yet — the other caller will finish it
+
+    const uri = monaco.Uri.parse(path);
+    let model = monaco.editor.getModel(uri);
+
+    if (!model) {
+      // No model: either nothing created one yet, or @monaco-editor/react disposed it
+      // when the last tab closed and the <Editor> unmounted.
+      model = monaco.editor.createModel(loaded.content, loaded.language, uri);
+    } else if (model.getValue() !== loaded.content) {
+      // setValue fires a content change synchronously; suppress the resulting
+      // CONTENT_CHANGED so seeding a file doesn't mark the fresh tab dirty and queue
+      // a pointless write-back of what we just read.
+      loadingRef.current = true;
+      model.setValue(loaded.content);
+      loadingRef.current = false;
+    }
+
+    // Attach it ONLY if it is the file on screen. Unconditional setModel is a race as
+    // soon as two files load at once — restoring a session re-opens every saved tab, so
+    // several fetches are in flight and whichever landed LAST would seize the editor.
+    // The tab bar said one file while the editor showed another, which read as "my file
+    // lost its contents". Background tabs are still seeded above; they display when
+    // selected, because switching tabs calls seed() again through the effect below.
+    if (activePathRef.current !== path) return;
+
+    editor.setModel(model);
+    revealIfPending(path);
+  }, []);
+
+  // Content arriving. Subscribed at COMPONENT mount, not editor mount — this must be
+  // listening before Monaco exists, which is the entire point.
+  useEffect(() => eventBus.on('FILE_LOADED', ({ path, content, language }) => {
+    loadedRef.current.set(path, { content, language });
+    seed(path);
+  }), [eventBus, seed]);
+
+  // The other half of the join: the editor became ready, or the user switched tabs.
+  // Re-seeds from the buffer, so a file whose content arrived before Monaco existed
+  // (or whose model was disposed when the tab bar emptied) still renders.
+  useEffect(() => {
+    if (mounted && activeFile?.path) seed(activeFile.path);
+  }, [mounted, activeFile?.path, seed]);
+
   // The tab caught up with a definition we already loaded — reveal it now. Without
   // this, gating the setModel above on the active path would silently break
   // go-to-definition whenever the content arrived before React re-rendered.
   useEffect(() => {
     if (activeFile?.path) revealIfPending(activeFile.path);
   }, [activeFile?.path]);
+
+  // A file the user closed is no longer worth buffering. (Reopening re-fetches it —
+  // the VFS still caches the blob, so this costs nothing.)
+  useEffect(() => {
+    const unsub = eventBus.on('TAB_CLOSED', ({ path }) => loadedRef.current.delete(path));
+    return unsub;
+  }, [eventBus]);
 
   // 1. Handle Editor Mount
   const handleEditorMount: OnMount = (editor, monaco) => {
@@ -162,58 +241,23 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
       },
     }));
 
-    // Listen for incoming file data from the VFS.
-    //
-    // The VFS is authoritative for a model's content, INCLUDING when the model
-    // already exists. Opening a tab dispatches OPEN_FILE synchronously, which
-    // re-renders <Editor> with the new `path`; @monaco-editor/react then creates
-    // an EMPTY model for that path immediately. The content fetch lands after.
-    // We used to only fill in a model we created ourselves, so whenever that
-    // empty model got there first the fetched content was dropped on the floor —
-    // any file whose blob wasn't already cached (everything `npm` had just
-    // generated) opened blank.
-    const unsubscribeLoaded = eventBus.on('FILE_LOADED', ({ path, content, language }) => {
-      const uri = monaco.Uri.parse(path);
-      let model = monaco.editor.getModel(uri);
-
-      if (!model) {
-        model = monaco.editor.createModel(content, language, uri);
-      } else if (model.getValue() !== content) {
-        // setValue fires a content change synchronously; suppress the resulting
-        // CONTENT_CHANGED so loading a file doesn't mark the fresh tab dirty and
-        // queue a pointless write-back of what we just read.
-        loadingRef.current = true;
-        model.setValue(content);
-        loadingRef.current = false;
-      }
-
-      // Show it ONLY if it is the file the user is actually looking at.
-      //
-      // This used to be unconditional, which is a race as soon as more than one file
-      // is loading: restoring a session re-opens EVERY saved tab at once, so several
-      // fetches are in flight and whichever lands LAST would seize the editor. The tab
-      // bar said one file while the editor displayed another — and if that other one
-      // was short or empty, it read as "my file lost its contents". React could not
-      // correct it either: the `path` prop had not changed, so @monaco-editor/react
-      // never re-attached. It only bit after a pause/resume, because reopening the
-      // sandbox is the one flow that restores several tabs simultaneously.
-      if (activePathRef.current !== path) return; // seeded; the tab will show it when selected
-
-      editor.setModel(model);
-      revealIfPending(path);
-    });
-
-    // Add to your cleanup logic
-    editor.onDidDispose(() => {
-      unsubscribeLoaded();
-      // ... previous cleanup logic
-    });
-
+    // NOTE: FILE_LOADED is NOT subscribed here. It used to be, and that was the bug —
+    // an event emitted before this callback runs has no listener and is dropped, which
+    // is the normal case, not the edge one (see `loadedRef`). The subscription lives at
+    // component scope now, and `seed` is driven from the effect that watches `mounted`.
 
     // 3. Cleanup when component unmounts
     editor.onDidDispose(() => {
       disposablesRef.current.forEach(disposable => disposable.dispose());
       disposablesRef.current = [];
+
+      // The <Editor> is gone (the last tab closed, so the workspace renders its empty
+      // state). Drop the handle and un-set `mounted`: seed() must not write into a
+      // disposed editor, and the NEXT mount has to re-run the seeding effect — without
+      // this, `mounted` stays true, the effect never re-fires, and the file the user
+      // reopens comes up blank exactly as it did before.
+      editorRef.current = null;
+      setMounted(false);
     });
 
   };

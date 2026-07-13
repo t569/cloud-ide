@@ -5,6 +5,7 @@ import { EnvironmentConfig } from '@cloud-ide/shared/types/env';
 import { BaseImageIcon } from './icons/BaseImageIcon';
 import { BaseImageSearch } from './widgets/BaseImageSearch';
 import { LanguageServerPicker } from './widgets/LanguageServerPicker';
+import { AllowedDomainsEditor } from './widgets/AllowedDomainsEditor';
 
 interface GeneralSettingsProps {
   register: UseFormRegister<EnvironmentConfig>;
@@ -12,6 +13,7 @@ interface GeneralSettingsProps {
   baseImage: string;
   environmentId: string | null; // system-assigned; null until first save
   languageServers: string[]; // watched — the picker is controlled, not registered
+  allowedDomains: string[];  // watched — same reason as languageServers
 }
 
 const inputCls =
@@ -23,6 +25,7 @@ export const GeneralSettings = ({
   baseImage,
   environmentId,
   languageServers,
+  allowedDomains,
 }: GeneralSettingsProps) => {
   return (
     <div className="p-6 rounded-xl bg-gradient-to-b from-[#2c2c2c] to-[#272727] border border-white/[0.06] shadow-lg shadow-black/20">
@@ -76,6 +79,21 @@ export const GeneralSettings = ({
             selected={languageServers}
             onChange={(langs) => setValue('languageServers', langs, { shouldDirty: true })}
           />
+        </div>
+
+        <div className="space-y-1.5 col-span-2">
+          <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider font-sans">
+            Network Access
+          </label>
+          <AllowedDomainsEditor
+            domains={allowedDomains}
+            onChange={(domains) => setValue('allowedDomains', domains, { shouldDirty: true })}
+          />
+          <p className="text-[11px] text-gray-600">
+            Sandboxes are deny-default: package registries for your languages and GitHub are
+            allowed automatically. Add any other domains your code needs to reach — everything
+            else, including other sandboxes, is blocked.
+          </p>
         </div>
       </div>
     </div>

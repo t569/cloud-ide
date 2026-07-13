@@ -93,6 +93,7 @@ export const EnvManager = ({ onLaunch, onViewSandboxes }: EnvManagerProps = {}) 
               baseImage={baseImage}
               environmentId={currentEnvId}
               languageServers={currentConfig.languageServers ?? []}
+              allowedDomains={currentConfig.allowedDomains ?? []}
             />
 
             <BuildPipeline control={control} register={register} setValue={setValue} />

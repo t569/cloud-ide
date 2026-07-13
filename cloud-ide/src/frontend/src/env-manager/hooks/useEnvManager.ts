@@ -17,6 +17,7 @@ const BLANK_CONFIG: EnvironmentConfig = {
   // Present so loading an env that predates the field resets the picker to empty
   // rather than leaving the previous env's selection stuck in the form.
   languageServers: [],
+  allowedDomains: [],
 };
 
 export const useEnvManager = (onSaved?: () => void) => {

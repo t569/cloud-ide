@@ -1,5 +1,4 @@
 import crypto from 'node:crypto';
-import path from 'node:path';
 import { Duplex } from 'node:stream';
 import {
   SandboxExecRequest,
@@ -19,6 +18,7 @@ import { RustEngineClient } from './rustClient';
 import { ISandboxDriver, DriverCapabilities, ISandboxSession, PtyOptions } from './drivers/ISandboxDriver';
 import { captureSnapshot, ToolSnapshot } from '../promotion/toolSnapshot';
 import { WorktreeEngine } from '../storage/WorktreeEngine';
+import { dataPath } from '../../config/paths';
 import { defaultNetworkPolicy } from './network/policy';
 import { egressEnforceable } from './network/egressCapability';
 import { WorkspaceProvisioner } from '../provisioning';
@@ -27,11 +27,11 @@ import { WorktreeStrategy } from '../provisioning/strategies/git/WorktreeStrateg
 const DEFAULT_WORKSPACE_MOUNT_PATH = '/workspace';
 const USER_VOLUME_ROOT = `${DEFAULT_WORKSPACE_MOUNT_PATH}/mounts`;
 
-// The on-disk storage layer every worktree branches from and lives in. Exported
-// because the health probe must inspect the same paths the engine actually uses —
-// a second `path.resolve(cwd, 'data/worktrees')` elsewhere would silently drift.
-export const CENTRAL_REPO_PATH = path.resolve(process.cwd(), 'data/central-repo.git');
-export const WORKTREES_ROOT = path.resolve(process.cwd(), 'data/worktrees');
+// The on-disk storage layer every worktree branches from and lives in. Derived from the
+// single DATA_DIR knob (config/paths) so the git worktrees can be relocated to fast local
+// storage — see paths.ts. Exported because the health probe inspects these same paths.
+export const CENTRAL_REPO_PATH = dataPath('central-repo.git');
+export const WORKTREES_ROOT = dataPath('worktrees');
 
 export interface VolumeMutationResult {
   sandbox: SandboxRecord;

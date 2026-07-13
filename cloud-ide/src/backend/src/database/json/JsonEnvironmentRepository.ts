@@ -3,11 +3,12 @@ import path from 'node:path';
 import { IEnvironmentRepository } from '../interfaces/IEnvironmentRepository';
 import { EnvironmentRecord } from '../models';
 import { writeJsonAtomic } from '../atomicWrite';
+import { DATA_DIR } from '../../config/paths';
 
 export class JsonEnvironmentRepository implements IEnvironmentRepository {
   private filePath: string;
 
-  constructor(storageDirectory: string = './data') {
+  constructor(storageDirectory: string = DATA_DIR) {
     this.filePath = path.join(storageDirectory, 'environments.json');
     this.initDb();
   }

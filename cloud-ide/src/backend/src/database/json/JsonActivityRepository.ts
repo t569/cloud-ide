@@ -9,6 +9,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ActivityEvent, ActivityKind } from '../models';
+import { DATA_DIR } from '../../config/paths';
 
 const MAX_PER_SANDBOX = 200; // ponytail: ring-buffer per sandbox; enough for a drawer, cheap to scan
 
@@ -17,7 +18,7 @@ export class JsonActivityRepository {
   private readonly ready: Promise<void>;
   private writeChain: Promise<void> = Promise.resolve();
 
-  constructor(storageDirectory: string = './data') {
+  constructor(storageDirectory: string = DATA_DIR) {
     this.filePath = path.join(storageDirectory, 'activity.json');
     this.ready = this.initDb();
   }

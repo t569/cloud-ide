@@ -28,6 +28,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parseCookies, USER_COOKIE_OPTIONS, timingSafeEqual } from './security';
 import { config, IS_PRODUCTION } from '../../config/env';
+import { dataPath } from '../../config/paths';
 
 export const UID_COOKIE = 'uid';
 
@@ -49,7 +50,7 @@ function loadAuthSecret(): Buffer {
 
   // ponytail: a file, not a key manager. Swap when there is more than one node —
   // two servers with different dev secrets would reject each other's cookies.
-  const keyPath = path.resolve(process.cwd(), 'data', '.auth-secret');
+  const keyPath = dataPath('.auth-secret');
   try {
     return Buffer.from(fs.readFileSync(keyPath, 'utf8').trim(), 'hex');
   } catch {

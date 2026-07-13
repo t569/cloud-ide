@@ -9,6 +9,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { writeJsonAtomic } from '../../database/atomicWrite';
+import { DATA_DIR } from '../../config/paths';
 
 export type BuildStatus = 'queued' | 'building' | 'succeeded' | 'failed';
 
@@ -166,7 +167,7 @@ export class JsonBuildStore extends InMemoryBuildStore {
   /** Resolves once prior state has been loaded from disk. */
   readonly ready: Promise<void>;
 
-  constructor(storageDirectory = './data') {
+  constructor(storageDirectory = DATA_DIR) {
     super();
     this.filePath = path.join(storageDirectory, 'builds.json');
     this.ready = this.load();

@@ -3,12 +3,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ISessionRepository } from '../interfaces/ISessionRepository';
 import { SessionRecord, SessionState } from '../models';
+import { DATA_DIR } from '../../config/paths';
 
 export class JsonSessionRepository implements ISessionRepository {
   private filePath: string;
   private readonly ready: Promise<void>;
 
-  constructor(storageDirectory: string = './data') {
+  constructor(storageDirectory: string = DATA_DIR) {
     this.filePath = path.join(storageDirectory, 'sessions.json');
     this.ready = this.initDb();
   }

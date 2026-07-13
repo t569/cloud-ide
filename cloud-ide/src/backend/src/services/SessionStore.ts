@@ -15,6 +15,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { writeJsonAtomic } from '../database/atomicWrite';
+import { dataPath } from '../config/paths';
 
 export interface SessionSnapshot {
   v: 1;
@@ -29,7 +30,7 @@ export interface SessionSnapshot {
 const SAFE_KEY = /^[a-zA-Z0-9_-]+$/;
 
 export class SessionStore {
-  constructor(private root: string = path.resolve(process.cwd(), 'data', 'sessions')) {}
+  constructor(private root: string = dataPath('sessions')) {}
 
   private fileFor(sandboxId: string, terminalId: string): string {
     if (!SAFE_KEY.test(sandboxId) || !SAFE_KEY.test(terminalId)) {

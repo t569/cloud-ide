@@ -3,6 +3,7 @@ import path from 'node:path';
 import { SandboxRecord, SandboxState } from '@cloud-ide/shared/types/sandbox';
 import { ISandboxRepository } from '../interfaces/ISandboxRepository';
 import { writeJsonAtomic } from '../atomicWrite';
+import { DATA_DIR } from '../../config/paths';
 
 /**
  * Sandbox records, backed by one JSON file, held in memory.
@@ -36,7 +37,7 @@ export class JsonSandboxRepository implements ISandboxRepository {
   /** Serializes writes: a mutation never overlaps the previous one's rename. */
   private writeQueue: Promise<void> = Promise.resolve();
 
-  constructor(storageDirectory: string = './data') {
+  constructor(storageDirectory: string = DATA_DIR) {
     this.filePath = path.join(storageDirectory, 'sandboxes.json');
     this.ready = this.load();
   }

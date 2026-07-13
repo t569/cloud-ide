@@ -67,7 +67,13 @@ if (!fs.existsSync(serverCmd)) {
 // opposite. Every boot mounts a worktree, so an empty list 400s every boot. The path is
 // absolute and machine-specific, so resolve it here rather than committing one dev's D:\.
 // ponytail: string-replace one line, not a TOML parser — add one when a 2nd key needs it.
-const worktreesRoot = path.resolve(sandboxDir, '..', 'backend', 'data', 'worktrees');
+// Must match the gateway's DATA_DIR (backend/src/config/paths.ts): the daemon bind-mounts
+// these worktrees into containers, so its allow-list has to point at the SAME directory the
+// gateway writes them to. One knob, read by both from the shared .env.
+const dataDir = process.env.CIDE_DATA_DIR
+  ? path.resolve(process.env.CIDE_DATA_DIR)
+  : path.resolve(sandboxDir, '..', 'backend', 'data');
+const worktreesRoot = path.join(dataDir, 'worktrees');
 fs.mkdirSync(worktreesRoot, { recursive: true });
 
 const resolvedConfig = path.join(sandboxDir, '.sandbox.resolved.toml');

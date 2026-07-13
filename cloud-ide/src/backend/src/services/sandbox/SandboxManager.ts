@@ -10,8 +10,10 @@ import {
   VolumeMount,
 } from '@cloud-ide/shared/types/sandbox';
 import { ISandboxRepository } from '../../database/interfaces/ISandboxRepository';
+import { IEnvironmentRepository } from '../../database/interfaces/IEnvironmentRepository';
+import { EnvironmentRecord } from '../../database/models';
 import { JsonActivityRepository } from '../../database/json/JsonActivityRepository';
-import { ExecConnectionInfo } from '../../types/engine';
+import { ExecConnectionInfo, SandboxEndpoint } from '../../types/engine';
 import { RustEngineClient } from './rustClient';
 import { ISandboxDriver, DriverCapabilities, ISandboxSession, PtyOptions } from './drivers/ISandboxDriver';
 import { captureSnapshot, ToolSnapshot } from '../promotion/toolSnapshot';
@@ -43,6 +45,24 @@ export class DirtyWorktreeError extends Error {
     this.name = 'DirtyWorktreeError';
   }
 }
+
+/**
+ * The boot spec for an environment. ONE definition, used by both the cold boot and the
+ * recovery path — if they drift, a recovered sandbox comes back on a different image
+ * (or without its env vars) than the one it was launched with.
+ */
+export function specForEnvironment(env: EnvironmentRecord): SandboxSpec {
+  return {
+    // The stored tag, not toImageName(id): a build may tag by content, so the
+    // ':latest' derivation need not exist.
+    imageTag: env.imageName,
+    // The env ID — this is the key warm-sandbox reuse matches on, and it must
+    // survive a rebuild that changes the tag.
+    environmentId: env.id,
+    // Applied at container boot, so exec/terminal inherit them.
+    envVars: env.builderConfig?.env,
+  };
+}
 /**
  * @class SandboxManager
  * @description The central domain service for the Sandbox module.
@@ -72,6 +92,9 @@ export class SandboxManager {
     // `sandbox:provisioned`/`state_changed` events PersistenceLayer listens for are
     // never emitted — this is the only place these transitions actually happen.
     private activityRepo?: JsonActivityRepository,
+    // Needed to rebuild a sandbox's boot spec when `ensureRunning` has to recover it
+    // onto its worktree. Optional only so the test sites that never recover can skip it.
+    private envRepo?: IEnvironmentRepository,
   ) {}
 
 
@@ -116,10 +139,11 @@ export class SandboxManager {
     // 4. Normalize any user-defined volumes (replaces prepareProvisionSpec)
     const finalSpec = this.normalizeUserVolumes(mutatedSpec);
 
-    // 5. Boot the container via Rust
+    // 5. Boot the container through the driver (OpenSandbox daemon over HTTP — no Rust
+    //    in this path, whatever RustEngineClient is still called)
     const rustStatus = await this.driver.bootSandbox(finalSpec);
 
-    // 6. Save the record, explicitly linking the Rust ID to the Worktree ID
+    // 6. Save the record, explicitly linking the daemon's ID to the Worktree ID
     const record: SandboxRecord = {
       sandboxId: rustStatus.sandboxId,     // The OpenSandbox ID (e.g., sbx-1234)
       userId: ownerId,                     // Owner — the basis of every later access check
@@ -274,7 +298,7 @@ export class SandboxManager {
   }
 
   public async pause(sandboxId: string): Promise<boolean> {
-    console.log(`[SandboxManager] Requesting Rust to pause ${sandboxId}...`);
+    console.log(`[SandboxManager] Pausing ${sandboxId}...`);
     const success = await this.driver.pauseSandbox(sandboxId);
 
     if (success) {
@@ -292,7 +316,7 @@ export class SandboxManager {
    * @returns A promise resolving to a boolean indicating success.
    */
   public async resume(sandboxId: string): Promise<boolean> {
-    console.log(`[SandboxManager] Requesting Rust to resume ${sandboxId}...`);
+    console.log(`[SandboxManager] Resuming ${sandboxId}...`);
     const success = await this.driver.resumeSandbox(sandboxId);
 
     if (success) {
@@ -311,6 +335,84 @@ export class SandboxManager {
     return success;
   }
 
+
+  /**
+   * THE ONLY WAY TO GET A CONNECTABLE SANDBOX. Returns the id you can actually reach —
+   * which is NOT always the id you passed in.
+   *
+   * A record's `state` is a cache of Docker's, and it goes stale in one specific, very
+   * common way: a paused container does not survive a dockerd/WSL/host restart. It comes
+   * back EXITED while our record still says PAUSED. The daemon then refuses the resume
+   * with 409 `SANDBOX_NOT_PAUSED` ("Sandbox is not in a paused state"), and any caller
+   * that trusted the stored state silently does nothing — which is what made sandboxes
+   * feel transient: pause, resume, and open all appeared to work and reached a container
+   * that no longer existed.
+   *
+   * So: never act on the stored state. Ask the daemon, and if the container cannot be
+   * brought back, throw it away and boot a replacement onto the SAME worktree. The
+   * workspace is a git worktree on the host SSD — it was never inside the container, and
+   * a dead container costs the user nothing.
+   *
+   * Recovery re-provisions, so the returned id may be new and the OLD RECORD IS GONE.
+   * Callers must use what this hands back.
+   */
+  public async ensureRunning(sandboxId: string): Promise<string> {
+    const record = await this.getSandboxOrThrow(sandboxId);
+
+    let state: SandboxRecord['state'];
+    try {
+      // Also writes the daemon's truth back over the stale record.
+      state = (await this.getStatus(sandboxId)).state;
+    } catch {
+      // The daemon 404s a container it has forgotten. Not an error — just gone.
+      state = 'ERROR';
+    }
+
+    if (state === 'RUNNING') return sandboxId;
+
+    // The happy path: genuinely paused, and the daemon unpauses it.
+    if (state === 'PAUSED' && (await this.resume(sandboxId))) return sandboxId;
+
+    // Everything else — STOPPED, ERROR, forgotten, or PAUSED-but-the-resume-was-refused
+    // (the 409 above) — means the container is beyond saving. The worktree is not.
+    const revived = await this.recover(record, await this.specFor(record));
+    return revived.sandboxId;
+  }
+
+  /**
+   * Free a long-idle sandbox's COMPUTE without touching its workspace: the container is
+   * destroyed, the record and its worktree are kept, and the state drops to STOPPED. The
+   * next `ensureRunning` boots a replacement onto the same files.
+   *
+   * This is what "cleaning up" an old sandbox means here. Deleting the worktree is a
+   * different, irreversible operation (`destroy`) and stays a deliberate user action —
+   * a background sweep must never be able to delete someone's source code.
+   */
+  public async releaseCompute(sandboxId: string): Promise<void> {
+    const record = await this.sandboxRepo.get(sandboxId);
+    if (!record) return;
+
+    // Best-effort: a container the daemon has already forgotten is exactly the case
+    // we're cleaning up after, so a 404 here is a success, not a failure.
+    await this.driver.destroySandbox(sandboxId).catch(() => undefined);
+    await this.sandboxRepo.save({ ...record, state: 'STOPPED' });
+    await this.activityRepo?.record(
+      sandboxId,
+      'state',
+      'Container released after a long idle. The workspace is kept — reopening boots a fresh container onto it.',
+    );
+  }
+
+  /** The spec to re-boot a record's sandbox from. Throws rather than guess an image. */
+  private async specFor(record: SandboxRecord): Promise<SandboxSpec> {
+    const env = record.environmentId ? await this.envRepo?.get(record.environmentId) : null;
+    if (!env?.imageName) {
+      throw new Error(
+        `Cannot recover sandbox ${record.sandboxId}: its environment '${record.environmentId}' is missing or has never been built.`,
+      );
+    }
+    return specForEnvironment(env);
+  }
 
   /**
    * Boot a REPLACEMENT container onto an existing sandbox's worktree.
@@ -378,7 +480,7 @@ export class SandboxManager {
       throw new DirtyWorktreeError(sandboxId);
     }
 
-    console.log(`[SandboxManager] Requesting Rust to destroy ${sandboxId}...`);
+    console.log(`[SandboxManager] Destroying ${sandboxId} and its worktree...`);
     const success = await this.driver.destroySandbox(sandboxId);
 
     if (success) {
@@ -427,12 +529,13 @@ export class SandboxManager {
 
 
   /**
-   * @description Resolves a host-routable base URL for a port inside the sandbox.
-   * Used by the preview ingress to proxy to a user's dev server. Providers never hand
-   * out container IPs (and on Docker Desktop those wouldn't be routable anyway), so
-   * this is the only way in. Rejects if nothing is listening on `port` yet.
+   * @description How to reach a user's service on `port` inside the sandbox: the URL to
+   * proxy to, plus the headers the provider requires with it. Used by the preview
+   * ingress. Providers never hand out container IPs (and on Docker Desktop those
+   * wouldn't be routable anyway), so this is the only way in. Rejects if nothing is
+   * listening on `port` yet.
    */
-  public async resolveEndpoint(sandboxId: string, port: number): Promise<string> {
+  public async resolveEndpoint(sandboxId: string, port: number): Promise<SandboxEndpoint> {
     return this.driver.resolveEndpoint(sandboxId, port);
   }
 

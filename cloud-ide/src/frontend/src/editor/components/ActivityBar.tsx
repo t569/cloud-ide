@@ -12,7 +12,7 @@ interface ActivityBarProps {
 // The sync traffic light — a signature element. Each lamp lights (full opacity +
 // glow) only for its state, the rest dim to a quiet baseline.
 const LAMPS: { state: SyncStatus; color: string }[] = [
-  { state: 'conflict', color: '#ff5f56' },
+  { state: 'offline', color: '#ff5f56' },
   { state: 'syncing', color: '#ffbd2e' },
   { state: 'synced', color: '#27c93f' },
 ];

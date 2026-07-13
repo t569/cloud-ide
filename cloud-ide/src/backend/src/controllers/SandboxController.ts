@@ -186,9 +186,13 @@ export class SandboxController {
    * @description Executes a shell command inside the container and streams 
    * the output in real-time.
    * * Architecture Highlights:
-   * 1. **Wake-on-Demand**: Intercepts commands sent to PAUSED containers and 
-   * seamlessly thaws them via cgroups before routing the traffic.
-   * 2. **Proxy Resolution**: Asks Rust for the internal routing proxy URL.
+   * 1. **Wake-on-Demand**: Intercepts commands sent to PAUSED containers and
+   * seamlessly thaws them via cgroups before routing the traffic. Deliberately a plain
+   * `resume`, not `ensureRunning`: this runs inside an OPEN editor, whose sandboxId is
+   * baked into the URL and the VFS. Recovering here would mint a new id under a live
+   * session. A container that died mid-session fails loudly (503) and is healed by
+   * reopening — which does go through ensureRunning.
+   * 2. **Proxy Resolution**: Asks the daemon for the internal routing proxy URL.
    * 3. **Streaming Bridge**: Pipes the Go `execd` SSE stream directly to the 
    * Express Response object for ultra-low latency terminal rendering.
    * 4. **Memory Safety**: Uses an `AbortController` to sever the internal 
@@ -322,13 +326,30 @@ export class SandboxController {
     }
 
     try {
-      await this.sandboxManager.pause(sandboxId);
+      // The daemon refuses to pause a container that isn't running (409
+      // SANDBOX_NOT_RUNNING) — which is exactly what a stale PAUSED/RUNNING record
+      // looks like after a dockerd restart. Say so; this used to answer 200 PAUSED
+      // no matter what happened, so the UI cheerfully reported a pause that never was.
+      const paused = await this.sandboxManager.pause(sandboxId);
+      if (!paused) {
+        res.status(409).json({
+          error: 'This sandbox is not running, so there is nothing to pause. Refresh to see its real state.',
+        });
+        return;
+      }
       res.status(200).json({ sandboxId, state: 'PAUSED' });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   };
 
+  /**
+   * Wake a sandbox. Goes through `ensureRunning`, so it also heals the case that used
+   * to break it: a container lost to a dockerd/WSL/host restart, whose record still
+   * claims PAUSED. That resume is refused by the daemon (409), and we recover onto the
+   * worktree instead — which MINTS A NEW sandboxId. Hand it back; the caller's old id
+   * no longer exists.
+   */
   public resumeSandbox = async (req: Request, res: Response): Promise<void> => {
    const sandboxId = this.getStringParam(req.params.sandboxId);
 
@@ -338,8 +359,8 @@ export class SandboxController {
     }
 
     try {
-      await this.sandboxManager.resume(sandboxId);
-      res.status(200).json({ sandboxId, state: 'RUNNING' });
+      const liveId = await this.sandboxManager.ensureRunning(sandboxId);
+      res.status(200).json({ sandboxId: liveId, state: 'RUNNING', recovered: liveId !== sandboxId });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

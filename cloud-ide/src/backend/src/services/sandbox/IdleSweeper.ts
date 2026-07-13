@@ -12,6 +12,19 @@ import { WorkspaceWatchers } from '../WorkspaceWatchers';
 const GRACE_MS = Number(process.env.IDLE_GRACE_MS) || 2 * 60 * 1000;
 
 /**
+ * How long a PAUSED sandbox keeps its container before the compute is handed back. A
+ * paused container still pins its writable layer and its slice of the daemon's memory;
+ * after a few days of nobody touching it, that is pure waste.
+ *
+ * This releases the CONTAINER ONLY. The record and its git worktree — the user's actual
+ * files — survive untouched, and reopening boots a fresh container onto them
+ * (SandboxManager.releaseCompute -> ensureRunning -> recover). Nothing here can delete a
+ * workspace; that stays an explicit user action behind the Delete button.
+ */
+const MAX_IDLE_DAYS = Number(process.env.SANDBOX_MAX_IDLE_DAYS) || 3;
+const MAX_IDLE_MS = MAX_IDLE_DAYS * 24 * 60 * 60 * 1000;
+
+/**
  * @class IdleSweeper
  * @description The automated resource optimizer (Scale-to-Zero Daemon).
  * * It continuously monitors active infrastructure and freezes (pauses via cgroups)
@@ -96,13 +109,25 @@ export class IdleSweeper {
     // Re-read: getStatus above wrote the engine's truth back to each record, so the
     // list we started with is stale. Using it would try to pause containers we just
     // learned are dead.
-    const runningSandboxes = (await this.sandboxRepo.list()).filter(
-      (sbx) => sbx.state === 'RUNNING',
-    );
-
+    const reconciled = await this.sandboxRepo.list();
     const now = Date.now();
 
-    for (const sandbox of runningSandboxes) {
+    // 1c. Long-idle PAUSED sandboxes give their container back. The worktree stays, so
+    // this is reversible: the next open recovers onto the same files. (The record's own
+    // ponytail note asked for exactly this — an explicit age policy, and never a
+    // workspace deletion as a side effect of a sweep.)
+    for (const sandbox of reconciled.filter((sbx) => sbx.state === 'PAUSED')) {
+      const lastActive = sandbox.lastActiveAt ?? sandbox.createdAt;
+      if (now - lastActive < MAX_IDLE_MS) continue;
+
+      console.log(
+        `[IdleSweeper] Sandbox ${sandbox.sandboxId} has been paused for over ${MAX_IDLE_DAYS}d. ` +
+          `Releasing its container; the workspace is kept and reopens on demand.`,
+      );
+      await this.sandboxManager.releaseCompute(sandbox.sandboxId);
+    }
+
+    for (const sandbox of reconciled.filter((sbx) => sbx.state === 'RUNNING')) {
       // 2. Is an editor holding this workspace open right now?
       if (this.watchers.isViewed(sandbox.sandboxId)) continue;
 
@@ -112,7 +137,6 @@ export class IdleSweeper {
       if (now - lastActive < GRACE_MS) continue;
 
       console.log(`[IdleSweeper] Sandbox ${sandbox.sandboxId} is idle. Pausing to save compute...`);
-      // Tell Rust to freeze the container!
       await this.sandboxManager.pause(sandbox.sandboxId);
     }
   }

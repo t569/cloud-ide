@@ -89,7 +89,7 @@ export const VFSTestHarness = () => {
           <div className={`text-lg font-bold uppercase tracking-wider
             ${syncStatus === 'synced' ? 'text-green-500' : ''}
             ${syncStatus === 'syncing' ? 'text-yellow-500' : ''}
-            ${syncStatus === 'conflict' ? 'text-red-500' : ''}
+            ${syncStatus === 'offline' ? 'text-red-500' : ''}
           `}>
             ● {syncStatus}
           </div>

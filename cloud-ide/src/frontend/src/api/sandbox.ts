@@ -74,13 +74,30 @@ export const deleteSandbox = (sandboxId: string, force = false) =>
 export const getSandboxDrift = (sandboxId: string) =>
   apiClient.get<{ drift: ToolDrift }>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/drift`);
 
-/** Suspend compute (freezes the container); the workspace survives. Resume to wake. */
+/**
+ * Suspend compute (freezes the container); the workspace survives. Resume to wake.
+ * 409 when the sandbox isn't actually running — a stale record, so refresh.
+ */
 export const pauseSandbox = (sandboxId: string) =>
   apiClient.post<void>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/pause`, {});
 
-/** Wake a paused sandbox back to RUNNING. */
+export interface ResumeResponse {
+  /** The sandbox you can now reach. NOT necessarily the one you asked to resume. */
+  sandboxId: string;
+  state: 'RUNNING';
+  /** True when the old container was unrecoverable and a new one was booted onto the
+   *  same workspace — the id changed, and the old one no longer exists. */
+  recovered: boolean;
+}
+
+/**
+ * Wake a sandbox back to RUNNING. If its container did not survive (a Docker/WSL/host
+ * restart leaves a "paused" container exited, and the daemon then refuses the resume),
+ * the backend boots a replacement onto the same worktree and returns ITS id. Callers
+ * must use the returned `sandboxId`.
+ */
 export const resumeSandbox = (sandboxId: string) =>
-  apiClient.post<void>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/resume`, {});
+  apiClient.post<ResumeResponse>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/resume`, {});
 
 export interface SessionSummary {
   sessionId: string;

@@ -49,14 +49,20 @@ export default function Sandboxes() {
   const [isLoading, setLoading] = useState(true);
   const [selected, setSelected] = useState<SandboxSummary | null>(null);
 
-  const refresh = () => {
+  // `followId` re-points the drawer at a sandbox whose id CHANGED under it: recovering a
+  // dead container boots a replacement onto the same workspace, which mints a new id.
+  // Without this the drawer would close on the user mid-action, as if it had vanished.
+  const refresh = (followId?: string) => {
     setLoading(true);
     listSandboxes()
       .then((list) => {
         setSandboxes(list);
         setError(null);
-        // Keep the drawer's data fresh (or close it if the sandbox is gone).
-        setSelected((cur) => (cur ? list.find((s) => s.sandboxId === cur.sandboxId) ?? null : null));
+        // Keep the drawer's data fresh (or close it if the sandbox is really gone).
+        setSelected((cur) => {
+          const id = followId ?? cur?.sandboxId;
+          return id ? list.find((s) => s.sandboxId === id) ?? null : null;
+        });
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -77,7 +83,7 @@ export default function Sandboxes() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={refresh}
+            onClick={() => refresh()} // not `onClick={refresh}` — that hands it a MouseEvent as followId
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-gray-800 hover:border-gray-600"
           >
             <VscRefresh className={isLoading ? 'animate-spin' : ''} /> Refresh
@@ -145,7 +151,8 @@ function SandboxDrawer({
 }: {
   sbx: SandboxSummary;
   onClose: () => void;
-  onChanged: () => void;
+  /** `followId` keeps the drawer on the sandbox when an action changed its id. */
+  onChanged: (followId?: string) => void;
 }) {
   const [busy, setBusy] = useState<null | string>(null);
   const [confirming, setConfirming] = useState(false);
@@ -190,13 +197,14 @@ function SandboxDrawer({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const run = async (label: string, fn: () => Promise<unknown>, after?: () => void) => {
+  // An action may return the sandbox id to follow afterwards (resume can recover onto a
+  // NEW container, and with it a new id). Anything else just refreshes in place.
+  const run = async (label: string, fn: () => Promise<string | unknown>) => {
     setBusy(label);
     setActionError(null);
     try {
-      await fn();
-      after?.();
-      onChanged();
+      const followId = await fn();
+      onChanged(typeof followId === 'string' ? followId : undefined);
     } catch (e) {
       setActionError((e as Error).message);
     } finally {
@@ -323,9 +331,14 @@ function SandboxDrawer({
                 <VscDebugPause /> {busy === 'pause' ? '…' : 'Pause'}
               </button>
             )}
-            {sbx.state === 'PAUSED' && (
+            {/* Resume is offered on STOPPED/ERROR too, not just PAUSED: those are dead
+                CONTAINERS, and the workspace behind them is intact. The backend recovers
+                onto it and hands back the new sandbox id, which we then follow. */}
+            {(sbx.state === 'PAUSED' || sbx.state === 'STOPPED' || sbx.state === 'ERROR') && (
               <button
-                onClick={() => run('resume', () => resumeSandbox(sbx.sandboxId))}
+                onClick={() =>
+                  run('resume', async () => (await resumeSandbox(sbx.sandboxId)).sandboxId)
+                }
                 disabled={busy !== null}
                 className="flex items-center justify-center gap-2 text-[13px] font-semibold py-2.5 px-4 rounded-lg border border-gray-700 bg-[#1a1a1f] hover:border-gray-500 disabled:opacity-50"
               >

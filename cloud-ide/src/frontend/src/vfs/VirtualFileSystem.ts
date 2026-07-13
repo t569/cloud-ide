@@ -99,7 +99,7 @@ export class VirtualFileSystem {
       return this.getNestedTree();
     } catch (error) {
       console.error('[VFS] Failed to hydrate workspace:', error);
-      this.onSyncStatusChange('conflict');
+      this.onSyncStatusChange('offline');
       return [];
     }
   }
@@ -479,7 +479,7 @@ export class VirtualFileSystem {
     } catch (error) {
       // Queue stays intact; the next tick retries (write/delete are idempotent).
       console.error('[VFS] Sync failed (network or backend error):', error);
-      this.onSyncStatusChange('conflict');
+      this.onSyncStatusChange('offline');
     }
   }
 

@@ -30,6 +30,8 @@ function harness(
   const sandboxManager = {
     pause: jest.fn().mockResolvedValue(true),
     destroy: jest.fn().mockResolvedValue(true),
+    // Container gone, worktree kept — the only "cleanup" a sweep is allowed to do.
+    releaseCompute: jest.fn().mockResolvedValue(undefined),
     // The reconcile loop polls each sandbox's true state before the idle logic.
     getStatus: jest.fn(async (id: string) => {
       if (engineState === 'GONE') throw new Error('404 not found');
@@ -47,6 +49,7 @@ function harness(
     sweep: () => (sweeper as any).runSweep(),
     pause: sandboxManager.pause,
     destroy: sandboxManager.destroy,
+    releaseCompute: sandboxManager.releaseCompute,
   };
 }
 
@@ -107,5 +110,30 @@ describe('IdleSweeper', () => {
     await h.sweep();
 
     expect(h.destroy).not.toHaveBeenCalled();
+  });
+
+  // A paused container still pins a writable layer and a slice of the daemon. After
+  // SANDBOX_MAX_IDLE_DAYS (3) we hand the COMPUTE back — and only the compute.
+  // `destroy` (which removes the worktree) must never appear in this path.
+  it('releases the container of a long-paused sandbox, and only the container', async () => {
+    const DAY = 24 * HOUR;
+    const h = harness(
+      [sbx({ sandboxId: 'sbx-stale', state: 'PAUSED', lastActiveAt: Date.now() - 4 * DAY })],
+      [],
+      'PAUSED',
+    );
+
+    await h.sweep();
+
+    expect(h.releaseCompute).toHaveBeenCalledWith('sbx-stale');
+    expect(h.destroy).not.toHaveBeenCalled();
+  });
+
+  it('leaves a recently-paused sandbox alone', async () => {
+    const h = harness([sbx({ sandboxId: 'sbx-fresh', state: 'PAUSED' })], [], 'PAUSED');
+
+    await h.sweep();
+
+    expect(h.releaseCompute).not.toHaveBeenCalled();
   });
 });

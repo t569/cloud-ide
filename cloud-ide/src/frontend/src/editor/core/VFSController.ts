@@ -131,7 +131,7 @@ export class VFSController {
       // be — the map only mirrors the worktree. Read it straight from the
       // container, read-only. Previously this fell through to vfs.readFile(),
       // which prefixes /workspace, missed the map, threw, and left a blank tab
-      // wedged in 'conflict' forever.
+      // wedged in 'offline' forever.
       const external = isExternal(path);
 
       // An image has no text to load: ImageViewer points an <img> straight at the

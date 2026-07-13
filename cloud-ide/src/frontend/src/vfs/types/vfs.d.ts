@@ -6,7 +6,11 @@
 // that was never built (git IS the Merkle/WAL — see root ARCHITECTURE.md) and
 // has been removed to stop it misleading readers.
 
-export type SyncStatus = 'synced' | 'syncing' | 'conflict';
+// 'offline' was called 'conflict', which was a lie: nothing here merges, so there is no
+// conflict to be in. It is set when an /fs request FAILS — almost always because the
+// sandbox is unreachable (its container died, or the gateway is down). Calling that a
+// conflict sent people hunting for corrupted files instead of a dead container.
+export type SyncStatus = 'synced' | 'syncing' | 'offline';
 
 /** The core file representation held in the VFS flat map. */
 export interface VFSNode {

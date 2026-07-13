@@ -107,8 +107,10 @@ const systemEvents = new EventEmitter();
 const persistenceLayer = new PersistenceLayer(systemEvents, sessionRepo, sandboxRepo, activityRepo);
 const sandboxDriver = createSandboxDriver();
 // `undefined` for worktreeEngine keeps its default; activityRepo is the 4th arg so
-// provision/pause/resume/destroy land in the drawer's Activity log.
-const sandboxManager = new SandboxManager(sandboxRepo, sandboxDriver, undefined, activityRepo);
+// provision/pause/resume/destroy land in the drawer's Activity log. envRepo is the 5th:
+// ensureRunning needs it to rebuild a boot spec when it recovers a dead container onto
+// its worktree — without it, recovery can't know which image to come back on.
+const sandboxManager = new SandboxManager(sandboxRepo, sandboxDriver, undefined, activityRepo, envRepo);
 
 // fsEventHub carries chokidar (Step 10c) change events out over SSE; the watchers'
 // per-sandbox SSE ref-count doubles as the "is anyone using this?" signal the

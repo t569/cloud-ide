@@ -7,7 +7,7 @@
     "build:rust": "node scripts/build-rust.mjs",
     "build": "tsc",
     "start": "node dist/server.js",
-    "dev": "ts-node src/server.ts",
+    "dev": "node --watch --watch-preserve-output -r ts-node/register src/server.ts",
     "test": "jest",
     "start:engine": "node ../opensandbox/boot-engine.js"
   },

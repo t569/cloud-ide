@@ -338,6 +338,11 @@ scrollback, which is a flat blob, not a tree — see Step 11 / `SessionStore`. T
 plain: last-write-wins outbound, a dirty-preserving patch inbound, no client-side hashing or SHA-sync
 protocol (it would only duplicate git with weaker guarantees).
 
+### ISSUES
+EGRESS POLICY TO BE SOLVED: sandbox to sandbox connection/injection issues
+also opensandbox has some good methods for the server
+also there is a conflict with how npm doctor works and the whole egress logic
+
 ### VFS Conflict Resolution — optimistic concurrency (owed, narrowed)
 * **Status: ⚠️ Partly mitigated.** The **watcher-vs-dirty-edit race is gone**: the 10d `patch` path is
   dirty-preserving (`applyPatch` never overwrites/removes a dirty node). What remains is **two writers

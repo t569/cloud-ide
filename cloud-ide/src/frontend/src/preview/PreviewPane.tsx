@@ -1,9 +1,11 @@
 // frontend/src/preview/PreviewPane.tsx
 //
 // The Preview Panel (Step 5): renders a sandboxed web app beside the code.
-// The URL points at the Gateway's ingress proxy (/preview/:sandboxId/:port/), which
-// resolves a host-routable endpoint for that port inside the container — a sandbox
-// has no address the browser can reach directly.
+// The URL points at the Gateway's SUBDOMAIN ingress (`<sandboxId>-<port>.<host>`), which
+// proxies to that port inside the container — a sandbox has no address the browser can
+// reach directly. A subdomain (not a `/preview/...` path) so the app's root-absolute
+// assets and HMR socket resolve correctly. The URL carries a one-time `?__cide_pt` token
+// the ingress swaps for a subdomain-scoped cookie.
 //
 // Driven by a plain prop, not the TerminalEventBus: the only producer is the
 // workspace that renders this, and a bus hop between a parent and its own child
@@ -12,7 +14,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 
 interface PreviewPaneProps {
-  /** Proxied ingress URL, e.g. http://localhost:3000/preview/<sandboxId>/5173/ */
+  /** Subdomain ingress URL, e.g. http://<sandboxId>-5173.localhost:3000/?__cide_pt=… */
   url: string;
   onClose: () => void;
 }

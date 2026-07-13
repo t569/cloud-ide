@@ -10,7 +10,7 @@ import { DirtyWorktreeError, SandboxManager } from '../services/sandbox/SandboxM
 import { diffSnapshots } from '../services/promotion/toolSnapshot';
 import { ISessionRepository } from '../database/interfaces';
 import { JsonActivityRepository } from '../database/json/JsonActivityRepository';
-import { currentUser } from '../api/middleware/auth';
+import { currentUser, mintPreviewToken } from '../api/middleware/auth';
 
 
 /**
@@ -200,6 +200,23 @@ export class SandboxController {
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
+  };
+
+  /**
+   * GET /:sandboxId/preview-token — a short-lived signed token the SPA embeds in the
+   * preview subdomain URL (`?__cide_pt=`). Owner-gated by the router, so minting one IS
+   * proof of ownership; the subdomain ingress (which never sees the `uid` cookie)
+   * exchanges it for a subdomain-scoped cookie. See PreviewRoutes.
+   */
+  public getPreviewToken = async (req: Request, res: Response): Promise<void> => {
+    const sandboxId = this.getStringParam(req.params.sandboxId);
+
+    if (!sandboxId) {
+      res.status(400).json({ error: 'sandboxId is required.' });
+      return;
+    }
+
+    res.status(200).json({ token: mintPreviewToken(sandboxId) });
   };
 
 

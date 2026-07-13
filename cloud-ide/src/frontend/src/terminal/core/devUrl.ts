@@ -27,20 +27,36 @@ export function portOf(url: string): number | null {
 }
 
 /**
- * Rewrite a container-local dev URL onto the gateway's ingress, preserving the path
- * and query so a deep link still lands where it was pointing.
+ * Rewrite a container-local dev URL onto the gateway's SUBDOMAIN ingress, preserving the
+ * path and query, and appending a one-time preview token:
  *
- *   http://localhost:5173/docs?x=1  ->  <origin>/preview/<sandboxId>/5173/docs?x=1
+ *   http://localhost:5173/docs?x=1
+ *     ->  http://<sandboxId>-5173.<gatewayHost>/docs?x=1&__cide_pt=<token>
  *
- * `gatewayOrigin` is the API base with its /api suffix removed — the ingress router is
- * mounted at the server root, not under /api.
+ * Subdomain, not `<origin>/preview/<id>/<port>/`, because a real dev server emits
+ * root-absolute asset/HMR URLs that would escape a path prefix (the "MIME type text/html"
+ * bug). On its own subdomain the app owns its origin root, so nothing breaks.
+ *
+ * `gatewayOrigin` is the API base with its `/api` suffix removed (e.g. `http://localhost:3000`);
+ * `token` comes from GET /v1/sandboxes/:id/preview-token — the subdomain has no session
+ * cookie, so the token is how the ingress authenticates the first request.
  */
-export function toIngressUrl(rawUrl: string, sandboxId: string, gatewayOrigin: string): string | null {
+export function toPreviewUrl(
+  rawUrl: string,
+  sandboxId: string,
+  gatewayOrigin: string,
+  token: string,
+): string | null {
   const port = portOf(rawUrl);
   if (port === null) return null;
 
+  const gw = /^(https?):\/\/(.+?)\/?$/i.exec(gatewayOrigin);
+  if (!gw) return null;
+  const [, scheme, host] = gw; // e.g. 'http', 'localhost:3000'
+
   // Everything after the host: path + query + hash. Absent => the root.
   const suffix = rawUrl.replace(/^https?:\/\/[^/]+/i, '') || '/';
-  const base = `${gatewayOrigin}/preview/${encodeURIComponent(sandboxId)}/${port}`;
-  return `${base}${suffix.startsWith('/') ? suffix : `/${suffix}`}`;
+  const path = suffix.startsWith('/') ? suffix : `/${suffix}`;
+  const sep = path.includes('?') ? '&' : '?';
+  return `${scheme}://${sandboxId}-${port}.${host}${path}${sep}__cide_pt=${encodeURIComponent(token)}`;
 }

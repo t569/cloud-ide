@@ -43,6 +43,15 @@ export interface SandboxNetwork {
 export const getSandboxNetwork = (sandboxId: string) =>
   apiClient.get<SandboxNetwork>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/network`);
 
+/**
+ * A short-lived signed token authorizing preview access to this sandbox. The subdomain
+ * preview ingress (`<id>-<port>.<host>`) is a different origin and never receives the
+ * session cookie, so the SPA embeds this token in the first preview URL; the ingress
+ * exchanges it for a subdomain-scoped cookie. Owner-gated.
+ */
+export const getPreviewToken = (sandboxId: string) =>
+  apiClient.get<{ token: string }>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/preview-token`);
+
 export interface SandboxSummary {
   sandboxId: string;
   environmentId: string;

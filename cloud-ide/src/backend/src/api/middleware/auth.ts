@@ -85,6 +85,43 @@ export function verifyUserId(raw: string | undefined): string | undefined {
   return timingSafeEqual(provided, sign(value)) ? value : undefined;
 }
 
+// ── Preview access tokens ────────────────────────────────────────────────────────────
+// The subdomain preview ingress (`<id>-<port>.localhost`) is a DIFFERENT ORIGIN from the
+// app, so the `uid` session cookie is not sent to it. Instead the SPA mints a token (from
+// an owner-gated endpoint) and the ingress exchanges it for a subdomain-scoped cookie.
+// Same HMAC secret as the identity cookie — a preview token is just a second, narrower
+// bearer: it authorizes preview access to exactly ONE sandbox until it expires.
+
+// How long a preview token is valid. Long enough for a coding session, since the whole
+// point is a live dev server you keep open; the SPA mints a fresh one each time it opens
+// a preview, so an active session always holds a current token.
+const PREVIEW_TOKEN_TTL_MS = Number(process.env.PREVIEW_TOKEN_TTL_MS) || 12 * 60 * 60 * 1000;
+
+/** A signed token authorizing preview access to `sandboxId`. Form: `<sandboxId>.<exp>.<sig>`. */
+export function mintPreviewToken(sandboxId: string): string {
+  const payload = `${sandboxId}.${Date.now() + PREVIEW_TOKEN_TTL_MS}`;
+  return `${payload}.${sign(payload)}`;
+}
+
+/**
+ * True if `token` is a valid, unexpired preview token FOR `sandboxId`. Fails closed on a
+ * tampered signature, a mismatched sandbox, or expiry — a bad token is no access.
+ * `sandboxId` is bound into the signature, so a token for one sandbox can't open another.
+ */
+export function verifyPreviewToken(token: string | undefined, sandboxId: string): boolean {
+  if (!token) return false;
+  const lastDot = token.lastIndexOf('.');
+  if (lastDot <= 0) return false;
+
+  const payload = token.slice(0, lastDot);
+  const provided = token.slice(lastDot + 1);
+  if (!timingSafeEqual(provided, sign(payload))) return false;
+
+  const [sid, expStr] = payload.split('.');
+  const exp = Number(expStr);
+  return sid === sandboxId && Number.isFinite(exp) && exp > Date.now();
+}
+
 // Augment Express's own Request, not the global namespace: a `declare global`
 // here leaks into every file's global scope and clobbers ambient test types.
 declare module 'express-serve-static-core' {

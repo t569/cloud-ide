@@ -3,7 +3,7 @@
 // the HOST's port 3000 — the gateway — not at the dev server inside the container. The
 // gateway has no route there, so Express answered "Cannot GET /".
 import { describe, it, expect } from 'vitest';
-import { isLocalDevUrl, portOf, toIngressUrl } from './devUrl';
+import { isLocalDevUrl, portOf, toPreviewUrl } from './devUrl';
 
 describe('isLocalDevUrl', () => {
   it.each([
@@ -36,24 +36,30 @@ describe('portOf', () => {
   });
 });
 
-describe('toIngressUrl', () => {
+describe('toPreviewUrl', () => {
   const origin = 'http://localhost:3000';
 
-  it('rewrites a bare dev-server URL onto the ingress', () => {
-    expect(toIngressUrl('http://localhost:5173', 'sbx-1', origin)).toBe(
-      'http://localhost:3000/preview/sbx-1/5173/',
+  it('rewrites a bare dev-server URL onto its subdomain, with the token', () => {
+    expect(toPreviewUrl('http://localhost:5173', 'sbx-1', origin, 'TOK')).toBe(
+      'http://sbx-1-5173.localhost:3000/?__cide_pt=TOK',
     );
   });
 
-  it('preserves the path and query, so a deep link still lands where it pointed', () => {
-    expect(toIngressUrl('http://127.0.0.1:8080/docs/intro?theme=dark', 'sbx-1', origin)).toBe(
-      'http://localhost:3000/preview/sbx-1/8080/docs/intro?theme=dark',
+  it('preserves the path and appends the token with & when a query already exists', () => {
+    expect(toPreviewUrl('http://127.0.0.1:8080/docs/intro?theme=dark', 'sbx-1', origin, 'TOK')).toBe(
+      'http://sbx-1-8080.localhost:3000/docs/intro?theme=dark&__cide_pt=TOK',
     );
   });
 
-  it('keeps the sandbox id safe for a URL', () => {
-    expect(toIngressUrl('http://localhost:3000/', 'sbx/../etc', origin)).toContain(
-      '/preview/sbx%2F..%2Fetc/3000/',
+  it('puts the sandbox id and port in the hostname so absolute asset paths resolve', () => {
+    // The whole point: /static/js/bundle.js off THIS origin hits the dev server, not the gateway.
+    const url = toPreviewUrl('http://localhost:3000/', 'e72f-4917', origin, 'TOK');
+    expect(url).toContain('e72f-4917-3000.localhost:3000/');
+  });
+
+  it('carries https through to the subdomain scheme', () => {
+    expect(toPreviewUrl('http://localhost:5173/', 'sbx', 'https://ide.example.com', 'T')).toBe(
+      'https://sbx-5173.ide.example.com/?__cide_pt=T',
     );
   });
 });

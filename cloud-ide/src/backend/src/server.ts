@@ -36,8 +36,8 @@ import { createFileSystemRouter } from './api/FileSystemRoutes';
 import { createLspRouter } from './api/LspRoutes';
 import { LspProxy, parseLspServers } from './services/lsp/LspProxy';
 import { createHealthRouter } from './api/HealthRoutes';
-import { createPreviewIngress } from './api/PreviewRoutes';
-import { isPreviewUpgrade } from './api/previewPath';
+import { createPreviewIngress, PreviewIngress } from './api/PreviewRoutes';
+import { isPreviewHost } from './api/previewHost';
 import { createEnvironmentRouter } from './api/routes/environment.routes';
 import { createImageRouter } from './api/routes/images.routes';
 import { attachPtyGateway, isPtyUpgrade } from './api/PtyGateway';
@@ -66,6 +66,15 @@ import {
 } from './services/builder';
 
 const app = express();
+
+// PREVIEW INGRESS RUNS FIRST — before cors/csrf/attachUser. A request to a preview
+// subdomain (`<id>-<port>.<host>`) authenticates with its OWN token/cookie, so it must
+// bypass the app's cookie machinery entirely (otherwise attachUser would mint a spurious
+// `uid` on the subdomain and securityHeaders would slap X-Frame-Options: DENY on the
+// iframe). `previewIngress` is assigned once its deps exist, further down; until then this
+// passes through, and for any non-preview host it always does.
+let previewIngress: PreviewIngress | undefined;
+app.use((req, res, next) => (previewIngress ? previewIngress.middleware(req, res, next) : next()));
 
 // Middleware
 // CORS: explicit origin + credentials so the browser sends the session cookie.
@@ -216,9 +225,10 @@ GarbageCollector.init();
 app.use('/api/fs', createFileSystemRouter(fileSystemManager, sandboxRepo, fsEventHub, workspaceWatchers, sessionStore));
 app.use('/api/lsp', createLspRouter(lspProxy, sandboxRepo));
 
-// NEW: Mount the Ingress Router (Step 3) — proxies browser traffic into sandbox services
-const previewIngress = createPreviewIngress(sandboxManager, sandboxRepo);
-app.use('/preview', previewIngress.router);
+// Ingress: subdomain proxy into sandbox services. Assigned to the `let` declared at the
+// top so the early pass-through middleware starts routing preview hosts now that its
+// deps exist. Mounted by host, not path — hence no app.use() here.
+previewIngress = createPreviewIngress(sandboxManager, sandboxRepo);
 
 /**
  * 🌟 The Gateway HTTP Server
@@ -237,16 +247,15 @@ attachPtyGateway(server, { sandboxManager, sandboxRepo });
 // unfamiliar would slam the door on its neighbours (which is precisely why HMR could
 // not have worked before: the PTY bridge destroyed every non-PTY upgrade).
 server.on('upgrade', (req, socket, head) => {
-  if (isPreviewUpgrade(new URL(req.url ?? '', 'http://localhost').pathname)) {
-    previewIngress.upgrade(req, socket, head);
-  }
+  // Preview HMR sockets arrive on a preview SUBDOMAIN host, not a path — route by host.
+  if (isPreviewHost(req.headers.host)) previewIngress?.upgrade(req, socket, head);
 });
 
 // ...which means SOMEONE has to close the sockets nobody claimed. Registered last, so
 // it runs after both handlers above have had their look.
 server.on('upgrade', (req, socket) => {
   const { pathname } = new URL(req.url ?? '', 'http://localhost');
-  if (!isPtyUpgrade(pathname) && !isPreviewUpgrade(pathname)) socket.destroy();
+  if (!isPtyUpgrade(pathname) && !isPreviewHost(req.headers.host)) socket.destroy();
 });
 
 // 2. USE THE CONFIG OBJECT

@@ -40,6 +40,7 @@ export function createSandboxRouter(
 
   router.get('/:sandboxId', controller.getSandboxStatus);
   router.get('/:sandboxId/network', controller.getSandboxNetwork);
+  router.get('/:sandboxId/preview-token', controller.getPreviewToken);
   router.get('/:sandboxId/sessions', controller.listSessions);
   router.get('/:sandboxId/activity', controller.listActivity);
   router.get('/:sandboxId/logs', controller.streamLogs);

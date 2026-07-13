@@ -2,10 +2,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { TerminalTabs, TerminalSession } from '../../terminal/components/TerminalTabs';
 import { createTerminalTransport } from '../../terminal/transport/createTerminalTransport';
-import { getSandboxCapabilities } from '../../api/sandbox';
+import { getSandboxCapabilities, getPreviewToken } from '../../api/sandbox';
 import { EditorEventBus } from '../core/EditorEventBus';
 import { API_BASE_URL } from '../../config/env';
-import { toIngressUrl } from '../../terminal/core/devUrl';
+import { toPreviewUrl } from '../../terminal/core/devUrl';
+import { toast } from '../../notifications';
 
 
 // DESIGN SYSTEM
@@ -97,11 +98,18 @@ export const IDETerminal = ({ sandboxId, editorEventBus, onPreview }: IDETermina
   // localhost, which is this gateway, which answers "Cannot GET /". Rewrite it onto the
   // ingress, which proxies to whatever is listening on that port in the sandbox. This
   // is the "exposed port".
-  const handleLinkClick = (rawUrl: string) => {
-    // API_BASE_URL ends in /api; the ingress router is mounted at the server root.
+  const handleLinkClick = async (rawUrl: string) => {
+    // API_BASE_URL ends in /api; the gateway (and its preview subdomains) is at the root.
     const gatewayOrigin = API_BASE_URL.replace(/\/api$/, '');
-    const url = toIngressUrl(rawUrl, sandboxId, gatewayOrigin);
-    if (url) onPreview(url);
+    try {
+      // Mint a token: the preview subdomain is a different origin with no session cookie,
+      // so the token is how the ingress authenticates the first request.
+      const { token } = await getPreviewToken(sandboxId);
+      const url = toPreviewUrl(rawUrl, sandboxId, gatewayOrigin, token);
+      if (url) onPreview(url);
+    } catch (e) {
+      toast.error(`Could not open preview: ${(e as Error).message}`);
+    }
   };
 
   return (

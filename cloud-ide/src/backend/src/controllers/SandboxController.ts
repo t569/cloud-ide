@@ -181,6 +181,27 @@ export class SandboxController {
     }
   };
 
+  /**
+   * GET /:sandboxId/network — the sandbox's effective egress allow-list (the domains it
+   * may reach) and whether that policy is actually enforced on this host. Owner-gated by
+   * the router. Lets an operator answer "what can this sandbox reach?" without reading
+   * policy.ts or the sidecar logs.
+   */
+  public getSandboxNetwork = async (req: Request, res: Response): Promise<void> => {
+    const sandboxId = this.getStringParam(req.params.sandboxId);
+
+    if (!sandboxId) {
+      res.status(400).json({ error: 'sandboxId is required.' });
+      return;
+    }
+
+    try {
+      res.status(200).json(await this.sandboxManager.getNetworkPolicy(sandboxId));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
 
   /**
    * @description Executes a shell command inside the container and streams 

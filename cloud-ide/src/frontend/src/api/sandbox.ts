@@ -1,6 +1,6 @@
 // Frontend proxy to the backend sandbox API (/api/v1/sandboxes). apiClient's
 // base already ends in /api, so the path is /v1/sandboxes.
-import type { SandboxState, SandboxStatus } from '@cloud-ide/shared/types/sandbox';
+import type { SandboxState, SandboxStatus, NetworkPolicySpec } from '@cloud-ide/shared/types/sandbox';
 import type { SessionState } from '@cloud-ide/shared/types/session';
 import type { ToolDrift } from '@cloud-ide/shared/promotion';
 import { apiClient } from '@frontend/lib/apiClient';
@@ -30,6 +30,18 @@ export const startSession = (environmentId: string) =>
 /** Current state of a sandbox (reconciled with the Rust engine). */
 export const getSandboxStatus = (sandboxId: string) =>
   apiClient.get<SandboxStatus>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}`);
+
+export interface SandboxNetwork {
+  /** Whether the egress policy is actually enforced on this host. False = the kernel
+   *  can't run the sidecar (isolation degraded off); the `policy` is what WOULD apply. */
+  enforced: boolean;
+  /** The effective allow-list: domains this sandbox may reach; everything else is denied. */
+  policy: NetworkPolicySpec;
+}
+
+/** The sandbox's effective egress allow-list + whether isolation is enforced on this host. */
+export const getSandboxNetwork = (sandboxId: string) =>
+  apiClient.get<SandboxNetwork>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/network`);
 
 export interface SandboxSummary {
   sandboxId: string;

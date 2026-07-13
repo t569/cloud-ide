@@ -7,6 +7,7 @@ import {
   SandboxRecord,
   SandboxSpec,
   SandboxStatus,
+  NetworkPolicySpec,
   VolumeMount,
 } from '@cloud-ide/shared/types/sandbox';
 import { ISandboxRepository } from '../../database/interfaces/ISandboxRepository';
@@ -217,6 +218,27 @@ export class SandboxManager {
 
   public async getRecord(sandboxId: string): Promise<SandboxRecord | null> {
     return this.sandboxRepo.get(sandboxId);
+  }
+
+  /**
+   * The effective egress allow-list for a sandbox: the domains it may reach, plus whether
+   * that policy is actually being ENFORCED on this host (an incapable kernel degrades to
+   * no isolation — see egressCapability). Powers `GET /:id/network` so operators can see
+   * what a sandbox can reach without reading policy.ts or the sidecar logs.
+   *
+   * Recomputed from the sandbox's environment, so it reflects the environment's CURRENT
+   * config. A long-running sandbox is enforcing its BOOT-time policy; if the env's
+   * `allowedDomains` changed since, relaunch to apply — the two match in the common case.
+   */
+  public async getNetworkPolicy(
+    sandboxId: string,
+  ): Promise<{ enforced: boolean; policy: NetworkPolicySpec }> {
+    const record = await this.getSandboxOrThrow(sandboxId);
+    const env = record.environmentId ? await this.envRepo?.get(record.environmentId) : null;
+    return {
+      enforced: await egressEnforceable(),
+      policy: defaultNetworkPolicy(env?.builderConfig),
+    };
   }
 
   /**

@@ -24,7 +24,7 @@ import {
   SandboxSpec,
   SandboxStatus,
 } from '@cloud-ide/shared/types/sandbox';
-import { ExecConnectionInfo } from '../../../types/engine';
+import { ExecConnectionInfo, SandboxEndpoint } from '../../../types/engine';
 import { config } from '../../../config/env';
 import { ISandboxDriver, ISandboxSession, PtyOptions, DriverCapabilities } from './ISandboxDriver';
 
@@ -93,7 +93,7 @@ export class AlibabaSdkDriver implements ISandboxDriver {
   destroySandbox(id: string): Promise<boolean> { return this.lifecycle.destroySandbox(id); }
   execCommand(id: string, p: SandboxExecRequest): Promise<SandboxExecResult> { return this.lifecycle.execCommand(id, p); }
   resolveExecConnection(id: string): Promise<ExecConnectionInfo> { return this.lifecycle.resolveExecConnection(id); }
-  resolveEndpoint(id: string, port: number): Promise<string> { return this.lifecycle.resolveEndpoint(id, port); }
+  resolveEndpoint(id: string, port: number): Promise<SandboxEndpoint> { return this.lifecycle.resolveEndpoint(id, port); }
 
   capabilities(): DriverCapabilities {
     return { exec: this.lifecycle.capabilities().exec, pty: true };

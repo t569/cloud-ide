@@ -21,7 +21,7 @@ import {
   SandboxStatus,
 } from '@cloud-ide/shared/types/sandbox';
 import { Duplex } from 'node:stream';
-import { ExecConnectionInfo } from '../../../types/engine';
+import { ExecConnectionInfo, SandboxEndpoint } from '../../../types/engine';
 import { ISandboxDriver, ISandboxSession, PtyOptions, DriverCapabilities } from './ISandboxDriver';
 import { spawnDuplex } from './execStream';
 
@@ -78,7 +78,7 @@ export class DockerPtyDriver implements ISandboxDriver {
   destroySandbox(id: string): Promise<boolean> { return this.lifecycle.destroySandbox(id); }
   execCommand(id: string, p: SandboxExecRequest): Promise<SandboxExecResult> { return this.lifecycle.execCommand(id, p); }
   resolveExecConnection(id: string): Promise<ExecConnectionInfo> { return this.lifecycle.resolveExecConnection(id); }
-  resolveEndpoint(id: string, port: number): Promise<string> { return this.lifecycle.resolveEndpoint(id, port); }
+  resolveEndpoint(id: string, port: number): Promise<SandboxEndpoint> { return this.lifecycle.resolveEndpoint(id, port); }
 
   capabilities(): DriverCapabilities {
     // pty only if node-pty actually loaded — otherwise the transport factory must

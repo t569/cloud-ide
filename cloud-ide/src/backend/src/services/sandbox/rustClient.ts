@@ -4,7 +4,7 @@ import {
   SandboxSpec,
   SandboxStatus,
 } from '@cloud-ide/shared/types/sandbox';
-import { ExecConnectionInfo, RustEngineAPI } from '../../types/engine';
+import { ExecConnectionInfo, RustEngineAPI, SandboxEndpoint } from '../../types/engine';
 import { ISandboxDriver, DriverCapabilities } from './drivers/ISandboxDriver';
 import { OpenSandboxEngine } from './openSandboxEngine';
 
@@ -67,7 +67,7 @@ export class RustEngineClient implements ISandboxDriver {
     return this.engine.resolveExecConnection(sandboxId);
   }
 
-  public resolveEndpoint(sandboxId: string, port: number): Promise<string> {
+  public resolveEndpoint(sandboxId: string, port: number): Promise<SandboxEndpoint> {
     return this.engine.resolveEndpoint(sandboxId, port);
   }
 }

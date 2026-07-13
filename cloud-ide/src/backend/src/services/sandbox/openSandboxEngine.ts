@@ -15,7 +15,7 @@ import {
   SandboxStatus,
   VolumeMount,
 } from '@cloud-ide/shared/types/sandbox';
-import { ExecConnectionInfo, RustEngineAPI } from '../../types/engine';
+import { ExecConnectionInfo, RustEngineAPI, SandboxEndpoint } from '../../types/engine';
 
 const EXECD_PORT = 44772;
 
@@ -109,31 +109,75 @@ export class OpenSandboxEngine implements RustEngineAPI {
   }
 
   /**
-   * The only way to reach a port inside a sandbox. The daemon returns a host-routable
-   * URL (on Docker Desktop, a loopback proxy like 127.0.0.1:45792/proxy/44772) — it
-   * never returns a container IP, so there is no fallback to route to. If the daemon
-   * can't resolve the port, nothing else can.
+   * Ask the daemon how to reach `port` inside the sandbox. It answers in one of TWO
+   * ways, and they are not interchangeable — see the two callers below.
+   *
+   *  - default (`use_server_proxy` off): the host-mapped port of execd's own embedded
+   *    proxy, e.g. `127.0.0.1:52544/proxy/<port>`.
+   *  - `use_server_proxy=true`: the DAEMON's proxy, e.g.
+   *    `127.0.0.1:8080/sandboxes/<id>/proxy/<port>` — a FastAPI route that connects to
+   *    the container's own IP and relays both HTTP and WebSocket.
    */
-  async resolveEndpoint(sandboxId: string, port: number): Promise<string> {
+  private async fetchEndpoint(
+    sandboxId: string,
+    port: number,
+    useServerProxy: boolean,
+  ): Promise<SandboxEndpoint> {
+    const query = useServerProxy ? '?use_server_proxy=true' : '';
     const res = await this.request(
       'GET',
-      `${this.apiBaseUrl}/sandboxes/${sandboxId}/endpoints/${port}`,
+      `${this.apiBaseUrl}/sandboxes/${sandboxId}/endpoints/${port}${query}`,
     );
     if (!res.ok) {
       throw new Error(
         `No endpoint for port ${port} on sandbox ${sandboxId}: ${res.status} ${await res.text()}`,
       );
     }
-    const endpoint = (await res.json())?.endpoint;
+    const body = await res.json();
+    const endpoint = body?.endpoint;
     if (typeof endpoint !== 'string' || !endpoint) {
       throw new Error(`Daemon returned no endpoint for port ${port} on sandbox ${sandboxId}.`);
     }
-    return normalizeEndpointUrl(endpoint, port);
+    // The daemon can demand headers with the endpoint (egress auth on the sidecar port,
+    // header-based routing). They were being dropped; carry them.
+    return {
+      url: normalizeEndpointUrl(endpoint, port),
+      headers: { ...(body.headers ?? {}) },
+    };
   }
 
+  /**
+   * How the gateway's preview ingress reaches a USER'S service (a dev server on 5173, an
+   * API on 8000) inside the sandbox.
+   *
+   * Deliberately the daemon's server proxy, NOT the default endpoint. The default points
+   * at execd's embedded proxy, which forwards execd's own port fine — that is why the
+   * terminal works — but HANGS UP on an application port: a real server listening on
+   * :8000 answered 200 through the daemon's proxy and dropped the connection through
+   * execd's, so every preview 502'd with "socket hang up". The daemon's route also
+   * carries WebSockets, which a dev server's hot reload needs.
+   *
+   * That route is part of the daemon's API, so it sits behind the same API-key
+   * middleware as everything else — the key travels with the URL, in `headers`, or a
+   * keyed deployment gets 401s the moment it leaves local dev.
+   */
+  async resolveEndpoint(sandboxId: string, port: number): Promise<SandboxEndpoint> {
+    const endpoint = await this.fetchEndpoint(sandboxId, port, true);
+    if (this.apiKey) endpoint.headers['OPEN-SANDBOX-API-KEY'] = this.apiKey;
+    return endpoint;
+  }
+
+  /**
+   * How the gateway reaches EXECD (the in-container command daemon).
+   *
+   * Stays on the DIRECT host-mapped endpoint. execd is what the default endpoint is
+   * built for, it demonstrably works, and it keeps the terminal's SSE stream on a
+   * straight TCP path to the container instead of relaying it through the daemon's
+   * Python proxy for no benefit.
+   */
   async resolveExecConnection(sandboxId: string): Promise<ExecConnectionInfo> {
-    const baseUrl = await this.resolveEndpoint(sandboxId, EXECD_PORT);
-    return { baseUrl, accessToken: this.execdAccessToken ?? null };
+    const { url } = await this.fetchEndpoint(sandboxId, EXECD_PORT, false);
+    return { baseUrl: url, accessToken: this.execdAccessToken ?? null };
   }
 
   async execCommand(sandboxId: string, payload: SandboxExecRequest): Promise<SandboxExecResult> {

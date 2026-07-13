@@ -14,6 +14,7 @@ import type { Duplex } from 'node:stream';
 import { Router, Request, Response, NextFunction } from 'express';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { SandboxManager } from '../services/sandbox/SandboxManager';
+import { SandboxEndpoint } from '../types/engine';
 import { ISandboxRepository } from '../database/interfaces';
 import { requireSandboxOwnership, userOwnsSandbox } from './middleware/security';
 import { readUserId } from './middleware/auth';
@@ -87,10 +88,44 @@ export function createPreviewIngress(
   };
 
   /**
-   * One proxy instance for all sandboxes (3a/3b). The `router` callback asks the
-   * daemon per-request for a host-routable endpoint for that port — sandboxes have no
-   * IP we can reach directly. Resolution fails until something is actually listening
-   * on `port` inside the container, which surfaces below as a 502.
+   * The endpoint resolved for THIS request, stashed on it.
+   *
+   * Both halves of the proxy need it and they are reached separately: `router()` asks
+   * "which target?", `proxyReq` asks "which headers?". Resolving in each would mean two
+   * round-trips to the daemon per proxied asset. And on a WebSocket upgrade there is no
+   * Express pipeline at all, so the upgrade handler fills this in by hand.
+   */
+  type WithEndpoint = { previewEndpoint?: SandboxEndpoint };
+
+  /**
+   * Ask the provider how to reach the user's service, before any byte is proxied.
+   *
+   * This resolves a ROUTE, and says nothing about whether anything is listening on the
+   * far end — the daemon builds its proxy URL without probing the port. So a dev server
+   * that hasn't started yet does not fail here; it fails when the daemon tries to
+   * connect, and surfaces as its own 502 ("Could not connect to the backend sandbox").
+   * This only fires when there is no route at all: an unknown sandbox, a dead container.
+   */
+  const resolveTarget = async (req: Request, res: Response, next: NextFunction) => {
+    const { sandboxId, port } = req.params as { sandboxId: string; port: string };
+    try {
+      (req as WithEndpoint).previewEndpoint = await sandboxManager.resolveEndpoint(
+        sandboxId,
+        Number(port),
+      );
+      next();
+    } catch (err) {
+      res.status(502).json({
+        error: `Could not resolve a route to port ${port} in this sandbox.`,
+        details: (err as Error).message,
+      });
+    }
+  };
+
+  /**
+   * One proxy instance for all sandboxes (3a/3b). The target is whatever `resolveTarget`
+   * put on the request — the provider's own proxy route into the container, since
+   * sandboxes have no IP we can reach directly.
    *
    * WebSockets are carried by the `upgrade` handler below calling `proxy.upgrade()`.
    *
@@ -100,22 +135,35 @@ export function createPreviewIngress(
    * receives — the PTY terminal socket included — into this preview proxy, with none
    * of the origin/ownership checks below. It would also silently turn our explicit
    * `proxy.upgrade()` call into a no-op (it skips servers it has already subscribed).
-   *
-   * The target is parsed from the URL rather than `req.params`, because an upgrade is
-   * a raw IncomingMessage that never went through Express and so has no params. For an
-   * HTTP request Express has already stripped the mount prefix off `req.url`, so we
-   * read `originalUrl` — one grammar, both paths.
    */
   const proxy = createProxyMiddleware({
     target: 'http://127.0.0.1', // never used: router() below always overrides
     changeOrigin: true,
-    router: async (req) => {
-      const pathname = (req as Request).originalUrl ?? req.url ?? '';
-      const target = parsePreviewTarget(pathname);
-      if (!target) throw new Error(`Not a preview path: ${pathname}`);
-      return sandboxManager.resolveEndpoint(target.sandboxId, target.port);
+    // The endpoint URL carries a path of its own (`/sandboxes/<id>/proxy/<port>`), and
+    // the request's path must hang off it — `/assets/app.js` has to arrive as
+    // `/sandboxes/<id>/proxy/<port>/assets/app.js`. This is http-proxy's default, stated
+    // explicitly because the whole ingress silently serves 404s if it ever flips.
+    prependPath: true,
+    router: (req) => {
+      const endpoint = (req as WithEndpoint).previewEndpoint;
+      // Unreachable via the router below (resolveTarget runs first and 502s on failure);
+      // a loud throw beats proxying to the placeholder target if that ever changes.
+      if (!endpoint) throw new Error('Preview endpoint was not resolved for this request.');
+      return endpoint.url;
     },
     on: {
+      /**
+       * The provider's endpoint can REQUIRE headers — the OpenSandbox daemon guards the
+       * proxy route with its API key, exactly like every other route it serves. Without
+       * this the preview works only in a keyless local dev setup and 401s everywhere else.
+       */
+      proxyReq: (proxyReq, req) => {
+        const endpoint = (req as WithEndpoint).previewEndpoint;
+        if (!endpoint) return;
+        for (const [name, value] of Object.entries(endpoint.headers)) {
+          proxyReq.setHeader(name, value);
+        }
+      },
       // The proxied app can also refuse to be framed — a dev server that sends its own
       // X-Frame-Options, or a CSP carrying frame-ancestors, would block the preview
       // exactly as our own DENY did. Those headers are copied onto our response
@@ -160,6 +208,7 @@ export function createPreviewIngress(
     requireSandboxOwnership(sandboxRepo),
     framableByOurAppOnly,
     wakeOnDemand,
+    resolveTarget, // after wake: a paused container has nothing listening to resolve
     proxy,
   );
 
@@ -200,12 +249,37 @@ export function createPreviewIngress(
         }
         await wake(target.sandboxId);
 
+        // No Express pipeline here, so resolveTarget never ran: do its job by hand.
+        // Both the target and its required headers have to be in place before the
+        // upgrade goes out — a socket cannot be re-authenticated after the handshake.
+        const endpoint = await sandboxManager.resolveEndpoint(target.sandboxId, target.port);
+        (req as WithEndpoint).previewEndpoint = endpoint;
+        for (const [name, value] of Object.entries(endpoint.headers)) {
+          req.headers[name.toLowerCase()] = value; // node normalizes header names to lower case
+        }
+
+        // THE INGRESS TERMINATES THE ORIGIN CHECK. It does NOT relay it.
+        //
+        // A modern dev server rejects a cross-origin WebSocket outright: Vite answers
+        // the HMR handshake with 400 for ANY Origin it does not recognise (measured —
+        // it even refuses its own container-IP origin; only a request with no Origin at
+        // all is accepted). The browser's Origin here is always the gateway, so
+        // forwarding it verbatim means hot reload can never connect, no matter what the
+        // user puts in vite.config.
+        //
+        // That rejection is CORRECT for a dev server exposed straight to a browser, and
+        // meaningless for one reached through us: we are a server-side proxy, not a web
+        // page. The check that actually defends this socket already ran above — the
+        // Origin allow-list and the sandbox ownership guard — and it ran against the
+        // REAL browser origin, which is the only place it can be enforced honestly.
+        // Passing it on merely tells the dev server a lie it is right to hang up on.
+        //
+        // So: validate the origin, then speak first-party, exactly as we already do with
+        // cookies and CSRF. This is what makes HMR work with no user config at all.
+        delete req.headers.origin;
+
         // Express strips the mount prefix for HTTP; nothing did it for this upgrade.
         // The dev server must be asked for /@vite/client, not /preview/<id>/<port>/@vite/client.
-        //
-        // Preserve the full path on `originalUrl` exactly as Express would — router()
-        // above reads it to work out which sandbox/port to resolve, and it must still
-        // see the un-stripped URL after this rewrite.
         (req as { originalUrl?: string }).originalUrl = req.url;
         req.url = stripPreviewPrefix(req.url ?? '');
 

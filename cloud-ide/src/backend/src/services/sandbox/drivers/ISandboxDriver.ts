@@ -12,7 +12,7 @@ import {
   SandboxStatus,
 } from '@cloud-ide/shared/types/sandbox';
 import { Duplex } from 'node:stream';
-import { ExecConnectionInfo } from '../../../types/engine';
+import { ExecConnectionInfo, SandboxEndpoint } from '../../../types/engine';
 
 /** What a driver can do. The transport factory reads this to pick a terminal
  *  transport: PTY (interactive) when `pty`, else line-mode exec streaming. */
@@ -53,10 +53,13 @@ export interface ISandboxDriver {
   execCommand(sandboxId: string, payload: SandboxExecRequest): Promise<SandboxExecResult>;
   resolveExecConnection(sandboxId: string): Promise<ExecConnectionInfo>;
 
-  /** Base URL for a port inside the sandbox (e.g. a dev server on 3000, or execd on
-   *  44772). The only supported way to reach a sandbox — providers do not expose
-   *  container IPs. Rejects when nothing is listening on `port`. */
-  resolveEndpoint(sandboxId: string, port: number): Promise<string>;
+  /** How to reach a USER'S service on `port` inside the sandbox (a dev server on 5173,
+   *  an API on 8000) — the target the preview ingress proxies to. The only supported way
+   *  in: providers do not expose container IPs. Returns the URL *and* the headers the
+   *  provider requires with it (see SandboxEndpoint — a bare URL is not enough, and
+   *  dropping the headers 401s on any keyed deployment). Rejects when nothing is
+   *  listening on `port`. Reaching execd is `resolveExecConnection`, not this. */
+  resolveEndpoint(sandboxId: string, port: number): Promise<SandboxEndpoint>;
 
   // --- capability probe ---
   capabilities(): DriverCapabilities;

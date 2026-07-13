@@ -120,30 +120,57 @@ describe('OpenSandboxEngine', () => {
     expect(status.state).toBe(expected);
   });
 
-  it('resolves an endpoint per port and leaves a proxy path intact', async () => {
-    global.fetch = mockFetch([
-      { method: 'GET', match: /\/endpoints\/3000$/, res: { json: async () => ({ endpoint: '127.0.0.1:45792/proxy/3000' }) } },
-    ]) as any;
+  // -------------------------------------------------------------------------
+  // Endpoint resolution. THE BUG THIS PINS: a user's dev server was resolved to the
+  // DEFAULT endpoint — execd's embedded proxy — which forwards execd's own port but
+  // hangs up on an application port. A real server on :8000 answered 200 through the
+  // daemon's proxy route and dropped the connection through execd's, so every preview
+  // 502'd with "socket hang up". App ports go through the daemon (`use_server_proxy`);
+  // execd stays direct. Mixing the two up breaks either the preview or the terminal.
+  // -------------------------------------------------------------------------
 
-    // Scheme added, port/path preserved — appending :3000 here would break the proxy.
-    expect(await new OpenSandboxEngine().resolveEndpoint('sbx-1', 3000)).toBe(
-      'http://127.0.0.1:45792/proxy/3000',
-    );
+  it("asks for the daemon's server proxy for an app port — execd's proxy hangs up on those", async () => {
+    const fetchMock = mockFetch([
+      {
+        method: 'GET',
+        match: /\/endpoints\/3000\?use_server_proxy=true$/,
+        res: { json: async () => ({ endpoint: '127.0.0.1:8080/sandboxes/sbx-1/proxy/3000' }) },
+      },
+    ]);
+    global.fetch = fetchMock as any;
+
+    const endpoint = await new OpenSandboxEngine().resolveEndpoint('sbx-1', 3000);
+
+    // Scheme added, port/path preserved — appending :3000 here would break the route.
+    expect(endpoint.url).toBe('http://127.0.0.1:8080/sandboxes/sbx-1/proxy/3000');
+    expect(fetchMock.calls[0].url).toContain('use_server_proxy=true');
   });
 
-  it('appends the port only to a bare host', async () => {
+  it('carries the headers the daemon requires with an endpoint, instead of dropping them', async () => {
+    // A keyed deployment 401s on every proxied request without this.
+    process.env.OPENSANDBOX_API_KEY = 'secret-key';
     global.fetch = mockFetch([
-      { method: 'GET', match: /\/endpoints\/44772$/, res: { json: async () => ({ endpoint: 'sandbox.internal' }) } },
+      {
+        method: 'GET',
+        match: /\/endpoints\/3000/,
+        res: { json: async () => ({ endpoint: 'host/x', headers: { 'X-Egress-Auth': 'tok' } }) },
+      },
     ]) as any;
 
-    expect(await new OpenSandboxEngine().resolveEndpoint('sbx-1', 44772)).toBe(
-      'http://sandbox.internal:44772',
-    );
+    try {
+      const endpoint = await new OpenSandboxEngine().resolveEndpoint('sbx-1', 3000);
+      expect(endpoint.headers).toEqual({
+        'X-Egress-Auth': 'tok',              // the daemon's own required header
+        'OPEN-SANDBOX-API-KEY': 'secret-key', // ours: the proxy route is behind its auth middleware
+      });
+    } finally {
+      delete process.env.OPENSANDBOX_API_KEY;
+    }
   });
 
   it('fails loudly when a port has no endpoint — there is no IP to fall back to', async () => {
     global.fetch = mockFetch([
-      { method: 'GET', match: /\/endpoints\/3000$/, res: { ok: false, status: 404, text: async () => 'not listening' } },
+      { method: 'GET', match: /\/endpoints\/3000/, res: { ok: false, status: 404, text: async () => 'not listening' } },
     ]) as any;
 
     await expect(new OpenSandboxEngine().resolveEndpoint('sbx-1', 3000)).rejects.toThrow(
@@ -151,7 +178,7 @@ describe('OpenSandboxEngine', () => {
     );
   });
 
-  it('exec resolves execd then parses the SSE stream', async () => {
+  it('reaches execd on the DIRECT endpoint, not through the daemon proxy', async () => {
     const sse = [
       'data: {"type":"stdout","text":"hello "}',
       'data: {"type":"stderr","text":"warn"}',
@@ -159,16 +186,22 @@ describe('OpenSandboxEngine', () => {
       'data: {"type":"result","exitCode":0}',
     ].join('\n');
 
-    global.fetch = mockFetch([
+    const fetchMock = mockFetch([
       { method: 'GET', match: /\/endpoints\/44772$/, res: { json: async () => ({ endpoint: '127.0.0.1:44772' }) } },
       { method: 'POST', match: /\/command$/, res: { text: async () => sse } },
-    ]) as any;
+    ]);
+    global.fetch = fetchMock as any;
 
     const result = await new OpenSandboxEngine().execCommand('sbx-1', {
       command: ['/bin/sh', '-c', 'echo hi'],
     });
 
     expect(result).toEqual({ stdout: 'hello world', stderr: 'warn', exitCode: 0 });
+    // No use_server_proxy: relaying the terminal's SSE stream through the daemon's
+    // Python proxy buys nothing, and the direct path is what works today.
+    expect(fetchMock.calls[0].url).not.toContain('use_server_proxy');
+    // A bare host still gets the port appended (the branch the old test covered).
+    expect(fetchMock.calls[1].url).toBe('http://127.0.0.1:44772/command');
   });
 
   it('destroy treats 404 as success', async () => {

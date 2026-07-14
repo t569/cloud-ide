@@ -21,6 +21,24 @@ export class PersistenceLayer {
     this.startWatching();
   }
 
+  /**
+   * Subscribe an ASYNC handler safely.
+   *
+   * `emitter.on('x', async () => { … })` hands EventEmitter a promise it does not await
+   * and cannot catch: any rejection inside becomes an unhandled rejection, and Node's
+   * default is to KILL THE PROCESS. So a single failed write to sessions.json took the
+   * entire gateway down with it — every open editor, every terminal — over an audit
+   * record. Persistence is a side effect of a request, not the request; it fails loudly
+   * in the log and the server keeps serving.
+   */
+  private on(event: string, handler: (payload: any) => Promise<void>): void {
+    this.systemEvents.on(event, (payload) => {
+      handler(payload).catch((err) =>
+        console.error(`[PersistenceLayer] '${event}' handler failed:`, err),
+      );
+    });
+  }
+
   private startWatching(): void {
 
     // ==========================================
@@ -28,17 +46,17 @@ export class PersistenceLayer {
     // ==========================================
 
     // When Rust successfully boots the underlying compute node
-    this.systemEvents.on('sandbox:provisioned', async (sandboxRecord) => {
+    this.on('sandbox:provisioned', async (sandboxRecord) => {
       await this.sandboxRepo.save(sandboxRecord);
     });
 
     // When Rust pauses, stops, or errors out the container
-    this.systemEvents.on('sandbox:state_changed', async (data: { sandboxId: string, state: SandboxState }) => {
+    this.on('sandbox:state_changed', async (data: { sandboxId: string, state: SandboxState }) => {
       await this.sandboxRepo.updateState(data.sandboxId, data.state);
     });
 
     // When Rust destroys a sandbox entirely
-    this.systemEvents.on('sandbox:destroyed', async (sandboxId: string) => {
+    this.on('sandbox:destroyed', async (sandboxId: string) => {
       // 1. Remove the infrastructure record
       await this.sandboxRepo.delete(sandboxId);
 
@@ -57,12 +75,12 @@ export class PersistenceLayer {
     // ==========================================
 
     // When a user hits the IDE page and initiates a connection
-    this.systemEvents.on('session:connecting', async (sessionRecord) => {
+    this.on('session:connecting', async (sessionRecord) => {
       await this.sessionRepo.save(sessionRecord);
     });
 
     // When the user's proxy is successfully routed to the running Rust sandbox
-    this.systemEvents.on('session:active', async (data: { sessionId: string, sandboxId: string }) => {
+    this.on('session:active', async (data: { sessionId: string, sandboxId: string }) => {
       // Link the client to the specific infrastructure and mark as active
       await this.sessionRepo.linkToSandbox(data.sessionId, data.sandboxId);
       await this.sessionRepo.updateState(data.sessionId, 'ACTIVE');
@@ -72,7 +90,7 @@ export class PersistenceLayer {
     });
 
     // When the user closes their browser tab or loses internet
-    this.systemEvents.on('session:disconnected', async (sessionId: string) => {
+    this.on('session:disconnected', async (sessionId: string) => {
       // Read the session BEFORE marking it disconnected so we still have its sandbox
       // link and owner to attribute the activity entry.
       const session = await this.sessionRepo.get(sessionId);

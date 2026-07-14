@@ -91,8 +91,16 @@ export function toImageName(id: string, tag = 'latest'): string {
  * hits); order of build steps matters (Dockerfile order), package/env order
  * does not. ponytail: non-cryptographic — collision-negligible for realistic
  * build counts; swap for SHA-256 if you ever need collision *resistance*.
+ *
+ * `recipe` is the GENERATED DOCKERFILE, and passing it is what makes the cache key
+ * honest. The config alone does not determine the image: the generator does. Two things
+ * this projection cannot see already changed the image — `languageServers` (LspInjector)
+ * and the bash guarantee (BashInjector) — so the tag stayed identical, `exists(tag)` hit,
+ * and the rebuild was skipped. A fix to the generator could not reach any environment that
+ * had ever been built. Hash what actually builds the image, and a generator change
+ * invalidates exactly the images it affects.
  */
-export function contentTag(config: EnvironmentConfig): string {
+export function contentTag(config: EnvironmentConfig, recipe = ''): string {
   const canonical = JSON.stringify({
     baseImage: config.baseImage ?? '',
     bootUpAsRoot: config.bootUpAsRoot ?? false,
@@ -108,6 +116,7 @@ export function contentTag(config: EnvironmentConfig): string {
       isGlobal: !!s.isGlobal,
       version: s.version ?? '',
     })),
+    recipe,
   });
 
   let hash = 0xcbf29ce484222325n;
@@ -120,9 +129,13 @@ export function contentTag(config: EnvironmentConfig): string {
   return hash.toString(16).padStart(16, '0');
 }
 
-/** Content-addressed image tag: cloud-ide-<id>:<contentHash>. */
-export const toVersionedImageName = (id: string, config: EnvironmentConfig): string =>
-  toImageName(id, contentTag(config));
+/** Content-addressed image tag: cloud-ide-<id>:<contentHash>. Pass the generated
+ *  Dockerfile so the tag tracks the real recipe, not just the config (see contentTag). */
+export const toVersionedImageName = (
+  id: string,
+  config: EnvironmentConfig,
+  recipe = '',
+): string => toImageName(id, contentTag(config, recipe));
 
 // ---- Generation ("name it ourselves") ------------------------------------
 

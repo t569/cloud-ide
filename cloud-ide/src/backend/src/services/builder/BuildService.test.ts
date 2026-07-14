@@ -125,7 +125,9 @@ describe('BuildService registry push', () => {
     await tick();
     builder.builds[0].succeed(); // build ok -> push starts, but not yet done
     expect(builder.pushes).toHaveLength(1);
-    expect(builder.pushes[0].tag).toBe(toVersionedImageName('c', cfg!));
+    // The tag hashes the generated Dockerfile too (mocked to 'FROM scratch' above), so a
+    // generator change invalidates the cache instead of silently reusing a stale image.
+    expect(builder.pushes[0].tag).toBe(toVersionedImageName('c', cfg!, 'FROM scratch'));
     expect(store.get('c')?.status).toBe('building'); // still holding the slot
 
     await svc.start(envC('d')); // queued behind c

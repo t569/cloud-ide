@@ -179,7 +179,13 @@ export class BuildService {
     try {
       const config = env.builderConfig;
       const latestTag = toImageName(env.id);
-      const versionedTag = config ? toVersionedImageName(env.id, config) : latestTag;
+      // Generate BEFORE the cache check: the Dockerfile is what actually builds the image,
+      // so it belongs in the cache key. Hashing the config alone meant a generator change
+      // (a new injector, a different LSP install) could never invalidate an existing tag —
+      // the rebuild was skipped and the fix silently never landed. It also validates the
+      // config, so an invalid one still fails fast, before we hold a build slot.
+      const dockerfile = DockerGeneratorService.generateDockerfile(JSON.stringify(config));
+      const versionedTag = config ? toVersionedImageName(env.id, config, dockerfile) : latestTag;
       const builder = this.builders.get(builderName);
 
       // Cache hit: already built — retag :latest, skip queue + rebuild.
@@ -211,8 +217,6 @@ export class BuildService {
         return proc;
       }
 
-      // Generate now (validates config) so we fail fast before holding a slot.
-      const dockerfile = DockerGeneratorService.generateDockerfile(JSON.stringify(config));
       const imageTags = config ? [versionedTag, latestTag] : [latestTag];
 
       const relay = new RelayBuildProcess();

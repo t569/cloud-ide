@@ -1,65 +1,65 @@
-# 🎨 Dynamic Icon Resolution Engine
+# 🎨 File Icon Engine (offline)
 
-This module powers the high-performance, zero-bloat file icon system for the Cloud IDE. It uses a cascading resolution strategy combined with the Iconify dynamic loader to support thousands of programming languages and frameworks without increasing JavaScript bundle size.
+Powers the file-explorer icons. Icons are resolved from a filename to an Iconify slug, then
+rendered from a **pre-generated offline bundle** — the browser never contacts an icon CDN.
 
 ## 🏗️ Architecture
 
-1. **Resolver (`iconResolver.ts`)**: Parses filenames into Iconify slugs (e.g., `devicon:python`).
-2. **Registry (`iconRegistry.ts`)**: Maps specific files and extensions to pre-colored SVG slugs.
-3. **Component (`FileIcon.tsx`)**: React component that dynamically fetches and caches the SVG via Iconify.
+1. **Resolver (`shared/utils/iconResolver.ts`)** — parses a filename into an Iconify slug
+   (e.g. `logos:react`), via exact-name → compound-extension → `vscode-icons:file-type-<ext>` fallback.
+2. **Registry (`shared/types/constants/iconRegistry.ts`)** — `FILE_NAME_MAP` + `EXTENSION_MAP`,
+   mapping specific files/extensions to pre-coloured slugs across ~8 collections.
+3. **Bundle (`icons.offline.json`)** — **generated**, git-ignored. Contains ONLY the icons the
+   registry references (~160), extracted from the `@iconify-json/*` data packages by
+   `scripts/gen-icon-bundle.mjs`. ~0.5 MB raw vs 10+ MB for the full collections.
+4. **Loader (`iconifyOffline.ts`)** — `addCollection`s the bundle into Iconify's **API-less**
+   build (`@iconify/react/offline`) and exports `bundledIcons` (the set of available slugs).
+5. **Component (`FileIcon.tsx`)** — renders the slug; anything not in `bundledIcons`
+   (unmapped extension, or a data package not yet installed) falls back to `vscode-icons:default-file`.
 
----
+> **Why offline?** The old engine fetched every icon from `api.iconify.design` (with
+> `api.simplesvg.com` / `api.unisvg.com` as fallbacks). That failed with `ERR_NAME_NOT_RESOLVED`
+> on any host without outbound DNS to those CDNs — and inside a deny-default egress sandbox it's
+> dropped — while leaking the open file list to a third party. The bundle removes the dependency.
+
+## 🔁 Rebuilding the bundle (required after a fresh clone or a registry edit)
+
+`icons.offline.json` is **not committed**. It is generated:
+
+```bash
+# from src/frontend
+npm run icons:build
+```
+
+This runs automatically before `npm run dev` and `npm run build` (via the `predev`/`prebuild`
+hooks), so the normal flow needs nothing extra — but run it by hand after editing the registry,
+or on a fresh checkout before a bare `tsc`. It needs the `@iconify-json/*` **devDependencies**
+(installed by the root `npm install`); a collection whose package is missing is skipped with a
+warning and its icons fall back to `default-file`, so it never breaks the build.
+
+## 🛠️ Adding / changing an icon
+
+Edit `shared/types/constants/iconRegistry.ts`, then `npm run icons:build`.
+
+* **FILE_NAME_MAP** — exact matches: `'tailwind.config.js': { icon: 'file-icons:tailwind', color: '#06B6D4' }`
+* **EXTENSION_MAP** — extensions: `'py': { icon: 'vscode-icons:file-type-python' }`
+* **`local:` prefix** — a custom SVG under `common/icons/` (`'nr': { icon: 'local:noir' }`), rendered via `<img>`, not Iconify.
+
+Using an icon from a **new** collection? Add its data package first, then rebuild:
+
+```bash
+npm install -D @iconify-json/<collection> -w frontend
+npm run icons:build
+```
+
+### Finding slugs
+Search [icones.js.org](https://icones.js.org). Prefer: **devicon** (pre-coloured IDE logos) →
+**vscode-icons** (generic file types) → **file-icons** (niche configs, monochrome — pass a `color`) →
+**simple-icons** (brand fallbacks).
 
 ## 💻 Usage
 
-Import the `FileIcon` component and pass the full filename to render it anywhere in the UI:
-
 ```tsx
-import { FileIcon } from '@/components/common/FileIcon';
-
-// Renders the official Rust logo
+import { FileIcon } from '@frontend/common/FileIcon';
 <FileIcon fileName="main.rs" size={16} />
-
-// Renders the NPM logo, overriding standard JSON
-<FileIcon fileName="package.json" size={24} />
-
-// Renders a custom ZKP local SVG
-<FileIcon fileName="circuit.nr" size={16} />
-
 ```
-
-### 🛠️ Updating the Registry
-If an icon is missing, add it to `shared/src/constants/iconRegistry.ts`:
-
-*   **FILE_NAME_MAP**: For exact matches (e.g., `tailwind.config.js`, `dockerfile`).
-
-```tsx
-// Example: We want Tailwind configs to use the Tailwind logo, not the JS logo
-'tailwind.config.js': { icon: 'file-icons:tailwind', color: '#06B6D4' },
-'dockerfile': { icon: 'vscode-icons:file-type-docker' },
-
-```
-*   **EXTENSION_MAP**: For standard file extensions (e.g., `py`, `go`, `nr`).
-
-```tsx
-// Example: Standard Python
-'py': { icon: 'vscode-icons:file-type-python' },
-
-// Example: Specialized Noir circuits (loading from local frontend/public/icons)
-'nr': { icon: 'local:noir' },
-```
-
-### Finding Icon Slugs
-Search the [Iconify Database](https://iconify.design). When choosing a set, prefer this order:
-
-1.  **devicon**: Native, pre-colored logos designed for IDEs (Best).
-2.  **vscode-icons**: Best for generic file types.
-3.  **file-icons**: Best for niche configs (monochrome, so provide a color hex).
-4.  **simple-icons**: Best for brand fallbacks.
-
-### ⚡ Features & Performance
-*   **Zero Bundle Bloat**: Adding 500 new languages adds ~2KB of text to the bundle, rather than 50MB of SVG paths.
-*   **Aggressive Caching**: Once fetched, icons are cached instantly in the browser's localStorage and will not trigger future network requests.
-*   **Bulletproof Fallback**: Unknown file extensions automatically attempt to fetch generic VS Code icons, safely falling back to a default document icon if all else fails.
-*   **Local Overrides**: The `local:` prefix allows us to bypass the CDN entirely for proprietary or custom extensions.
-

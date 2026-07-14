@@ -4,11 +4,14 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "npm run icons:build",
     "dev": "vite",
+    "prebuild": "npm run icons:build",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "icons:build": "node scripts/gen-icon-bundle.mjs"
   },
   "dependencies": {
     "@alibaba-group/opensandbox": "^0.1.4",
@@ -36,6 +39,14 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@iconify-json/devicon": "^1.2.0",
+    "@iconify-json/file-icons": "^1.2.0",
+    "@iconify-json/icon-park-outline": "^1.2.0",
+    "@iconify-json/icon-park-solid": "^1.2.0",
+    "@iconify-json/logos": "^1.2.0",
+    "@iconify-json/simple-icons": "^1.2.0",
+    "@iconify-json/skill-icons": "^1.2.0",
+    "@iconify-json/vscode-icons": "^1.2.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^25.5.2",
     "@types/react": "^19.2.14",

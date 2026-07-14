@@ -18,6 +18,13 @@ While you can run this via the root `npm run dev` command, you can also run the 
 npm run dev
 ```
 
+> [!NOTE]
+> **Generated assets.** The file-icon bundle (`src/common/icons.offline.json`) is git-ignored and
+> generated from the icon registry. `predev`/`prebuild` regenerate it automatically on `npm run
+> dev`/`build`; after editing `shared/types/constants/iconRegistry.ts` (or on a bare `tsc` from a
+> fresh clone) run it directly with `npm run icons:build`. See
+> [`src/common/README.md`](./src/common/README.md).
+
 ```bash
 # From the root directory (Recommended)
 npm install lucide-react -w frontend

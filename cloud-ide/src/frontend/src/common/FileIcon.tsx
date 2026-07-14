@@ -1,7 +1,12 @@
 // frontend/src/components/common/FileIcon.tsx
 import React from 'react';
-import { Icon } from '@iconify/react';
+// API-less build: never fetches from Iconify's servers. Icons come from the bundle
+// registered in common/iconifyOffline.ts; a name not in the bundle renders default-file.
+import { Icon } from '@iconify/react/offline';
+import { bundledIcons } from './iconifyOffline';
 import { resolveIconDefinition } from '@cloud-ide/shared/utils/iconResolver';
+
+const DEFAULT_FILE_ICON = 'vscode-icons:default-file';
 
 interface FileIconProps {
   fileName: string;
@@ -10,16 +15,10 @@ interface FileIconProps {
 }
 
 export const FileIcon = ({ fileName, size = 16, className = "" }: FileIconProps) => {
-  // THE FIX: We are extracting 'icon' and 'color' from the returned object
   const { icon, color } = resolveIconDefinition(fileName);
 
-  // Safety check just in case something completely invalid gets passed
-  if (!icon) {
-    return <Icon icon="vscode-icons:default-file" width={size} height={size} className={className} />;
-  }
-
-  // 1. Handle Custom Local SVGs (e.g., 'local:noir')
-  if (icon.startsWith('local:')) {
+  // 1. Custom local SVGs (e.g. 'local:noir') — <img>-rendered, not via Iconify.
+  if (icon?.startsWith('local:')) {
     const localName = icon.split(':')[1];
     return (
       <img
@@ -31,22 +30,17 @@ export const FileIcon = ({ fileName, size = 16, className = "" }: FileIconProps)
     );
   }
 
-  // 2. Handle Everything Else via Iconify (Now with color injection!)
+  // 2. Everything else via Iconify. Fall back to default-file for anything not in the
+  //    offline bundle (unmapped extension, or an icon whose data package isn't installed
+  //    yet) — the API-less <Icon> would otherwise render blank.
+  const shown = icon && bundledIcons.has(icon) ? icon : DEFAULT_FILE_ICON;
   return (
     <Icon
-      icon={icon}
+      icon={shown}
       width={size}
       height={size}
-      style={{ color: color }} // Applies the hex code if provided in the registry
+      style={{ color: shown === icon ? color : undefined }} // registry color only for the real icon
       className={`flex-shrink-0 ${className}`}
-      fallback={
-        <Icon 
-          icon="vscode-icons:default-file" 
-          width={size} 
-          height={size} 
-          className={`flex-shrink-0 ${className}`} 
-        />
-      }
     />
   );
 };

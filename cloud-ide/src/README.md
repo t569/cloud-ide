@@ -52,6 +52,17 @@ npm install
 
 **What this does:** NPM will parse all three `package.json` files, download all dependencies, hoist shared libraries to the root `node_modules` to save space, and automatically symlink the `@cloud-ide/shared` package into both the frontend and backend.
 
+> [!IMPORTANT]
+> **`npm install` alone is not enough — some features generate their assets.** The file-icon
+> bundle (`frontend/src/common/icons.offline.json`) is generated from the icon registry and is
+> git-ignored. `npm run dev` and `npm run build` regenerate it automatically (via `predev`/
+> `prebuild`), so the normal flow just works — but on a fresh clone, or after editing
+> `shared/types/constants/iconRegistry.ts`, you can rebuild it directly:
+> ```bash
+> npm run icons:build -w frontend
+> ```
+> See [frontend/src/common/README.md](./frontend/src/common/README.md) for the icon engine.
+
 <a id="doctor"></a>
 ### Then check the host
 

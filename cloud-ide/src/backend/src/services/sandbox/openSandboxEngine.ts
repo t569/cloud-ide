@@ -278,27 +278,60 @@ function mapStatus(data: any, fallbackId: string | undefined): SandboxStatus {
   };
 }
 
-function parseExecdStream(body: string): SandboxExecResult {
+/**
+ * Parse execd's response stream. Exported for the test — the wire format is the contract,
+ * and this parser silently disagreed with it on all three counts:
+ *
+ *   {"type":"init","text":"<id>"}
+ *   {"type":"stdout","text":"NAME=\"Alpine Linux\""}      <- ONE LINE, newline stripped
+ *   {"type":"stderr","text":"cat: can't open '/x'"}
+ *   {"type":"error","error":{"ename":"CommandExecError","evalue":"7"}}   <- exit code
+ *   {"type":"execution_complete","execution_time":6}                     <- success
+ *
+ * 1. FRAMING. These are bare JSON lines, not SSE — there is no `data: ` prefix. Requiring
+ *    one skipped EVERY event, so `execBuffered` always returned stdout `''` with exitCode
+ *    0: "success, no output". That is why a file outside the workspace opened blank, and
+ *    why the tool baseline behind env-promotion silently captured nothing.
+ * 2. NEWLINES. Each event is one line with its `\n` stripped, so `stdout += text`
+ *    reassembled a file as a single run-on line. Re-add the separator.
+ * 3. EXIT CODE. Failure arrives as `type: "error"` with the status in `error.evalue`;
+ *    there is no `type: "result"`. Nothing ever set exitCode, so every failed command —
+ *    a missing file, a directory, a denied read — looked like a clean success.
+ *
+ * The `data: ` prefix is still tolerated so a future SSE-framed execd doesn't break this.
+ */
+export function parseExecdStream(body: string): SandboxExecResult {
   let stdout = '';
   let stderr = '';
   let exitCode = 0;
 
-  for (const line of body.split('\n')) {
-    if (!line.startsWith('data: ')) continue;
+  for (const raw of body.split('\n')) {
+    const line = (raw.startsWith('data: ') ? raw.slice('data: '.length) : raw).trim();
+    if (!line) continue;
+
     let event: any;
     try {
-      event = JSON.parse(line.slice('data: '.length));
+      event = JSON.parse(line);
     } catch {
       continue;
     }
+
     const text = event?.text ?? event?.data ?? '';
     switch (event?.type) {
       case 'stdout':
-        stdout += text;
+        stdout += `${text}\n`;
         break;
       case 'stderr':
-        stderr += text;
+        stderr += `${text}\n`;
         break;
+      case 'error': {
+        // `evalue` is the process's exit status, as a string ("1", "7"). A malformed or
+        // absent one still has to be a FAILURE — never fall back to 0 here, or an error
+        // event reads as success and the caller happily returns empty content.
+        const code = Number(event?.error?.evalue);
+        exitCode = Number.isInteger(code) && code !== 0 ? code : 1;
+        break;
+      }
       case 'result':
         exitCode = Number(event?.exitCode ?? event?.code ?? 0) | 0;
         break;

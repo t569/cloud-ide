@@ -179,16 +179,24 @@ describe('OpenSandboxEngine', () => {
   });
 
   it('reaches execd on the DIRECT endpoint, not through the daemon proxy', async () => {
-    const sse = [
-      'data: {"type":"stdout","text":"hello "}',
-      'data: {"type":"stderr","text":"warn"}',
-      'data: {"type":"stdout","text":"world"}',
-      'data: {"type":"result","exitCode":0}',
+    // The real execd wire format: bare JSON lines, one line of output per event, no SSE
+    // `data: ` prefix. This mock used to invent the prefix — which is precisely why the
+    // parser could skip every event in production while this suite stayed green.
+    const stream = [
+      '{"type":"init","text":"abc123"}',
+      '',
+      '{"type":"stdout","text":"hello"}',
+      '',
+      '{"type":"stderr","text":"warn"}',
+      '',
+      '{"type":"stdout","text":"world"}',
+      '',
+      '{"type":"execution_complete","execution_time":6}',
     ].join('\n');
 
     const fetchMock = mockFetch([
       { method: 'GET', match: /\/endpoints\/44772$/, res: { json: async () => ({ endpoint: '127.0.0.1:44772' }) } },
-      { method: 'POST', match: /\/command$/, res: { text: async () => sse } },
+      { method: 'POST', match: /\/command$/, res: { text: async () => stream } },
     ]);
     global.fetch = fetchMock as any;
 
@@ -196,7 +204,7 @@ describe('OpenSandboxEngine', () => {
       command: ['/bin/sh', '-c', 'echo hi'],
     });
 
-    expect(result).toEqual({ stdout: 'hello world', stderr: 'warn', exitCode: 0 });
+    expect(result).toEqual({ stdout: 'hello\nworld\n', stderr: 'warn\n', exitCode: 0 });
     // No use_server_proxy: relaying the terminal's SSE stream through the daemon's
     // Python proxy buys nothing, and the direct path is what works today.
     expect(fetchMock.calls[0].url).not.toContain('use_server_proxy');

@@ -12,7 +12,8 @@ interface MyEnvironmentsProps {
   selectedId: string | null;
   onOpen: (env: SavedEnvironment) => void;
   onBuild: (env: SavedEnvironment) => void;
-  onLaunch: (env: SavedEnvironment) => void;
+  /** `fresh` = a NEW workspace on this image, instead of reusing the one I have. */
+  onLaunch: (env: SavedEnvironment, fresh?: boolean) => void;
   onHistory: (env: SavedEnvironment) => void;
   onDelete: (id: string) => void;
   onCreateNew: () => void;
@@ -67,7 +68,7 @@ const EnvCard = ({
   selected: boolean;
   onOpen: () => void;
   onBuild: () => void;
-  onLaunch: () => void;
+  onLaunch: (fresh?: boolean) => void;
   onHistory: () => void;
   onDelete: () => void;
 }) => {
@@ -129,6 +130,30 @@ const EnvCard = ({
         >
           <VscRocket size={12} />
           Launch
+        </span>
+        <span
+          role="button"
+          tabIndex={built ? 0 : -1}
+          aria-label={
+            built ? `New workspace on ${env.id}` : `Build ${env.id} before creating a workspace`
+          }
+          aria-disabled={!built}
+          title={
+            built
+              ? 'New workspace on this image (Launch reuses the one you have)'
+              : 'Build this environment first'
+          }
+          onClick={(e) => {
+            e.stopPropagation();
+            if (built) onLaunch(true);
+          }}
+          className={`flex items-center text-[11px] font-sans font-medium rounded-md px-2 py-1.5 transition-colors ${
+            built
+              ? 'text-indigo-300 bg-indigo-500/10 border border-indigo-500/20 hover:bg-indigo-500/20 cursor-pointer'
+              : 'text-gray-600 bg-white/[0.02] border border-white/[0.06] cursor-not-allowed'
+          }`}
+        >
+          <VscAdd size={12} />
         </span>
         <span
           role="button"
@@ -253,7 +278,7 @@ export const MyEnvironments = ({
               selected={env.id === selectedId}
               onOpen={() => onOpen(env)}
               onBuild={() => onBuild(env)}
-              onLaunch={() => onLaunch(env)}
+              onLaunch={(fresh) => onLaunch(env, fresh)}
               onHistory={() => onHistory(env)}
               onDelete={() => onDelete(env.id)}
             />

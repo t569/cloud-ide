@@ -9,12 +9,13 @@ import { launchEnvironment } from './launch';
 import { navigate } from './router';
 
 export default function Environments() {
-  const handleLaunch = (env: SavedEnvironment) => {
+  const handleLaunch = (env: SavedEnvironment, fresh?: boolean) => {
     if (!env.imageName) {
       toast.warning('Build this environment before launching.');
       return;
     }
     return launchEnvironment(env.id, {
+      fresh,
       workspaceName: env.builderConfig?.name || env.id,
       envConfig: env.builderConfig,
     });

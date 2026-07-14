@@ -19,7 +19,7 @@ import {
 import type { SandboxState } from '@cloud-ide/shared/types/sandbox';
 import { timeAgo } from '../env-manager/utils/timeAgo';
 import { getEnvironment, type SavedEnvironment } from '../env-manager/services/api/environmentApi';
-import { launchEnvironment } from './launch';
+import { openWorkspace } from './launch';
 import { navigate } from './router';
 import { ApiError } from '../lib/apiClient';
 import { PromoteSandbox } from './PromoteSandbox';
@@ -234,9 +234,11 @@ function SandboxDrawer({
     }
   };
 
+  // By SANDBOX id, not by its env: two workspaces on one image both match the env, and
+  // the backend picked the first — so Open on this card could hand you the other one.
   const open = () =>
     run('open', () =>
-      launchEnvironment(sbx.environmentId, {
+      openWorkspace(sbx.sandboxId, {
         workspaceName: sbx.environmentId,
         verb: sbx.state === 'PAUSED' ? 'Resuming' : 'Opening',
       }),

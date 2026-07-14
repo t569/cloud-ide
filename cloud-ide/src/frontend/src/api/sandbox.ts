@@ -18,14 +18,21 @@ export interface SessionResponse {
 }
 
 /**
- * Connect to an environment. The backend reuses a warm (RUNNING|PAUSED) sandbox
- * owned by the caller for this env — resuming it if paused — and only cold-boots
- * when there is none. This is the entry point for launching: going through
- * createSandbox instead double-provisions on every click. Also issues the
- * httpOnly `sid` cookie that the /api/fs ownership guard reads.
+ * Open a workspace. Exactly one of these:
+ *
+ *   { sandboxId }            reopen THAT workspace (resuming/recovering as needed)
+ *   { environmentId }        open my workspace for the env; cold-boot if I have none
+ *   { environmentId, fresh } a NEW workspace on the env, alongside the ones I have
+ *
+ * Always go through here, never POST /v1/sandboxes — that raw verb always boots a new
+ * container and is what double-provisioned on every click. Also issues the httpOnly
+ * `sid` cookie that the /api/fs ownership guard reads.
  */
-export const startSession = (environmentId: string) =>
-  apiClient.post<SessionResponse>('/v1/sessions', { environmentId });
+export const startSession = (target: {
+  sandboxId?: string;
+  environmentId?: string;
+  fresh?: boolean;
+}) => apiClient.post<SessionResponse>('/v1/sessions', target);
 
 /** Current state of a sandbox (reconciled with the Rust engine). */
 export const getSandboxStatus = (sandboxId: string) =>

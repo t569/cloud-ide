@@ -19,8 +19,9 @@ const BuildLogModal = lazy(() =>
 
 interface EnvManagerProps {
   /** Launch a built environment into the editor. The host (page) provisions a
-   *  sandbox and navigates; env-manager stays router- and sandbox-agnostic. */
-  onLaunch?: (env: SavedEnvironment) => void;
+   *  sandbox and navigates; env-manager stays router- and sandbox-agnostic.
+   *  `fresh` asks for an ADDITIONAL workspace on the image rather than reuse. */
+  onLaunch?: (env: SavedEnvironment, fresh?: boolean) => void;
   /** Navigate to the sandboxes list. Same seam as onLaunch — the host owns routing.
    *  Omitted ⇒ the link is not rendered. */
   onViewSandboxes?: () => void;

@@ -6,7 +6,7 @@ import { ISessionRepository, ISandboxRepository, IEnvironmentRepository } from '
 import { SandboxManager, specForEnvironment } from '../services/sandbox/SandboxManager';
 import { SessionRecord } from '../database/models';
 import { config } from '../config/env';
-import { SID_COOKIE, SESSION_COOKIE_OPTIONS } from '../api/middleware/security';
+import { SID_COOKIE, SESSION_COOKIE_OPTIONS, userOwnsSandbox } from '../api/middleware/security';
 import { currentUser } from '../api/middleware/auth';
 
 /**
@@ -28,18 +28,49 @@ export class SessionController {
 
   /**
    * @route POST /api/v1/sessions
-   * @description Initiates a new user workspace connection. It utilizes "Smart Routing" 
-   * to check for existing "warm" sandboxes to prevent duplicate provisioning. 
-   * If no sandbox exists, it delegates a cold boot to the Rust engine.
+   * @description Opens a workspace. Three modes, and which one you get depends on the body:
+   *
+   *   { sandboxId }            → REOPEN exactly that workspace. No env matching.
+   *   { environmentId }        → open my workspace for that env; cold-boot if I have none.
+   *   { environmentId, fresh } → NEW workspace on that env, alongside any I already have.
+   *
+   * A sandbox record IS a workspace (an owner + a git worktree); the container is
+   * disposable compute that `ensureRunning` re-mints onto the same worktree whenever it
+   * dies. The environment is just the image a workspace booted from — NOT its identity.
+   *
+   * That distinction is why `sandboxId` exists. Reopening used to be expressed as
+   * "connect me to this sandbox's env", which then matched the FIRST record for that env:
+   * with two workspaces on one image, clicking Open on B handed you A. And with one
+   * `owned[0]` slot per (user, env), a second workspace on the same image was unreachable
+   * even if you provisioned it. `fresh` is the other half — it's how you get N of them.
    */
   public startSession = async (req: Request, res: Response): Promise<void> => {
-    const { environmentId, repoUrl } = req.body;
+    const { environmentId, sandboxId: requestedSandboxId, fresh } = req.body;
     // Identity comes from the seam, never the body — a caller that names its own
     // userId can claim any other user's warm sandboxes below.
     const userId = currentUser(req, res);
 
-    if (!environmentId) {
-      res.status(400).json({ error: 'Missing required field: environmentId' });
+    if (!environmentId && !requestedSandboxId) {
+      res.status(400).json({ error: 'Missing required field: environmentId (or sandboxId).' });
+      return;
+    }
+
+    // Reopen-by-id: ownership is the whole gate here. 404 (not 403) on someone else's
+    // sandbox — the same answer as a nonexistent one, so the id space stays opaque.
+    if (requestedSandboxId) {
+      if (!(await userOwnsSandbox(this.sandboxRepo, userId, requestedSandboxId))) {
+        res.status(404).json({ error: `Sandbox '${requestedSandboxId}' not found.` });
+        return;
+      }
+      try {
+        // May return a NEW id: a container that can't be revived is replaced onto the
+        // same worktree, and the caller must follow the id it gets back.
+        const targetSandboxId = await this.sandboxManager.ensureRunning(requestedSandboxId);
+        this.issueSession(res, targetSandboxId, userId);
+      } catch (error: any) {
+        console.error('[SessionController Error]', error);
+        res.status(500).json({ error: `Failed to open workspace: ${error.message}` });
+      }
       return;
     }
 
@@ -58,82 +89,89 @@ export class SessionController {
       return;
     }
 
-    // 1. Generate a unique ID for this browser connection
-    const sessionId = `sess-${crypto.randomUUID()}`;
-
-    // 2. Get the base URL (e.g., "http://localhost:3000" or "https://api.domain.com")
-    const baseUrl = config.PUBLIC_API_URL;
-
-    // 3. Swap HTTP for WS, and HTTPS for WSS automatically!
-    const baseWsUrl = baseUrl.replace(/^http/, 'ws');
-
-    // 4. Build the final string
-    const websocketUrl = `${baseWsUrl}/v1/sessions/${sessionId}/stream`;
-
     try {
-      // 2. Log the connection attempt
-      const newSession: SessionRecord = {
-        sessionId,
-        userId,
-        sandboxId: '', // Will be linked shortly
-        state: 'CONNECTING',
-        connectedAt: Date.now(),
-        lastPingAt: Date.now()
-      };
-      this.systemEvents.emit('session:connecting', newSession);
-
-      // 3. THE SMART ROUTER: Do we already have a warm sandbox for this repo/user?
-      // Scoped to the caller: reusing another user's warm sandbox for the same
-      // environment would hand them someone else's workspace, files and all.
-      // Legacy records carry no userId; adopt them, matching userOwnsSandbox.
       let targetSandboxId: string;
-      const existingSandboxes = await this.sandboxRepo.getSandboxesByEnvId(environmentId);
-      const owned = existingSandboxes.filter((sbx) => !sbx.userId || sbx.userId === userId);
 
-      // Prefer a sandbox we believe is alive; otherwise fall back to ANY record this
-      // user has for the env. A record in ERROR/STOPPED still owns the worktree that
-      // holds their files, so it is the thing to recover — NOT something to ignore in
-      // favour of a cold boot, which would mint an empty worktree and strand the old
-      // one (this is what wiped workspaces after a long pause).
-      const candidate =
-        owned.find((sbx) => sbx.state === 'RUNNING' || sbx.state === 'PAUSED') ?? owned[0];
-
-      if (candidate) {
-        // Reuse / resume / recover — all three live in ensureRunning, which the Resume
-        // button goes through too, so launching and waking can never disagree about
-        // what a stale record means. The id it returns may not be the candidate's.
-        targetSandboxId = await this.sandboxManager.ensureRunning(candidate.sandboxId);
+      if (fresh) {
+        // A SECOND workspace on the same image, deliberately. This is the whole "pool"
+        // primitive: N workspaces on one env is just N of these. Nothing to adopt, no
+        // new object — a workspace is a worktree, and provision() already mints one.
+        console.log(`[SessionController] Fresh workspace requested on ${environmentId}.`);
+        targetSandboxId = (
+          await this.sandboxManager.provision(specForEnvironment(environment), userId)
+        ).sandboxId;
       } else {
-        console.log(`[SessionController] No sandbox for this env. Cold-booting...`);
-        const newSandbox = await this.sandboxManager.provision(
-          specForEnvironment(environment),
-          userId,
-        );
-        targetSandboxId = newSandbox.sandboxId;
+        // THE SMART ROUTER: do I already have a workspace on this env? Scoped to the
+        // caller — reusing another user's would hand them someone else's files. Legacy
+        // records carry no userId; adopt them, matching userOwnsSandbox.
+        const existingSandboxes = await this.sandboxRepo.getSandboxesByEnvId(environmentId);
+        const owned = existingSandboxes.filter((sbx) => !sbx.userId || sbx.userId === userId);
+
+        // Prefer one we believe is alive; otherwise fall back to ANY record for the env.
+        // A record in ERROR/STOPPED still owns the worktree that holds their files, so it
+        // is the thing to recover — NOT something to ignore in favour of a cold boot,
+        // which would mint an empty worktree and strand the old one (this is what wiped
+        // workspaces after a long pause).
+        //
+        // NOTE this picks ARBITRARILY among several. That is fine as the "just open my
+        // env" default, and it is exactly why reopening a SPECIFIC workspace must pass
+        // `sandboxId` instead of coming through here.
+        const candidate =
+          owned.find((sbx) => sbx.state === 'RUNNING' || sbx.state === 'PAUSED') ?? owned[0];
+
+        if (candidate) {
+          // Reuse / resume / recover — all three live in ensureRunning, which the Resume
+          // button goes through too, so launching and waking can never disagree about
+          // what a stale record means. The id it returns may not be the candidate's.
+          targetSandboxId = await this.sandboxManager.ensureRunning(candidate.sandboxId);
+        } else {
+          console.log(`[SessionController] No sandbox for this env. Cold-booting...`);
+          targetSandboxId = (
+            await this.sandboxManager.provision(specForEnvironment(environment), userId)
+          ).sandboxId;
+        }
       }
 
-      // 5. Link the session and mark it active
-      this.systemEvents.emit('session:active', { sessionId, sandboxId: targetSandboxId });
-
-      // 5b. Issue the session as an httpOnly cookie. This is the bearer the
-      // /api/fs ownership guard checks against — it never leaves JS, so it is
-      // not readable by XSS, and SameSite blocks cross-site use.
-      res.cookie(SID_COOKIE, sessionId, SESSION_COOKIE_OPTIONS);
-
-      // 6. Return the connection details to the frontend
-      res.status(200).json({
-        message: 'Session established',
-        sessionId,
-        sandboxId: targetSandboxId,
-        websocketUrl: websocketUrl 
-      });
-
+      this.issueSession(res, targetSandboxId, userId);
     } catch (error: any) {
-      console.error('[SessionController Error]', error.message);
-      this.systemEvents.emit('session:disconnected', sessionId);
-      res.status(500).json({ error: 'Failed to establish session' });
+      // Say WHY. A flat 'Failed to establish session' hid every real cause behind one
+      // string — a missing image, an unrecoverable container, a daemon that refused the
+      // boot all looked identical, and the only way to find out was to read the server
+      // log. The causes here are our own (SandboxManager/daemon) messages, not secrets.
+      console.error('[SessionController Error]', error);
+      res.status(500).json({ error: `Failed to establish session: ${error.message}` });
     }
   };
+
+  /**
+   * Mint the browser's session for a sandbox that is now RUNNING, and answer the request.
+   * Both routes above end here, so the cookie, the events and the response shape can
+   * never drift apart between "reopen this workspace" and "launch this env".
+   *
+   * The session is only created once compute exists: a failed boot emits nothing, so
+   * there is no CONNECTING record left behind pointing at a sandbox that never booted.
+   */
+  private issueSession(res: Response, sandboxId: string, userId: string): void {
+    const sessionId = `sess-${crypto.randomUUID()}`;
+    const websocketUrl = `${config.PUBLIC_API_URL.replace(/^http/, 'ws')}/v1/sessions/${sessionId}/stream`;
+
+    const session: SessionRecord = {
+      sessionId,
+      userId,
+      sandboxId,
+      state: 'CONNECTING',
+      connectedAt: Date.now(),
+      lastPingAt: Date.now(),
+    };
+    this.systemEvents.emit('session:connecting', session);
+    this.systemEvents.emit('session:active', { sessionId, sandboxId });
+
+    // The session is an httpOnly cookie: it is the bearer the /api/fs ownership guard
+    // checks, it never leaves JS (so XSS can't read it), and SameSite blocks cross-site use.
+    res.cookie(SID_COOKIE, sessionId, SESSION_COOKIE_OPTIONS);
+
+    res.status(200).json({ message: 'Session established', sessionId, sandboxId, websocketUrl });
+  }
 
   /**
    * @route DELETE /api/v1/sessions/:sessionId

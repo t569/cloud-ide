@@ -518,18 +518,30 @@ export class SandboxManager {
     }
 
     console.log(`[SandboxManager] Destroying ${sandboxId} and its worktree...`);
-    const success = await this.driver.destroySandbox(sandboxId);
 
-    if (success) {
-      await this.sandboxRepo.delete(sandboxId);
-      await this.activityRepo?.deleteBySandbox(sandboxId);
-      // Clean up using the dedicated worktree ID!
-      if (record.worktreeId) {
-          await this.worktreeEngine.removeWorktree(record.worktreeId);
-      }
+    // The container is BEST EFFORT; the record is not. Deleting the record only
+    // `if (success)` meant a container the daemon couldn't remove — one it had already
+    // forgotten (404), or one wedged sharing a dead egress sidecar's netns, which cannot
+    // even be started in order to be stopped — left the record alive while the route
+    // still answered 200 {destroyed:true}. The UI refetched and the sandbox was still
+    // there, undeletable, forever. The record is what the user sees, so the record is
+    // what has to go; a leaked dead container is a warning, not a failed delete.
+    const containerRemoved = await this.driver.destroySandbox(sandboxId).catch(() => false);
+    if (!containerRemoved) {
+      console.warn(
+        `[SandboxManager] ${sandboxId}: container could not be removed (already gone, or wedged). ` +
+          `Deleting the record anyway — compute is disposable, the record is the thing the user sees.`,
+      );
     }
 
-    return success;
+    await this.sandboxRepo.delete(sandboxId);
+    await this.activityRepo?.deleteBySandbox(sandboxId);
+    // Clean up using the dedicated worktree ID!
+    if (record.worktreeId) {
+      await this.worktreeEngine.removeWorktree(record.worktreeId);
+    }
+
+    return true;
   }
 
 /**

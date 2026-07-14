@@ -54,12 +54,14 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
     return { menus: reg.getMenus(), activityItems: reg.getActivityItems() };
   }, [session.plugins]);
 
-  // Seed the workspace name from the session, when the host provided one.
+  // Seed the workspace name. A warm handoff (env-manager → editor) provides it; a cold
+  // reload / deep-link finds nothing (sessionStore is in-memory, not persisted), so fall
+  // back to the sandbox id rather than leaving the header stuck on the "Loading Project…"
+  // placeholder forever. ponytail: id, not the env name — SandboxStatus doesn't carry
+  // environmentId; fetch it here if a prettier label is wanted.
   useEffect(() => {
-    if (session.workspaceName) {
-      dispatch({ type: 'SET_WORKSPACE_NAME', payload: { name: session.workspaceName } });
-    }
-  }, [session.workspaceName, dispatch]);
+    dispatch({ type: 'SET_WORKSPACE_NAME', payload: { name: session.workspaceName || sandboxId } });
+  }, [session.workspaceName, sandboxId, dispatch]);
 
   // ---- Open-tab persistence: survive a page reload --------------------------
   // A refresh rebuilds this component from scratch, so the reducer starts with

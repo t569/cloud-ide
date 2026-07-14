@@ -18,23 +18,21 @@ describe('defaultNetworkPolicy', () => {
     expect(targets(defaultNetworkPolicy(undefined))).toContain('github.com');
   });
 
-  it('allows the registries for an ecosystem declared via build steps', () => {
-    const p = targets(defaultNetworkPolicy(env({ buildSteps: [{ name: 'x', type: 'pip' }] })));
-    expect(p).toEqual(expect.arrayContaining(['pypi.org', 'files.pythonhosted.org']));
+  it('allows every known registry regardless of the declared ecosystem', () => {
+    // A minimal env declares nothing; it must still reach npm, pypi, crates, … so any
+    // toolchain works without the env spelling it out.
+    const p = targets(defaultNetworkPolicy(env()));
+    expect(p).toEqual(expect.arrayContaining([
+      'registry.npmjs.org', 'pypi.org', 'crates.io', 'proxy.golang.org', 'rubygems.org',
+    ]));
   });
 
-  it('also derives registries from language servers, not only build steps', () => {
-    const p = targets(defaultNetworkPolicy(env({ languageServers: ['rust'] })));
-    expect(p).toEqual(expect.arrayContaining(['crates.io', 'index.crates.io', 'static.crates.io']));
-  });
-
-  it('unions every ecosystem the env touches', () => {
-    const p = targets(
-      defaultNetworkPolicy(
-        env({ buildSteps: [{ name: 'a', type: 'npm' }, { name: 'b', type: 'go' }] }),
-      ),
-    );
-    expect(p).toEqual(expect.arrayContaining(['registry.npmjs.org', 'proxy.golang.org']));
+  it('a node env that never declared an npm build step can still npm install', () => {
+    // The exact regression: registry.npmjs.org was gated on an `npm` token that a plain
+    // node env need not carry, so `npm install` was denied. It must be allowed now.
+    const p = targets(defaultNetworkPolicy(env({ buildSteps: [{ name: 'run', type: 'shell' }] })));
+    expect(p).toContain('registry.npmjs.org');
+    expect(p).toContain('nodejs.org'); // node-gyp headers for native modules
   });
 
   it('merges the env-declared escape-hatch domains', () => {
@@ -43,16 +41,10 @@ describe('defaultNetworkPolicy', () => {
     expect(p).not.toContain(' '); // blank entries dropped
   });
 
-  it('an unknown ecosystem token is ignored, not a crash', () => {
-    const p = defaultNetworkPolicy(env({ buildSteps: [{ name: 'x', type: 'shell' }] }));
-    // shell has no registry; falls back to just the common set
-    expect(targets(p)).toEqual(['codeload.github.com', 'github.com', 'objects.githubusercontent.com', 'raw.githubusercontent.com']);
-  });
-
-  it('a no-environment sandbox gets the safe minimum, still deny-default', () => {
+  it('a no-environment sandbox still gets registries — and is still deny-default', () => {
     const p = defaultNetworkPolicy(undefined);
-    expect(p.defaultAction).toBe('deny');
+    expect(p.defaultAction).toBe('deny'); // raw-IP reach to neighbours stays denied
     expect(targets(p)).toContain('github.com');
-    expect(targets(p)).not.toContain('pypi.org'); // no ecosystem known
+    expect(targets(p)).toContain('registry.npmjs.org'); // registries are unconditional now
   });
 });

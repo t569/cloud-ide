@@ -11,38 +11,39 @@
 import type { EnvironmentConfig, NetworkPolicySpec, EgressRule } from '@cloud-ide/shared';
 
 /**
- * Package-registry domains keyed by an ECOSYSTEM TOKEN — a build-step type (`npm`,
- * `pip`, …) OR an editor language id (`python`, `rust`, …), so an env is covered whether
- * it declares the registry through its build steps or its language servers.
+ * Every known package-registry host, grouped by ecosystem for readability only — ALL of
+ * them are allowed for EVERY sandbox (see defaultNetworkPolicy). Gating them per declared
+ * ecosystem was the wrong trade: it broke the common case (a node env that never declared
+ * an `npm` build step couldn't `npm install`) to deny a node sandbox reach to, say, pypi —
+ * which is no risk deny-default doesn't already cover. The isolation that matters (raw-IP
+ * reach to a neighbour) stays denied regardless of what's on this list.
  *
  * Kept deliberately specific rather than wildcarded: a broad `*.org` allow-list would
- * defeat the point. Where a provider genuinely spreads downloads across a CDN subdomain
- * (pip → pythonhosted, cargo → static/index) the specific hosts are listed.
+ * defeat the point. Where a provider spreads downloads across a CDN subdomain (pip →
+ * pythonhosted, cargo → static/index, node-gyp → nodejs.org) the specific hosts are listed.
  */
 const REGISTRIES: Record<string, string[]> = {
-  // node / javascript / typescript
-  npm: ['registry.npmjs.org'],
-  javascript: ['registry.npmjs.org'],
-  typescript: ['registry.npmjs.org'],
+  // node / javascript / typescript (nodejs.org: node-gyp headers for native modules)
+  npm: ['registry.npmjs.org', 'nodejs.org'],
   // python
   pip: ['pypi.org', 'files.pythonhosted.org'],
-  python: ['pypi.org', 'files.pythonhosted.org'],
   // rust (modern sparse index + downloads)
   cargo: ['crates.io', 'index.crates.io', 'static.crates.io'],
-  rust: ['crates.io', 'index.crates.io', 'static.crates.io'],
   // go (module proxy + checksum db; most modules also live on github, covered below)
   go: ['proxy.golang.org', 'sum.golang.org'],
-  golang: ['proxy.golang.org', 'sum.golang.org'],
   // ruby
   ruby: ['rubygems.org', 'index.rubygems.org'],
   // jvm
   maven: ['repo.maven.apache.org', 'repo1.maven.org'],
-  gradle: ['services.gradle.org', 'plugins.gradle.org', 'repo.maven.apache.org'],
+  gradle: ['services.gradle.org', 'plugins.gradle.org'],
   // zig
   zig: ['ziglang.org'],
   // system packages (debian + ubuntu default mirrors)
   apt: ['deb.debian.org', 'security.debian.org', 'archive.ubuntu.com', 'security.ubuntu.com', 'ports.ubuntu.com'],
 };
+
+/** Flattened once: every registry host, allowed for every sandbox. */
+const ALL_REGISTRIES: string[] = Object.values(REGISTRIES).flat();
 
 /**
  * Allowed for EVERY sandbox. GitHub is load-bearing across ecosystems: `go get` pulls
@@ -56,30 +57,21 @@ const COMMON_ALLOW = [
   'objects.githubusercontent.com',
 ];
 
-/** Collapse a config down to its distinct ecosystem tokens (build-step types + language ids). */
-function ecosystemTokens(config?: EnvironmentConfig): Set<string> {
-  const tokens = new Set<string>();
-  for (const step of config?.buildSteps ?? []) tokens.add(step.type);
-  for (const lang of config?.languageServers ?? []) tokens.add(lang);
-  return tokens;
-}
-
 /**
- * The default deny-default egress policy for an environment's sandboxes.
+ * The default deny-default egress policy for a sandbox.
  *
- * Allow-list = the registries for every ecosystem the env touches, + the always-on
- * GitHub set, + any domains the env explicitly declares (`allowedDomains`). Everything
- * else — including raw-IP reach to other sandboxes — is denied.
+ * Allow-list = every known package registry + the always-on GitHub set + any domains the
+ * env explicitly declares (`allowedDomains`). Everything else — including raw-IP reach to
+ * other sandboxes — is denied, which is the property that closes cross-tenant injection.
  *
- * `config` is optional: the raw `POST /v1/sandboxes` verb boots from no environment, and
- * gets the safe minimum (GitHub only). It never gets allow-default — an unknown workload
- * is exactly the one that should not reach its neighbours.
+ * Registries are allowed unconditionally (not gated on the env's declared ecosystem):
+ * `npm install`, `pip install`, `cargo build`, … work in ANY env without the env having to
+ * declare the toolchain, and denying a node sandbox reach to pypi bought no isolation the
+ * deny-default doesn't already give. `config` is optional (the raw `POST /v1/sandboxes`
+ * verb boots from no environment) and now only contributes its `allowedDomains`.
  */
 export function defaultNetworkPolicy(config?: EnvironmentConfig): NetworkPolicySpec {
-  const domains = new Set<string>(COMMON_ALLOW);
-  for (const token of ecosystemTokens(config)) {
-    for (const domain of REGISTRIES[token] ?? []) domains.add(domain);
-  }
+  const domains = new Set<string>([...COMMON_ALLOW, ...ALL_REGISTRIES]);
   for (const domain of config?.allowedDomains ?? []) {
     const trimmed = domain.trim();
     if (trimmed) domains.add(trimmed);

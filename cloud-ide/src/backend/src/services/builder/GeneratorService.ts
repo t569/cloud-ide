@@ -8,6 +8,7 @@ import {
   StageOrchestrator,
   MiddlewareEngine,
   SecurityUserInjector,
+  BashInjector,
   LspInjector,
   DockerfileAssembler,
 } from '@cloud-ide/pipeline';
@@ -37,14 +38,18 @@ export class DockerGeneratorService {
     // into every sandbox at boot and rewrites the entrypoint to run them, so baking
     // execd into the image was redundant — and the `curl | bash` step it added failed
     // on any base without curl. The image's only obligation is `/bin/bash`, which
-    // bootstrap.sh's shebang requires. See src/opensandbox/README.md audit item K.
-    // Order matters (these are lowering passes): SecurityUser unshifts the useradd to
-    // the FRONT of the runtime stage; Lsp appends the server install to the END, so it
-    // is the last layer and adding a language server can't invalidate the pip/npm/apt
-    // layers above it. Both land before the assembler's `USER sandbox-user`, so both
-    // still run as root.
+    // bootstrap.sh's shebang requires — and BashInjector is what now ENFORCES it. That
+    // obligation was written down here but never checked, so an Alpine base produced a
+    // perfectly good image whose every container died at boot with
+    // `exec bootstrap.sh: no such file or directory`. See src/opensandbox/README.md item K.
+    // Order matters (these are lowering passes): SecurityUser unshifts the useradd to the
+    // FRONT of the runtime stage, then Bash unshifts ahead of even that — nothing may run
+    // before bash exists; Lsp appends the server install to the END, so it is the last
+    // layer and adding a language server can't invalidate the pip/npm/apt layers above it.
+    // All land before the assembler's `USER sandbox-user`, so all still run as root.
     const engine = new MiddlewareEngine()
       .use(new SecurityUserInjector())
+      .use(new BashInjector())
       .use(new LspInjector(config.languageServers));
 
 

@@ -164,6 +164,20 @@ export class VFSController {
       }
     }));
 
+    // Folder expand → lazy-load its children (heavy dirs like node_modules are not
+    // walked at boot; they hydrate here on first expand). loadChildren is a no-op
+    // for already-loaded dirs, so re-expanding a source folder costs nothing.
+    this.unsubs.push(this.eventBus.on('FOLDER_EXPANDED', async ({ path: rawPath }) => {
+      const path = safePath(rawPath);
+      if (!path) { console.warn('[Controller] Rejected unsafe path:', rawPath); return; }
+      try {
+        const tree = await this.vfs.loadChildren(path);
+        this.eventBus.emit('VFS_TREE_UPDATED', { tree });
+      } catch (e) {
+        console.warn(`[Controller] Could not load children of ${path}:`, e);
+      }
+    }));
+
     this.unsubs.push(this.eventBus.on('CONTENT_CHANGED', ({ path: rawPath, newContent }) => {
       const path = safePath(rawPath);
       if (!path) { console.warn('[Controller] Rejected unsafe path:', rawPath); return; }

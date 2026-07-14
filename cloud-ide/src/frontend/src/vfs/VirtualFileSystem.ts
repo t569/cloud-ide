@@ -21,6 +21,24 @@ function isHiddenPath(path: string): boolean {
   return path.split('/').includes('.git');
 }
 
+/**
+ * Dependency/artifact trees that are huge and rarely browsed. The eager boot walk
+ * LISTS them (so they show in the explorer, collapsed) but does NOT recurse into
+ * them — a real node_modules is thousands of nested dirs, and walking it up front
+ * fired thousands of parallel /ls requests through the browser's ~6-connection cap,
+ * which stalled hydration and left the tree empty. Their contents load on expand
+ * instead (loadChildren), one level at a time — the way every real IDE does it.
+ * Names, not paths: a heavy dir is heavy wherever it sits (a nested package's own
+ * node_modules, a monorepo's per-package venv).
+ */
+const HEAVY_DIRS = new Set([
+  'node_modules', '.venv', 'venv', '__pycache__', 'target', 'dist', 'build', '.next', '.cache',
+]);
+
+function isHeavyDir(path: string): boolean {
+  return HEAVY_DIRS.has(path.split('/').pop() ?? '');
+}
+
 /** One entry from GET /api/fs/:id/ls (backend VfsNode: name + container path + type). */
 interface VfsEntry {
   name: string;
@@ -62,7 +80,11 @@ export class VirtualFileSystem {
    * Tracks paths that have been modified locally but not yet acknowledged by the backend. 
    */
   private syncQueue: Set<string> = new Set();
-  
+
+  /** Directories whose children are already in the map, so an expand doesn't refetch.
+   *  Populated by the eager walk (for source) and by loadChildren (for heavy dirs). */
+  private loadedDirs: Set<string> = new Set();
+
   /** Interval ID for the background sync loop so it can be cleanly destroyed. */
   private syncIntervalId: number | null = null;
   private readonly SYNC_INTERVAL_MS = 2000;
@@ -94,7 +116,8 @@ export class VirtualFileSystem {
     try {
       // The backend host-mount is the source of truth; take a fresh snapshot.
       this.fileMap.clear();
-      await this.loadDirectory(WORKSPACE_ROOT);
+      this.loadedDirs.clear();
+      await this.loadTree(WORKSPACE_ROOT);
       this.onSyncStatusChange('synced');
       return this.getNestedTree();
     } catch (error) {
@@ -145,35 +168,60 @@ export class VirtualFileSystem {
   }
 
   /**
-   * Recursively lists a directory via GET /api/fs/:id/ls and populates the flat
-   * map. File contents are left null and lazy-loaded on first read() — boot only
-   * needs the tree shape, not every blob.
-   * ponytail: naive per-directory walk (N requests, children fetched in
-   * parallel). Add a recursive /tree endpoint only if this hurts on big repos.
+   * Lists ONE directory level via GET /api/fs/:id/ls into the flat map (contents
+   * left null, lazy-loaded on first read). Marks the dir loaded and returns its
+   * immediate child directory paths so a caller can decide what to recurse into.
    */
-  private async loadDirectory(dirPath: string): Promise<void> {
+  private async listInto(dirPath: string): Promise<string[]> {
     const entries = await apiClient.get<VfsEntry[]>(
       `/fs/${encodeURIComponent(this.sandboxId)}/ls?path=${encodeURIComponent(dirPath)}`,
     );
+    const childDirs: string[] = [];
+    for (const entry of entries) {
+      // Never map (or recurse into) .git — keeps it out of the tree and out of
+      // reach of delete/write, and skips walking a large object store.
+      if (isHiddenPath(entry.path)) continue;
+      this.fileMap.set(entry.path, {
+        path: entry.path,
+        name: entry.name,
+        type: entry.type,
+        content: null,
+        sha: null,
+        isDirty: false,
+        markedForDeletion: false,
+        lastModified: Date.now(),
+        version: 1,
+      });
+      if (entry.type === 'directory') childDirs.push(entry.path);
+    }
+    this.loadedDirs.add(dirPath);
+    return childDirs;
+  }
+
+  /**
+   * Eagerly walks the source tree from `dirPath`, but STOPS at heavy dirs
+   * (node_modules, .venv, …): they're listed as collapsed folders and their
+   * contents load on expand (loadChildren). This keeps boot fast and the whole
+   * source tree available to Quick Open, without the node_modules request storm.
+   */
+  private async loadTree(dirPath: string): Promise<void> {
+    const childDirs = await this.listInto(dirPath);
     await Promise.all(
-      entries.map(async (entry) => {
-        // Never map (or recurse into) .git — keeps it out of the tree and out of
-        // reach of delete/write, and skips walking a large object store.
-        if (isHiddenPath(entry.path)) return;
-        this.fileMap.set(entry.path, {
-          path: entry.path,
-          name: entry.name,
-          type: entry.type,
-          content: null,
-          sha: null,
-          isDirty: false,
-          markedForDeletion: false,
-          lastModified: Date.now(),
-          version: 1,
-        });
-        if (entry.type === 'directory') await this.loadDirectory(entry.path);
-      }),
+      childDirs.filter((d) => !isHeavyDir(d)).map((d) => this.loadTree(d)),
     );
+  }
+
+  /**
+   * Lazily load one directory's immediate children (folder-expand in the explorer).
+   * A no-op if already loaded — expanding a source folder the eager walk already
+   * covered costs nothing; expanding node_modules fetches just its top level.
+   */
+  public async loadChildren(rawPath: string): Promise<FileNode[]> {
+    const path = this.toWorkspacePath(rawPath);
+    if (!this.loadedDirs.has(path)) {
+      await this.listInto(path);
+    }
+    return this.getNestedTree();
   }
 
   // ==========================================

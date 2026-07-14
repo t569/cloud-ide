@@ -118,6 +118,10 @@ export interface EditorEventPayloads {
   /** Fired when a user clicks a file in the Explorer. */
   'FILE_OPEN_REQUESTED': { path: string };
 
+  /** Fired when a user expands a folder — lazy-loads that folder's children (heavy
+   *  dirs like node_modules aren't walked at boot; they load here on demand). */
+  'FOLDER_EXPANDED': { path: string };
+
   /** Fired when the VFS successfully loads the file and it's ready for Monaco. */
   'FILE_LOADED': { path: string; content: string; language: string };
 

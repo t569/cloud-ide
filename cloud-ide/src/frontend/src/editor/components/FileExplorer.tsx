@@ -145,6 +145,11 @@ export const FileExplorer = ({ workspaceName, files, activeFilePath, eventBus }:
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['/src', '/cogs']));
 
   const toggleFolder = (path: string) => {
+    // Expanding pulls this folder's children in (no-op if already loaded). Heavy
+    // dirs (node_modules, …) are not walked at boot, so this is what populates
+    // them. Emit OUTSIDE the state updater — updaters must stay side-effect-free
+    // (StrictMode runs them twice).
+    if (!expandedFolders.has(path)) eventBus.emit('FOLDER_EXPANDED', { path });
     setExpandedFolders(prev => {
       const next = new Set(prev);
       if (next.has(path)) next.delete(path);

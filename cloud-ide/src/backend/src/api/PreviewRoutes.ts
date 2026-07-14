@@ -27,6 +27,7 @@ import { parseCookies } from './middleware/security';
 import { verifyPreviewToken } from './middleware/auth';
 import { config } from '../config/env';
 import { parsePreviewHost, PreviewTarget } from './previewHost';
+import { PREVIEW_COOKIE, previewCookie, isSecureContext } from './previewCookie';
 
 export interface PreviewIngress {
   /** App-wide middleware: handles preview-subdomain hosts, passes everything else through. */
@@ -38,7 +39,6 @@ export interface PreviewIngress {
 // The subdomain-scoped cookie the token is exchanged for. httpOnly (a dev server running
 // untrusted code can't read it) and host-only (set without Domain), so it authorizes only
 // THIS `<id>-<port>.<host>` subdomain and nothing else.
-const PREVIEW_COOKIE = 'cide_preview';
 const TOKEN_PARAM = '__cide_pt';
 
 export function createPreviewIngress(
@@ -61,12 +61,17 @@ export function createPreviewIngress(
 
     const url = new URL(req.url ?? '/', 'http://preview.local');
     const token = url.searchParams.get(TOKEN_PARAM) ?? undefined;
-    if (!verifyPreviewToken(token, target.sandboxId)) return false;
+    if (!token || !verifyPreviewToken(token, target.sandboxId)) return false;
 
     if (res) {
-      // Host-only + httpOnly: scoped to this exact subdomain, unreadable by page JS.
-      // Lax is enough — later requests are same-origin to the subdomain (from the iframe).
-      res.setHeader('Set-Cookie', `${PREVIEW_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax`);
+      // Cross-site because the preview is framed by the IDE; cookie form depends on the
+      // transport (Secure needs HTTPS/localhost) — see previewCookie.
+      const secure = isSecureContext({
+        xForwardedProto: req.headers['x-forwarded-proto'],
+        encrypted: (req.socket as { encrypted?: boolean } | undefined)?.encrypted,
+        host: req.headers.host,
+      });
+      res.setHeader('Set-Cookie', previewCookie(token, secure));
     }
     // Hide the token from the proxied app.
     url.searchParams.delete(TOKEN_PARAM);
@@ -180,7 +185,9 @@ export function createPreviewIngress(
   /**
    * The WebSocket half (HMR). An upgrade bypasses Express, so auth is re-applied by hand.
    * The socket is initiated from the iframe's own (subdomain) origin, so it carries the
-   * `cide_preview` cookie — SameSite=Lax means a cross-site page cannot forge it.
+   * `cide_preview` cookie (SameSite=None; see previewCookie — needed because the iframe is
+   * cross-site to the IDE). Forgery is blocked by the token's HMAC signature, not SameSite:
+   * the cookie is httpOnly and host-only, and its value is a signature bound to this sandbox.
    */
   const upgrade = (req: http.IncomingMessage, socket: Duplex, head: Buffer): void => {
     const target = parsePreviewHost(req.headers.host);

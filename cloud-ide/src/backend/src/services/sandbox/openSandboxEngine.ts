@@ -24,11 +24,29 @@ function nonEmpty(v: string | undefined): string | undefined {
   return t ? t : undefined;
 }
 
+/**
+ * A failure where the request NEVER CONNECTED — undici's `TypeError: fetch
+ * failed` with a refused/unreachable syscall code in the cause. Only these are
+ * safe for exec to retry: commands are not idempotent, and anything that may
+ * have reached execd (an HTTP response, a timeout mid-flight, a reset after
+ * connect) may also have RUN, so it must surface, not repeat.
+ */
+export function isConnectionFailure(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const code = (err as { cause?: { code?: string } }).cause?.code ?? (err as { code?: string }).code;
+  if (code === 'ECONNREFUSED' || code === 'EHOSTUNREACH' || code === 'ENOTFOUND') return true;
+  // `fetch failed` with no cause code: undici's generic never-connected shape.
+  return err.message === 'fetch failed' && !code;
+}
+
 export class OpenSandboxEngine implements RustEngineAPI {
   private readonly apiBaseUrl: string;
   private readonly apiKey?: string;
   private readonly execdAccessToken?: string;
   private readonly readTimeoutMs: number;
+  // Cold-boot grace for execd (see execCommand): total worst-case wait ≈ retries × delay.
+  private readonly execConnectRetries = Number(process.env.EXEC_CONNECT_RETRIES) || 6;
+  private readonly execConnectRetryDelayMs = Number(process.env.EXEC_CONNECT_RETRY_DELAY_MS) || 500;
 
   constructor() {
     const engineType = process.env.ENGINE_TYPE ?? 'opensandbox';
@@ -194,6 +212,28 @@ export class OpenSandboxEngine implements RustEngineAPI {
   }
 
   async execCommand(sandboxId: string, payload: SandboxExecRequest): Promise<SandboxExecResult> {
+    // A sandbox is RUNNING the moment its CONTAINER starts, but execd inside it
+    // takes a beat to bind its port — the first exec after a cold boot got
+    // connection-refused ("fetch failed") and every exec-dependent feature
+    // (tool baseline, display start, drift) failed once, right after boot.
+    // Retry CONNECTION-level failures here, at the one choke point all execs
+    // route through. An HTTP response from execd — any status — is never
+    // retried: the daemon answered, so the failure is the command's, not the
+    // connection's, and commands are not guaranteed idempotent.
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < this.execConnectRetries; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, this.execConnectRetryDelayMs));
+      try {
+        return await this.execOnce(sandboxId, payload);
+      } catch (err) {
+        lastErr = err;
+        if (!isConnectionFailure(err)) throw err;
+      }
+    }
+    throw lastErr;
+  }
+
+  private async execOnce(sandboxId: string, payload: SandboxExecRequest): Promise<SandboxExecResult> {
     const connection = await this.resolveExecConnection(sandboxId);
     const headers: Record<string, string> = {
       Accept: 'text/event-stream',

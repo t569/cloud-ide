@@ -212,6 +212,45 @@ describe('OpenSandboxEngine', () => {
     expect(fetchMock.calls[1].url).toBe('http://127.0.0.1:44772/command');
   });
 
+  it('retries exec when execd is not accepting connections yet (cold boot), then succeeds', async () => {
+    process.env.EXEC_CONNECT_RETRY_DELAY_MS = '1'; // keep the test instant
+    let commandCalls = 0;
+    global.fetch = jest.fn(async (url: string) => {
+      if (/\/endpoints\/44772$/.test(url)) {
+        return { ok: true, status: 200, json: async () => ({ endpoint: '127.0.0.1:44772' }) } as any;
+      }
+      // First two /command attempts: connection refused (execd still starting).
+      if (++commandCalls <= 2) {
+        throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+      }
+      return {
+        ok: true, status: 200,
+        text: async () => '{"type":"stdout","text":"hi"}\n{"type":"exit","exitCode":0}',
+      } as any;
+    }) as any;
+
+    const result = await new OpenSandboxEngine().execCommand('sbx-1', { command: ['echo hi'] });
+    expect(result.exitCode).toBe(0);
+    expect(commandCalls).toBe(3);
+    delete process.env.EXEC_CONNECT_RETRY_DELAY_MS;
+  });
+
+  it('never retries once execd has answered — a 500 surfaces immediately', async () => {
+    let commandCalls = 0;
+    global.fetch = jest.fn(async (url: string) => {
+      if (/\/endpoints\/44772$/.test(url)) {
+        return { ok: true, status: 200, json: async () => ({ endpoint: '127.0.0.1:44772' }) } as any;
+      }
+      commandCalls++;
+      return { ok: false, status: 500, text: async () => 'boom' } as any;
+    }) as any;
+
+    await expect(
+      new OpenSandboxEngine().execCommand('sbx-1', { command: ['echo hi'] }),
+    ).rejects.toThrow(/status 500/);
+    expect(commandCalls).toBe(1); // answered = command may have run = no retry
+  });
+
   it('destroy treats 404 as success', async () => {
     global.fetch = mockFetch([
       { method: 'DELETE', match: /\/v1\/sandboxes\/sbx-2$/, res: { ok: false, status: 404 } },

@@ -370,10 +370,15 @@ scrollback, which is a flat blob, not a tree — see Step 11 / `SessionStore`. T
 plain: last-write-wins outbound, a dirty-preserving patch inbound, no client-side hashing or SHA-sync
 protocol (it would only duplicate git with weaker guarantees).
 
-### ISSUES
-EGRESS POLICY TO BE SOLVED: sandbox to sandbox connection/injection issues
-also opensandbox has some good methods for the server
-also there is a conflict with how npm doctor works and the whole egress logic
+### Egress + tenant isolation — ✅ SOLVED (was the "ISSUES" block)
+Sandbox-to-sandbox injection and unrestricted egress are closed: every sandbox boots with a
+deny-default `NetworkPolicySpec` (allow-list = package registries + GitHub + the env's
+`allowedDomains`), enforced by a per-sandbox `dns+nft` egress sidecar. Cross-tenant raw-IP
+reads verified BLOCKED live (kernel 6.18); on kernels without nf_tables the capability gate
+degrades gracefully (boots un-isolated with a loud warning; `npm run doctor` reports which).
+The doctor's global docker-DNS fix does NOT conflict — the sidecar intercepts port-53 via
+nftables, so the global resolver only serves no-policy containers. Full details, operator
+guide, and the daemon-features roadmap: [`sandbox/network/README.md`](./backend/src/services/sandbox/network/README.md).
 
 ### VFS Conflict Resolution — optimistic concurrency (owed, narrowed)
 * **Status: ⚠️ Partly mitigated.** The **watcher-vs-dirty-edit race is gone**: the 10d `patch` path is

@@ -14,5 +14,7 @@ module.exports = {
   // `npm test -w frontend`. Without this, Jest collects those suites and every
   // one of them fails on `Cannot find module 'vitest'`.
   testPathIgnorePatterns: ['/node_modules/', '/dist/', '<rootDir>/frontend/'],
+  // Env defaults (e.g. skip the real-docker egress kernel probe). See jest.env.js.
+  setupFiles: ['<rootDir>/jest.env.js'],
   verbose: true,
 };

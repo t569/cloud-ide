@@ -51,8 +51,13 @@ describe('SandboxManager.getNetworkPolicy', () => {
 
     const { policy } = await m.getNetworkPolicy('sbx-1');
     expect(policy.defaultAction).toBe('deny');
-    expect(policy.rules.map((r) => r.target)).toContain('github.com');
-    expect(policy.rules.map((r) => r.target)).not.toContain('pypi.org');
+    // Since 2d5ba13 every sandbox gets ALL package registries (installing a new
+    // toolchain at runtime must work), so pypi is expected even with no env.
+    // Deny-default still blocks everything unlisted.
+    const targets = policy.rules.map((r) => r.target);
+    expect(targets).toContain('github.com');
+    expect(targets).toContain('pypi.org');
+    expect(targets).not.toContain('example.com');
   });
 
   it('throws for an unknown sandbox', async () => {

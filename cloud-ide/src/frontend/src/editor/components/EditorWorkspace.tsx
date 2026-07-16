@@ -16,6 +16,7 @@ import { ImageViewer } from './ImageViewer';
 import { LanguagePicker } from './LanguagePicker';
 import { CommandPalette } from './CommandPalette';
 import { IDETerminal } from './IDETerminal';
+import { NetworkPanel } from './NetworkPanel';
 import { ComingSoon } from './ComingSoon';
 import { PreviewPane } from '../../preview/PreviewPane';
 import { VscSearch, VscExtensions, VscSettingsGear } from 'react-icons/vsc';
@@ -234,6 +235,9 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
                   activeFilePath={workspaceState.activeFilePath}
                   eventBus={eventBus}
                 />
+              )}
+              {layout.activeSidebarPanel === 'network' && (
+                <NetworkPanel sandboxId={sandboxId} />
               )}
               {layout.activeSidebarPanel === 'search' && (
                 <ComingSoon

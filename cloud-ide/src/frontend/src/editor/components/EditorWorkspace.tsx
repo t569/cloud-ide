@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspaceSession, FileNode } from '../types/editor';
 import { LocalStorageManager } from '../utils/LocalStoragemanager';
 import { isExternal } from '../core/VFSController';
-import { toast } from '../../notifications';
-import { pauseSandbox } from '../../api/sandbox';
+import { toast, dialog } from '../../notifications';
+import { pauseSandbox, restartSandbox, waitForRunning } from '../../api/sandbox';
 import { navigate } from '../../pages/router';
 
 import { EditorTabs } from './EditorTabs';
@@ -194,6 +194,42 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
     });
   }, [eventBus, flush, sandboxId, workspaceName]);
 
+  // Workspace restart: replace the container to apply boot-time changes (rebuilt
+  // image, new egress allow-list). Files live on the host worktree and survive;
+  // running processes don't — hence the confirm. The restart mints a NEW sandboxId
+  // (recovery contract), so we navigate the editor onto it. One handler; entry
+  // points: the top-bar button and the Allowed Hosts pane.
+  useEffect(() => {
+    return eventBus.on('WORKSPACE_RESTART_REQUESTED', async () => {
+      const ok = await dialog.confirm({
+        title: 'Restart workspace?',
+        message:
+          'The container is replaced to apply environment changes (rebuilt image, allowed hosts). ' +
+          'Your files are kept; running processes and shells stop.',
+        confirmLabel: 'Restart',
+        danger: true,
+      });
+      if (!ok) return;
+
+      try {
+        await flush(); // pending edits must land before the container goes away
+      } catch {
+        toast.error('Could not save your changes — restart cancelled.', { title: 'Workspace' });
+        return;
+      }
+
+      toast.info('Restarting workspace…', { title: 'Workspace' });
+      try {
+        const { sandboxId: newId } = await restartSandbox(sandboxId);
+        await waitForRunning(newId);
+        navigate(`/editor/${encodeURIComponent(newId)}`);
+        toast.success('Workspace restarted — environment changes are live.', { title: 'Workspace' });
+      } catch (e) {
+        toast.error((e as Error).message, { title: 'Restart failed' });
+      }
+    });
+  }, [eventBus, flush, sandboxId]);
+
   // A dev server the user started in the terminal, proxied through the Gateway's
   // ingress so the browser can actually reach it (the container's localhost can't
   // be reached from here). Null = no preview open.
@@ -237,7 +273,7 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
                 />
               )}
               {layout.activeSidebarPanel === 'network' && (
-                <NetworkPanel sandboxId={sandboxId} />
+                <NetworkPanel sandboxId={sandboxId} eventBus={eventBus} />
               )}
               {layout.activeSidebarPanel === 'search' && (
                 <ComingSoon

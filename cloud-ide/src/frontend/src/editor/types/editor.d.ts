@@ -149,6 +149,14 @@ export interface EditorEventPayloads {
    *  Fired by the top-bar Detach button and File → Detach. */
   'DETACH_REQUESTED': {};
 
+  /** Replace the container, keep the worktree — applies boot-time changes (a
+   *  rebuilt image, a new egress allow-list). Kills running processes; the
+   *  handler confirms first. Fired by the top bar and the Allowed Hosts pane. */
+  'WORKSPACE_RESTART_REQUESTED': {};
+
+  /** Kill the ACTIVE terminal tab's shell and spawn a fresh one in its place. */
+  'SHELL_RESTART_REQUESTED': {};
+
   /** Fired by the VFS to update the Traffic Light UI (Sidebar). */
   'SYNC_STATUS_CHANGED': { status: SyncStatus };
 

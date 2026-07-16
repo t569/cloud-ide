@@ -13,7 +13,7 @@
  * and background processes (like build logs) would lose their visual history.
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Icon } from '@iconify/react';
 import { TerminalPanel } from './TerminalPanel';
 import { ITransportStream } from '../types/terminal';
@@ -51,7 +51,11 @@ interface TerminalTabsProps {
   onFileClick: (file: string) => void;
   /** Passthrough callback for the Context HUD: fired when a URL is clicked. */
   onLinkClick: (url: string) => void;
-  
+
+  /** Mirrors the active tab id to the parent (shell-restart needs to know which
+   *  tab is on screen; the state itself stays owned here). */
+  onActiveChange?: (id: string) => void;
+
   theme?: ITheme;
 }
 
@@ -63,8 +67,9 @@ export const TerminalTabs = ({
   initialSessions, 
   onAddTab, 
   onCloseTab, 
-  onFileClick, 
+  onFileClick,
   onLinkClick,
+  onActiveChange,
   theme
 }: TerminalTabsProps) => {
   
@@ -74,6 +79,18 @@ export const TerminalTabs = ({
   const [activeTabId, setActiveTabId] = useState<string>(
     initialSessions.length > 0 ? initialSessions[0].id : ''
   );
+
+  // Adopt the newest tab whenever the active id no longer exists in the session
+  // list (first boot, active tab closed by the parent, shell restarted). Also
+  // mirror the active id out — shell-restart needs to know which tab is on screen.
+  useEffect(() => {
+    if (initialSessions.length && !initialSessions.some((s) => s.id === activeTabId)) {
+      setActiveTabId(initialSessions[initialSessions.length - 1].id);
+    }
+  }, [initialSessions, activeTabId]);
+  useEffect(() => {
+    onActiveChange?.(activeTabId);
+  }, [activeTabId, onActiveChange]);
 
   // ==========================================
   // Action Handlers

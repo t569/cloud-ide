@@ -27,6 +27,8 @@ interface IDETerminalProps {
 export const IDETerminal = ({ sandboxId, editorEventBus, onPreview }: IDETerminalProps) => {
   const [sessions, setSessions] = useState<TerminalSession[]>([]);
   const hasBooted = useRef(false);
+  // Which tab is on screen — mirrored up from TerminalTabs for shell-restart.
+  const activeIdRef = useRef('');
   // Driver PTY capability, resolved once before the first tab boots. Ref (not state)
   // so addTab reads the current value synchronously without re-rendering.
   const ptyCapable = useRef(false);
@@ -69,6 +71,27 @@ export const IDETerminal = ({ sandboxId, editorEventBus, onPreview }: IDETermina
       .catch(() => { /* keep SSE default */ })
       .finally(() => addTab());
   }, []);
+
+  // Restart the ACTIVE tab's shell: ^C any foreground process, ask the shell to
+  // exit (the PtyRegistry's deliberate-kill path — the backend reaps it instead of
+  // keeping it detached), drop the tab, and spawn a replacement. With no tabs open
+  // it just spawns one — still an honest "restart".
+  useEffect(() => {
+    return editorEventBus.on('SHELL_RESTART_REQUESTED', () => {
+      setSessions((prev) => {
+        const target = prev.find((s) => s.id === activeIdRef.current) ?? prev[prev.length - 1];
+        if (!target) return prev;
+        try {
+          target.transport.write('\x03exit\n');
+        } catch { /* transport already dead — closing the tab is enough */ }
+        target.transport.disconnect();
+        return prev.filter((s) => s.id !== target.id);
+      });
+      addTab();
+    });
+    // addTab only touches setSessions + refs, so the mount-time closure stays valid.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editorEventBus]);
 
   // 2. Gracefully kill a terminal connection
   const closeTab = (idToClose: string) => {
@@ -113,12 +136,13 @@ export const IDETerminal = ({ sandboxId, editorEventBus, onPreview }: IDETermina
   };
 
   return (
-    <TerminalTabs 
+    <TerminalTabs
       initialSessions={sessions}
       onAddTab={addTab}
       onCloseTab={closeTab}
       onFileClick={handleContextFileClick}
       onLinkClick={handleLinkClick}
+      onActiveChange={(id) => { activeIdRef.current = id; }}
       theme={toXtermTheme(palette)}
     />
   );

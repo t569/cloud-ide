@@ -6,8 +6,8 @@
 // as "on restart" rather than pretending they're live.
 import React, { useEffect, useState } from 'react';
 import { VscAdd, VscClose } from 'react-icons/vsc';
-import { getSandboxNetwork, listSandboxes, restartSandbox, waitForRunning } from '../../api/sandbox';
-import { navigate } from '../../pages/router';
+import { getSandboxNetwork, listSandboxes } from '../../api/sandbox';
+import { EditorEventBus } from '../core/EditorEventBus';
 import {
   getEnvironment,
   updateEnvironment,
@@ -20,9 +20,10 @@ import { classifyDomains } from './networkDomains';
 
 interface NetworkPanelProps {
   sandboxId: string;
+  eventBus: EditorEventBus;
 }
 
-export const NetworkPanel = ({ sandboxId }: NetworkPanelProps) => {
+export const NetworkPanel = ({ sandboxId, eventBus }: NetworkPanelProps) => {
   const [enforced, setEnforced] = useState<boolean | null>(null);
   const [policy, setPolicy] = useState<NetworkPolicySpec | null>(null);
   const [env, setEnv] = useState<SavedEnvironment | null>(null);
@@ -87,23 +88,9 @@ export const NetworkPanel = ({ sandboxId }: NetworkPanelProps) => {
   const remove = (d: string) => saveDomains(envDomains.filter((x) => x !== d));
 
   // Policy binds at container-create, so pending hosts need a container swap.
-  // The restart mints a NEW sandboxId (same worktree/files) — navigate onto it.
-  const [restarting, setRestarting] = useState(false);
-  const restart = async () => {
-    setRestarting(true);
-    toast.info('Restarting workspace — files are kept, running processes stop.', {
-      title: 'Applying network access',
-    });
-    try {
-      const { sandboxId: newId } = await restartSandbox(sandboxId);
-      await waitForRunning(newId);
-      navigate(`/editor/${encodeURIComponent(newId)}`);
-      toast.success('Workspace restarted — new allowed hosts are live.', { title: 'Network access' });
-    } catch (e) {
-      toast.error((e as Error).message, { title: 'Restart failed' });
-      setRestarting(false);
-    }
-  };
+  // One workspace-restart handler lives in EditorWorkspace (confirm + flush +
+  // navigate-to-new-id); this button is just a second entry point to it.
+  const restart = () => eventBus.emit('WORKSPACE_RESTART_REQUESTED', {});
 
   const row = (d: string, opts: { removable?: boolean; pending?: boolean } = {}) => (
     <div
@@ -173,10 +160,9 @@ export const NetworkPanel = ({ sandboxId }: NetworkPanelProps) => {
         {groups.pending.length > 0 && (
           <button
             onClick={restart}
-            disabled={restarting}
-            className="mx-2 mt-2 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11.5px] text-amber-300 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+            className="mx-2 mt-2 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11.5px] text-amber-300 transition-colors hover:bg-amber-500/20"
           >
-            {restarting ? 'Restarting…' : 'Restart workspace to apply'}
+            Restart workspace to apply
           </button>
         )}
 

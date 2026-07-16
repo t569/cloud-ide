@@ -155,10 +155,26 @@ export const TopNavBar = ({ menus, activeFilePath, workspaceName, eventBus }: To
           </span>
         )}
         <span className="truncate max-w-[20vw]">{workspaceName}</span>
+        {/* The restart pair sits together so their different scopes read side-by-side:
+            shell = just your terminal; workspace = the whole container. */}
+        <button
+          onClick={() => eventBus.emit('SHELL_RESTART_REQUESTED', {})}
+          title="Kill the active terminal's shell and start a fresh one. Other tabs untouched."
+          className="ml-1 px-2.5 h-6 text-[12px] rounded-md border border-ide-border text-ide-muted hover:bg-ide-hover hover:text-ide-text transition-colors shrink-0"
+        >
+          ⟳ Shell
+        </button>
+        <button
+          onClick={() => eventBus.emit('WORKSPACE_RESTART_REQUESTED', {})}
+          title="Replace the container to apply environment changes (rebuilt image, allowed hosts). Files are kept; running processes stop."
+          className="px-2.5 h-6 text-[12px] rounded-md border border-ide-border text-ide-muted hover:bg-ide-hover hover:text-ide-text transition-colors shrink-0"
+        >
+          ⟳ Workspace
+        </button>
         <button
           onClick={() => eventBus.emit('DETACH_REQUESTED', {})}
           title="Save everything, pause this workspace, and return home"
-          className="ml-1 px-2.5 h-6 text-[12px] rounded-md border border-ide-border text-ide-muted hover:bg-ide-hover hover:text-ide-text transition-colors shrink-0"
+          className="px-2.5 h-6 text-[12px] rounded-md border border-ide-border text-ide-muted hover:bg-ide-hover hover:text-ide-text transition-colors shrink-0"
         >
           Detach
         </button>

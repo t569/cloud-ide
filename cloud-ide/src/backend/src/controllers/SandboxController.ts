@@ -404,6 +404,27 @@ export class SandboxController {
     }
   };
 
+  /**
+   * Replace the container, keep the workspace. Applies boot-time changes (egress
+   * allow-list, rebuilt image) to an existing sandbox. Mints a NEW sandboxId —
+   * same contract as a recovery resume; callers must switch to it.
+   */
+  public restartSandbox = async (req: Request, res: Response): Promise<void> => {
+    const sandboxId = this.getStringParam(req.params.sandboxId);
+
+    if (!sandboxId) {
+      res.status(400).json({ error: 'sandboxId is required.' });
+      return;
+    }
+
+    try {
+      const revived = await this.sandboxManager.restart(sandboxId);
+      res.status(200).json({ sandboxId: revived.sandboxId, state: 'RUNNING' });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
   public destroySandbox = async (req: Request, res: Response): Promise<void> => {
       const sandboxId = this.getStringParam(req.params.sandboxId);
 

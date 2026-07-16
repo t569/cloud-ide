@@ -127,6 +127,18 @@ export interface ResumeResponse {
 export const resumeSandbox = (sandboxId: string) =>
   apiClient.post<ResumeResponse>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/resume`, {});
 
+/**
+ * Replace the sandbox's container, keeping its workspace. This is how boot-time
+ * changes (the egress allow-list, a rebuilt image) get applied to a live sandbox.
+ * Running processes die; files survive. Returns a NEW sandboxId — the old one is
+ * gone, and callers must navigate/reconnect to the returned id.
+ */
+export const restartSandbox = (sandboxId: string) =>
+  apiClient.post<{ sandboxId: string; state: 'RUNNING' }>(
+    `/v1/sandboxes/${encodeURIComponent(sandboxId)}/restart`,
+    {},
+  );
+
 export interface SessionSummary {
   sessionId: string;
   userId: string;

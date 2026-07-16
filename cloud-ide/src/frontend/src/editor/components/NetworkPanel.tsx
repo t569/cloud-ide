@@ -6,7 +6,8 @@
 // as "on restart" rather than pretending they're live.
 import React, { useEffect, useState } from 'react';
 import { VscAdd, VscClose } from 'react-icons/vsc';
-import { getSandboxNetwork, listSandboxes } from '../../api/sandbox';
+import { getSandboxNetwork, listSandboxes, restartSandbox, waitForRunning } from '../../api/sandbox';
+import { navigate } from '../../pages/router';
 import {
   getEnvironment,
   updateEnvironment,
@@ -85,6 +86,25 @@ export const NetworkPanel = ({ sandboxId }: NetworkPanelProps) => {
 
   const remove = (d: string) => saveDomains(envDomains.filter((x) => x !== d));
 
+  // Policy binds at container-create, so pending hosts need a container swap.
+  // The restart mints a NEW sandboxId (same worktree/files) — navigate onto it.
+  const [restarting, setRestarting] = useState(false);
+  const restart = async () => {
+    setRestarting(true);
+    toast.info('Restarting workspace — files are kept, running processes stop.', {
+      title: 'Applying network access',
+    });
+    try {
+      const { sandboxId: newId } = await restartSandbox(sandboxId);
+      await waitForRunning(newId);
+      navigate(`/editor/${encodeURIComponent(newId)}`);
+      toast.success('Workspace restarted — new allowed hosts are live.', { title: 'Network access' });
+    } catch (e) {
+      toast.error((e as Error).message, { title: 'Restart failed' });
+      setRestarting(false);
+    }
+  };
+
   const row = (d: string, opts: { removable?: boolean; pending?: boolean } = {}) => (
     <div
       key={d}
@@ -148,6 +168,17 @@ export const NetworkPanel = ({ sandboxId }: NetworkPanelProps) => {
         )}
         {groups.active.map((d) => row(d, { removable: true }))}
         {groups.pending.map((d) => row(d, { removable: true, pending: true }))}
+
+        {/* Pending hosts only bind on a fresh container — offer the swap in one click. */}
+        {groups.pending.length > 0 && (
+          <button
+            onClick={restart}
+            disabled={restarting}
+            className="mx-2 mt-2 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1 text-[11.5px] text-amber-300 transition-colors hover:bg-amber-500/20 disabled:opacity-50"
+          >
+            {restarting ? 'Restarting…' : 'Restart workspace to apply'}
+          </button>
+        )}
 
         {/* Built-ins: registries + GitHub, derived from the env's toolchain. */}
         {groups.builtin.length > 0 && (

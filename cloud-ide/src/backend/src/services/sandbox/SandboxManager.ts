@@ -440,6 +440,17 @@ export class SandboxManager {
     );
   }
 
+  /**
+   * Deliberately replace a sandbox's container, keeping its worktree — how a
+   * boot-time change (a new egress allow-list, a rebuilt image) is applied to an
+   * existing workspace. Running processes die; files don't. Same contract as
+   * recovery: the returned record carries a NEW sandboxId, the old one is gone.
+   */
+  public async restart(sandboxId: string): Promise<SandboxRecord> {
+    const record = await this.getSandboxOrThrow(sandboxId);
+    return this.recover(record, await this.specFor(record));
+  }
+
   /** The spec to re-boot a record's sandbox from. Throws rather than guess an image. */
   private async specFor(record: SandboxRecord): Promise<SandboxSpec> {
     const env = record.environmentId ? await this.envRepo?.get(record.environmentId) : null;

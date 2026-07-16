@@ -49,6 +49,8 @@ export function createSandboxRouter(
   router.post('/:sandboxId/exec', controller.execCommand);
   router.post('/:sandboxId/pause', controller.pauseSandbox);
   router.post('/:sandboxId/resume', controller.resumeSandbox);
+  // Replace the container, keep the worktree — applies boot-time changes (egress).
+  router.post('/:sandboxId/restart', controller.restartSandbox);
   router.delete('/:sandboxId', controller.destroySandbox);
   router.post('/:sandboxId/volumes', controller.attachVolume);
   router.delete('/:sandboxId/volumes/:volumeName', controller.detachVolume);

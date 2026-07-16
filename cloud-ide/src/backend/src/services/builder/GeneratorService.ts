@@ -10,6 +10,7 @@ import {
   SecurityUserInjector,
   BashInjector,
   LspInjector,
+  DisplayInjector,
   DockerfileAssembler,
 } from '@cloud-ide/pipeline';
 
@@ -50,7 +51,9 @@ export class DockerGeneratorService {
     const engine = new MiddlewareEngine()
       .use(new SecurityUserInjector())
       .use(new BashInjector())
-      .use(new LspInjector(config.languageServers));
+      .use(new LspInjector(config.languageServers))
+      // Appends LAST so toggling GUI support never invalidates the layers above.
+      .use(new DisplayInjector(!!config.displaySupport));
 
 
     const finalManifest = engine.execute(baseManifest);

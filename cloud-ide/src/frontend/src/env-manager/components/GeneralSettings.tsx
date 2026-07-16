@@ -14,6 +14,7 @@ interface GeneralSettingsProps {
   environmentId: string | null; // system-assigned; null until first save
   languageServers: string[]; // watched — the picker is controlled, not registered
   allowedDomains: string[];  // watched — same reason as languageServers
+  displaySupport: boolean;   // watched — the checkbox is controlled too
 }
 
 const inputCls =
@@ -26,6 +27,7 @@ export const GeneralSettings = ({
   environmentId,
   languageServers,
   allowedDomains,
+  displaySupport,
 }: GeneralSettingsProps) => {
   return (
     <div className="p-6 rounded-xl bg-gradient-to-b from-[#2c2c2c] to-[#272727] border border-white/[0.06] shadow-lg shadow-black/20">
@@ -93,6 +95,28 @@ export const GeneralSettings = ({
             Sandboxes are deny-default: package registries for your languages and GitHub are
             allowed automatically. Add any other domains your code needs to reach — everything
             else, including other sandboxes, is blocked.
+          </p>
+        </div>
+
+        <div className="space-y-1.5 col-span-2">
+          <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider font-sans">
+            GUI Display
+          </label>
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={displaySupport}
+              onChange={(e) => setValue('displaySupport', e.target.checked, { shouldDirty: true })}
+              className="h-4 w-4 accent-[#3574d4]"
+            />
+            <span className="text-sm text-gray-200">
+              Enable interactive display (raylib, pygame, any GUI app)
+            </span>
+          </label>
+          <p className="text-[11px] text-gray-600">
+            Bakes a virtual display (Xvnc + software OpenGL, ~100MB) into the image so the
+            editor&apos;s Display pane can render windows your code opens. Needs a rebuild,
+            then a workspace restart.
           </p>
         </div>
       </div>

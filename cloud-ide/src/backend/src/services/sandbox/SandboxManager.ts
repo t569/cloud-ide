@@ -62,8 +62,12 @@ export function specForEnvironment(env: EnvironmentRecord): SandboxSpec {
     // The env ID — this is the key warm-sandbox reuse matches on, and it must
     // survive a rebuild that changes the tag.
     environmentId: env.id,
-    // Applied at container boot, so exec/terminal inherit them.
-    envVars: env.builderConfig?.env,
+    // Applied at container boot, so exec/terminal inherit them. Display-enabled
+    // envs get DISPLAY=:99 so any shell/process can open a window on the Xvnc
+    // the Display pane starts (DisplayGateway.DISPLAY_NUM — keep in sync).
+    envVars: env.builderConfig?.displaySupport
+      ? { ...env.builderConfig?.env, DISPLAY: ':99' }
+      : env.builderConfig?.env,
     // Deny-default egress derived from the env's toolchain: registries it needs are
     // allowed, everything else (incl. raw-IP reach to other sandboxes) is denied. This
     // is what isolates tenants. Built here so cold boot and recovery share one policy.

@@ -53,6 +53,11 @@ export interface EnvironmentConfig {
   // the escape hatch for the deny-default egress policy: an app that calls
   // 'api.stripe.com' declares it here, or it is blocked. Wildcards allowed ('*.acme.io').
   allowedDomains?: string[];
+
+  // Opt-in GUI display: bakes Xvnc + software GL into the image (DisplayInjector,
+  // ~100MB) and boots sandboxes with DISPLAY=:99, so GUI apps (raylib, pygame)
+  // render in the editor's Display pane. Off by default — slim envs stay slim.
+  displaySupport?: boolean;
 }
 
 export const baseAliases: Record<string, string[]> = {

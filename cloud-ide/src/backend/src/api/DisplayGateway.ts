@@ -17,6 +17,7 @@
 // See docs/plans/display-streaming.md.
 import type http from 'node:http';
 import net from 'node:net';
+import { execFile } from 'node:child_process';
 import { WebSocketServer, WebSocket } from 'ws';
 import { SandboxManager } from '../services/sandbox/SandboxManager';
 import { ISandboxRepository } from '../database/interfaces';
@@ -87,13 +88,37 @@ export function bridge(ws: WebSocket, tcp: net.Socket): void {
   tcp.on('error', closeBoth);
 }
 
+/**
+ * The container's bridge-network IP, for a RAW TCP connection to Xvnc's RFB port.
+ *
+ * Why not resolveEndpoint(): the daemon's endpoint API returns an HTTP proxy path
+ * (`127.0.0.1:<mapped>/proxy/<port>`) — fine for dev servers, useless for RFB,
+ * which is not HTTP. With egress enforced the sandbox lives in the SIDECAR's
+ * netns, so the sidecar owns the IP; without egress the sandbox container does.
+ * ponytail: docker-specific (docker inspect) — add a driver seam for raw TCP
+ * endpoints when a second provider needs the Display pane.
+ */
+function containerIp(sandboxId: string): Promise<string> {
+  const inspect = (name: string) =>
+    new Promise<string>((resolve, reject) =>
+      execFile(
+        'docker',
+        ['inspect', '-f', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', name],
+        (err, stdout) => (err ? reject(err) : resolve(stdout.trim())),
+      ),
+    );
+  return inspect(`sandbox-egress-${sandboxId}`)
+    .catch(() => '')
+    .then((ip) => ip || inspect(`sandbox-${sandboxId}`));
+}
+
 interface DisplayGatewayDeps {
   sandboxManager: SandboxManager;
   sandboxRepo: ISandboxRepository;
 }
 
 export function attachDisplayGateway(server: http.Server, deps: DisplayGatewayDeps): void {
-  const { sandboxManager, sandboxRepo } = deps;
+  const { sandboxRepo } = deps;
   const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (req, socket, head) => {
@@ -116,11 +141,8 @@ export function attachDisplayGateway(server: http.Server, deps: DisplayGatewayDe
           socket.destroy();
           return;
         }
-        // resolveEndpoint returns an HTTP-shaped base URL; RFB is raw TCP, so we
-        // only want the host+port out of it.
-        const endpoint = await sandboxManager.resolveEndpoint(sandboxId, RFB_PORT);
-        const { hostname, port } = new URL(endpoint.url);
-        const tcp = net.connect(Number(port) || RFB_PORT, hostname);
+        const ip = await containerIp(sandboxId);
+        const tcp = net.connect(RFB_PORT, ip);
         tcp.once('error', () => socket.destroy()); // Xvnc not up — the pane retries via POST /display
         tcp.once('connect', () => {
           wss.handleUpgrade(req, socket, head, (ws) => bridge(ws, tcp));

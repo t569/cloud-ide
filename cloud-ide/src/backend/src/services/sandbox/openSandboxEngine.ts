@@ -33,8 +33,14 @@ function nonEmpty(v: string | undefined): string | undefined {
  */
 export function isConnectionFailure(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  const code = (err as { cause?: { code?: string } }).cause?.code ?? (err as { code?: string }).code;
+  const cause = (err as { cause?: { code?: string; socket?: { bytesRead?: number } } }).cause;
+  const code = cause?.code ?? (err as { code?: string }).code;
   if (code === 'ECONNREFUSED' || code === 'EHOSTUNREACH' || code === 'ENOTFOUND') return true;
+  // Cold-boot shape #2: the daemon's port-forward ACCEPTS (the mapping exists)
+  // but execd behind it isn't serving yet, so the socket closes with ZERO bytes
+  // read (UND_ERR_SOCKET "other side closed"). No response byte ever arrived, so
+  // nothing was executed — safe to retry. A close after ANY bytes is not.
+  if (code === 'UND_ERR_SOCKET' && cause?.socket?.bytesRead === 0) return true;
   // `fetch failed` with no cause code: undici's generic never-connected shape.
   return err.message === 'fetch failed' && !code;
 }

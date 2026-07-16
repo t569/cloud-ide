@@ -202,9 +202,16 @@ export class SandboxManager {
     if (finalSpec.envVars?.DISPLAY) {
       void startDisplay((command) =>
         this.execBuffered(record.sandboxId, { command }),
-      ).then((r) => {
-        if (!r.ok) console.warn(`[SandboxManager] Boot-time display start failed for ${record.sandboxId}: ${r.detail}`);
-      });
+      )
+        .then((r) => {
+          if (!r.ok) console.warn(`[SandboxManager] Boot-time display start failed for ${record.sandboxId}: ${r.detail}`);
+        })
+        // A background chain MUST swallow throws: an unhandled rejection here took
+        // the whole gateway down mid-provision. The pane's POST /display remains
+        // the retry path, so a failed boot-time start costs nothing but a warn.
+        .catch((err) =>
+          console.warn(`[SandboxManager] Boot-time display start errored for ${record.sandboxId}:`, err),
+        );
     }
 
     return record;

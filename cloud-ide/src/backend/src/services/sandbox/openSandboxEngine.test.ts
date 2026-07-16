@@ -235,6 +235,49 @@ describe('OpenSandboxEngine', () => {
     delete process.env.EXEC_CONNECT_RETRY_DELAY_MS;
   });
 
+  it('retries the accepted-then-closed-with-zero-bytes cold-boot shape (UND_ERR_SOCKET)', async () => {
+    process.env.EXEC_CONNECT_RETRY_DELAY_MS = '1';
+    let commandCalls = 0;
+    global.fetch = jest.fn(async (url: string) => {
+      if (/\/endpoints\/44772$/.test(url)) {
+        return { ok: true, status: 200, json: async () => ({ endpoint: '127.0.0.1:44772' }) } as any;
+      }
+      if (++commandCalls === 1) {
+        // The daemon's port-forward accepts, execd behind it isn't serving yet.
+        throw Object.assign(new TypeError('fetch failed'), {
+          cause: { code: 'UND_ERR_SOCKET', socket: { bytesRead: 0 } },
+        });
+      }
+      return {
+        ok: true, status: 200,
+        text: async () => '{"type":"exit","exitCode":0}',
+      } as any;
+    }) as any;
+
+    const result = await new OpenSandboxEngine().execCommand('sbx-1', { command: ['true'] });
+    expect(result.exitCode).toBe(0);
+    expect(commandCalls).toBe(2);
+    delete process.env.EXEC_CONNECT_RETRY_DELAY_MS;
+  });
+
+  it('does NOT retry a socket close after bytes were received — the command may have run', async () => {
+    let commandCalls = 0;
+    global.fetch = jest.fn(async (url: string) => {
+      if (/\/endpoints\/44772$/.test(url)) {
+        return { ok: true, status: 200, json: async () => ({ endpoint: '127.0.0.1:44772' }) } as any;
+      }
+      commandCalls++;
+      throw Object.assign(new TypeError('fetch failed'), {
+        cause: { code: 'UND_ERR_SOCKET', socket: { bytesRead: 42 } },
+      });
+    }) as any;
+
+    await expect(
+      new OpenSandboxEngine().execCommand('sbx-1', { command: ['true'] }),
+    ).rejects.toThrow('fetch failed');
+    expect(commandCalls).toBe(1);
+  });
+
   it('never retries once execd has answered — a 500 surfaces immediately', async () => {
     let commandCalls = 0;
     global.fetch = jest.fn(async (url: string) => {

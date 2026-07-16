@@ -266,6 +266,13 @@ export const MonacoEditorWrapper = ({ activeFile, globalSettings, eventBus, regi
   const handleEditorChange: OnChange = (value, event) => {
     if (loadingRef.current) return; // seeding a model from the VFS, not a user edit
     if (activeFile) {
+      // Keep the FILE_LOADED buffer current with the user's edits. seed() re-runs on
+      // every tab activation and force-syncs the model to this buffer — when it held
+      // only the load-time snapshot, switching away and back REVERTED the buffer to
+      // that snapshot, and the next autosave wrote the reverted text to disk (real
+      // data loss: a saved .env came back empty and was then truncated on disk).
+      const buffered = loadedRef.current.get(activeFile.path);
+      if (buffered) buffered.content = value || '';
       // Monaco's deltas are 1-based and sorted end-to-start (safe to apply in
       // order); convert to 0-based LSP ranges for incremental language-server sync.
       const changes = event.changes.map((c) => ({

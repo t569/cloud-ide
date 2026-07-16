@@ -25,10 +25,8 @@ import { userOwnsSandbox } from './middleware/security';
 import { readUserId } from './middleware/auth';
 import { config } from '../config/env';
 
-/** X display number and the RFB port Xvnc is told to bind. Fixed, not per-sandbox —
- *  each sandbox is its own network namespace, so there is no collision to manage. */
-export const DISPLAY_NUM = 99;
-export const RFB_PORT = 5901;
+export { RFB_PORT, DISPLAY_NUM } from '../services/sandbox/display';
+import { RFB_PORT as RFB, startDisplay as startDisplayScript, DisplayStartResult } from '../services/sandbox/display';
 
 const STREAM_PATH = /^\/api\/v1\/sandboxes\/([a-zA-Z0-9_-]+)\/display\/stream$/;
 
@@ -36,39 +34,14 @@ export function isDisplayUpgrade(pathname: string): boolean {
   return STREAM_PATH.test(pathname);
 }
 
-/**
- * Start the sandbox's virtual display if it isn't already running. Idempotent —
- * the pane calls this on every open/reconnect. `setsid` + nohup detach Xvnc from
- * the exec session so it survives the exec returning.
- *
- * Distinguishes "not installed" (the env needs the GUI toggle + rebuild) from
- * "failed to start" so the UI can offer the right fix.
- */
-export async function startDisplay(
+/** Start the sandbox's virtual display (idempotent). Kept as the controller's
+ *  entry point; the script itself lives in services/sandbox/display.ts so
+ *  provision() can auto-start the display at boot without an import cycle. */
+export function startDisplay(
   sandboxManager: SandboxManager,
   sandboxId: string,
-): Promise<{ ok: true } | { ok: false; code: 'NO_DISPLAY_STACK' | 'START_FAILED'; detail: string }> {
-  const script =
-    `command -v Xvnc >/dev/null 2>&1 || { echo NO_XVNC; exit 3; }; ` +
-    `pgrep -x Xvnc >/dev/null 2>&1 || nohup setsid Xvnc :${DISPLAY_NUM} -rfbport ${RFB_PORT} ` +
-    `-SecurityTypes None -AlwaysShared -geometry 1280x720 -depth 24 >/tmp/xvnc.log 2>&1 & ` +
-    // Poll until the RFB port answers (up to ~5s) so the pane's first connect
-    // doesn't race the X server's startup.
-    `for i in $(seq 1 25); do (exec 3<>/dev/tcp/127.0.0.1/${RFB_PORT}) 2>/dev/null && { echo OK; exit 0; }; sleep 0.2; done; ` +
-    `echo START_TIMEOUT; tail -5 /tmp/xvnc.log 2>/dev/null; exit 4`;
-
-  // ONE element: the engine joins argv with spaces for execd (which takes a single
-  // shell string) — a ['bash','-c',script] shape would lose the script's quoting.
-  const res = await sandboxManager.execBuffered(sandboxId, { command: [script] });
-  if (res.exitCode === 0) return { ok: true };
-  if (res.stdout.includes('NO_XVNC')) {
-    return {
-      ok: false,
-      code: 'NO_DISPLAY_STACK',
-      detail: 'This environment has no display stack. Enable "GUI display" on the environment and rebuild.',
-    };
-  }
-  return { ok: false, code: 'START_FAILED', detail: res.stdout + res.stderr };
+): Promise<DisplayStartResult> {
+  return startDisplayScript((command) => sandboxManager.execBuffered(sandboxId, { command }));
 }
 
 /**
@@ -144,7 +117,7 @@ export function attachDisplayGateway(server: http.Server, deps: DisplayGatewayDe
           return;
         }
         const ip = await containerIp(sandboxId);
-        const tcp = net.connect(RFB_PORT, ip);
+        const tcp = net.connect(RFB, ip);
         tcp.once('error', () => socket.destroy()); // Xvnc not up — the pane retries via POST /display
         tcp.once('connect', () => {
           wss.handleUpgrade(req, socket, head, (ws) => bridge(ws, tcp));

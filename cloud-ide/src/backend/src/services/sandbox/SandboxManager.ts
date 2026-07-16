@@ -14,6 +14,7 @@ import { IEnvironmentRepository } from '../../database/interfaces/IEnvironmentRe
 import { EnvironmentRecord } from '../../database/models';
 import { JsonActivityRepository } from '../../database/json/JsonActivityRepository';
 import { ExecConnectionInfo, SandboxEndpoint } from '../../types/engine';
+import { startDisplay } from './display';
 import { RustEngineClient } from './rustClient';
 import { ISandboxDriver, DriverCapabilities, ISandboxSession, PtyOptions } from './drivers/ISandboxDriver';
 import { captureSnapshot, ToolSnapshot } from '../promotion/toolSnapshot';
@@ -191,6 +192,20 @@ export class SandboxManager {
     // not get slower for a feature most sandboxes never use, and a missing baseline
     // degrades to "drift not computable", never to a broken sandbox.
     void this.captureToolBaseline(record.sandboxId);
+
+    // Display-enabled env (DISPLAY in the boot envVars is the marker): start Xvnc
+    // NOW, so "run the app, then open the pane" works in either order — without
+    // this, a GUI app launched before the pane's first open died on "Failed to
+    // open display :99". Fire-and-forget like the baseline: the exec layer's
+    // cold-boot retry absorbs execd's startup, and a failure only means the pane's
+    // own idempotent start (POST /display) does the job later.
+    if (finalSpec.envVars?.DISPLAY) {
+      void startDisplay((command) =>
+        this.execBuffered(record.sandboxId, { command }),
+      ).then((r) => {
+        if (!r.ok) console.warn(`[SandboxManager] Boot-time display start failed for ${record.sandboxId}: ${r.detail}`);
+      });
+    }
 
     return record;
   }

@@ -68,6 +68,8 @@ export function specForEnvironment(env: EnvironmentRecord): SandboxSpec {
     envVars: env.builderConfig?.displaySupport
       ? { ...env.builderConfig?.env, DISPLAY: ':99' }
       : env.builderConfig?.env,
+    // Per-env caps; unset falls to the engine's fleet default (2cpu/2048MB).
+    resourceLimits: env.builderConfig?.resources,
     // Deny-default egress derived from the env's toolchain: registries it needs are
     // allowed, everything else (incl. raw-IP reach to other sandboxes) is denied. This
     // is what isolates tenants. Built here so cold boot and recovery share one policy.

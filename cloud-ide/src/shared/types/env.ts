@@ -58,6 +58,11 @@ export interface EnvironmentConfig {
   // ~100MB) and boots sandboxes with DISPLAY=:99, so GUI apps (raylib, pygame)
   // render in the editor's Display pane. Off by default — slim envs stay slim.
   displaySupport?: boolean;
+
+  // Per-env sandbox resource caps. Unset ⇒ the fleet default (2 cpu / 2048MB,
+  // tunable via SANDBOX_DEFAULT_CPU / SANDBOX_DEFAULT_MEMORY_MB). Config-only
+  // for now — no UI until someone actually needs per-env tuning.
+  resources?: { cpuCount?: number; memoryMb?: number };
 }
 
 export const baseAliases: Record<string, string[]> = {

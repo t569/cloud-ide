@@ -80,8 +80,14 @@ export class OpenSandboxEngine implements RustEngineAPI {
     // `cpu` and `memory`. Any other key is accepted by pydantic, then silently dropped
     // by the Docker runtime — which is how this booted uncapped for so long. Note
     // `memory` without a unit means BYTES, so the Mi suffix is load-bearing.
-    const cpu = spec.resourceLimits?.cpuCount ?? 1;
-    const memoryMb = Math.round(spec.resourceLimits?.memoryMb ?? 512);
+    // Default caps must fit a real dev workload: 512MB OOM-killed cc1 the first
+    // time anyone compiled raylib via cgo (`gcc: fatal error: Killed`). 2GB/2cpu
+    // is the floor for "a compiler runs here"; per-env `resources` overrides, and
+    // operators tune the fleet default via env vars.
+    const cpu = spec.resourceLimits?.cpuCount
+      ?? (Number(process.env.SANDBOX_DEFAULT_CPU) || 2);
+    const memoryMb = Math.round(spec.resourceLimits?.memoryMb
+      ?? (Number(process.env.SANDBOX_DEFAULT_MEMORY_MB) || 2048));
     const payload: Record<string, unknown> = {
       // ponytail: no `pullPolicy` and no top-level `exposedPorts` — neither is a field
       // on CreateSandboxRequest. Ports are reached via resolveEndpoint(), not declared.

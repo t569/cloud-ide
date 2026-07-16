@@ -19,6 +19,7 @@ import { IDETerminal } from './IDETerminal';
 import { NetworkPanel } from './NetworkPanel';
 import { ComingSoon } from './ComingSoon';
 import { PreviewPane } from '../../preview/PreviewPane';
+import { DisplayPane } from '../../preview/DisplayPane';
 import { VscSearch, VscExtensions, VscSettingsGear } from 'react-icons/vsc';
 
 import { DesignSystemProvider, useDesignSystem } from '../context/DesignSystemContext';
@@ -235,6 +236,23 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
   // be reached from here). Null = no preview open.
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
+  // The interactive Display pane (virtual X screen). Shares the right-hand split
+  // with the preview — one side pane at a time in v1, so opening either closes
+  // the other.
+  const [displayOpen, setDisplayOpen] = useState(false);
+  useEffect(() => {
+    return eventBus.on('DISPLAY_TOGGLE_REQUESTED', () => {
+      setDisplayOpen((open) => {
+        if (!open) setPreviewUrl(null);
+        return !open;
+      });
+    });
+  }, [eventBus]);
+  const openPreview = (url: string) => {
+    setDisplayOpen(false);
+    setPreviewUrl(url);
+  };
+
   return (
     <div className="h-screen w-screen flex flex-col bg-ide-bg text-ide-text font-sans overflow-hidden">
       {/* Quick-open overlay (Ctrl+P). Bus-driven; renders nothing until opened. */}
@@ -340,10 +358,16 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
                 )}
               </div>
 
-              {previewUrl && (
+              {displayOpen ? (
                 <div className="w-1/2 min-w-0 shrink-0">
-                  <PreviewPane url={previewUrl} onClose={() => setPreviewUrl(null)} />
+                  <DisplayPane sandboxId={sandboxId} onClose={() => setDisplayOpen(false)} />
                 </div>
+              ) : (
+                previewUrl && (
+                  <div className="w-1/2 min-w-0 shrink-0">
+                    <PreviewPane url={previewUrl} onClose={() => setPreviewUrl(null)} />
+                  </div>
+                )
               )}
             </div>
           </div>
@@ -373,7 +397,7 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
                 <IDETerminal
                   sandboxId={sandboxId}
                   editorEventBus={eventBus}
-                  onPreview={setPreviewUrl}
+                  onPreview={openPreview}
                 />
               </div>
             </>

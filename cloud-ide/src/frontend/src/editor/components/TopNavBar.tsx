@@ -155,6 +155,13 @@ export const TopNavBar = ({ menus, activeFilePath, workspaceName, eventBus }: To
           </span>
         )}
         <span className="truncate max-w-[20vw]">{workspaceName}</span>
+        <button
+          onClick={() => eventBus.emit('DISPLAY_TOGGLE_REQUESTED', {})}
+          title="Show the sandbox's virtual display — GUI apps (games, plots) render here"
+          className="ml-1 px-2.5 h-6 text-[12px] rounded-md border border-ide-border text-ide-muted hover:bg-ide-hover hover:text-ide-text transition-colors shrink-0"
+        >
+          Display
+        </button>
         {/* The restart pair sits together so their different scopes read side-by-side:
             shell = just your terminal; workspace = the whole container. */}
         <button

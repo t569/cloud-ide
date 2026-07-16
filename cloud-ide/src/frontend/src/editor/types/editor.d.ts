@@ -157,6 +157,9 @@ export interface EditorEventPayloads {
   /** Kill the ACTIVE terminal tab's shell and spawn a fresh one in its place. */
   'SHELL_RESTART_REQUESTED': {};
 
+  /** Toggle the interactive Display pane (the sandbox's virtual X screen). */
+  'DISPLAY_TOGGLE_REQUESTED': {};
+
   /** Fired by the VFS to update the Traffic Light UI (Sidebar). */
   'SYNC_STATUS_CHANGED': { status: SyncStatus };
 

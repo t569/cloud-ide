@@ -139,6 +139,18 @@ export const restartSandbox = (sandboxId: string) =>
     {},
   );
 
+/**
+ * Start the sandbox's virtual display (Xvnc) if it isn't running — idempotent;
+ * the Display pane calls this on every open/reconnect. Rejects with a 409
+ * ApiError carrying data.code === 'NO_DISPLAY_STACK' when the env image lacks
+ * the GUI packages (enable "GUI display" on the env + rebuild + restart).
+ */
+export const startDisplay = (sandboxId: string) =>
+  apiClient.post<{ running: true }>(
+    `/v1/sandboxes/${encodeURIComponent(sandboxId)}/display`,
+    {},
+  );
+
 export interface SessionSummary {
   sessionId: string;
   userId: string;

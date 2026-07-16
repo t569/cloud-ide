@@ -57,7 +57,9 @@ export async function startDisplay(
     `for i in $(seq 1 25); do (exec 3<>/dev/tcp/127.0.0.1/${RFB_PORT}) 2>/dev/null && { echo OK; exit 0; }; sleep 0.2; done; ` +
     `echo START_TIMEOUT; tail -5 /tmp/xvnc.log 2>/dev/null; exit 4`;
 
-  const res = await sandboxManager.execBuffered(sandboxId, { command: ['bash', '-c', script] });
+  // ONE element: the engine joins argv with spaces for execd (which takes a single
+  // shell string) — a ['bash','-c',script] shape would lose the script's quoting.
+  const res = await sandboxManager.execBuffered(sandboxId, { command: [script] });
   if (res.exitCode === 0) return { ok: true };
   if (res.stdout.includes('NO_XVNC')) {
     return {

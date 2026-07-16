@@ -15,6 +15,7 @@ import { EnvironmentRecord } from '../../database/models';
 import { JsonActivityRepository } from '../../database/json/JsonActivityRepository';
 import { ExecConnectionInfo, SandboxEndpoint } from '../../types/engine';
 import { startDisplay } from './display';
+import { cacheVolumeFor, CACHE_ENV } from './cacheVolumes';
 import { RustEngineClient } from './rustClient';
 import { ISandboxDriver, DriverCapabilities, ISandboxSession, PtyOptions } from './drivers/ISandboxDriver';
 import { captureSnapshot, ToolSnapshot } from '../promotion/toolSnapshot';
@@ -157,8 +158,17 @@ export class SandboxManager {
     //    can't run the nftables sidecar would 500 every boot, so there we degrade to no
     //    policy (no isolation) with a loud one-time warning rather than break provisioning.
     const enforce = await egressEnforceable();
+    const normalized = this.normalizeUserVolumes(mutatedSpec);
+    // Persistent per-user package caches (cacheVolumes.ts): one host-backed mount
+    // plus the env vars pointing every ecosystem's cache into it, so a container
+    // swap stops re-downloading the world. Appended AFTER user-volume
+    // normalization — /cide-cache is a system path, not a user mount — and the
+    // env's own envVars win over the cache defaults.
+    const cacheVolume = await cacheVolumeFor(ownerId);
     const finalSpec: SandboxSpec = {
-      ...this.normalizeUserVolumes(mutatedSpec),
+      ...normalized,
+      volumes: [...(normalized.volumes ?? []), cacheVolume],
+      envVars: { ...CACHE_ENV, ...normalized.envVars },
       networkPolicy: enforce ? (mutatedSpec.networkPolicy ?? defaultNetworkPolicy()) : undefined,
     };
 

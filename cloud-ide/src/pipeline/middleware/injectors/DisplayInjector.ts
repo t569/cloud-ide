@@ -3,10 +3,11 @@ import { PipelineInjector } from '../types';
 import { PipelineManifest } from '../../types/stage';
 
 /**
- * Opt-in GUI display stack (display-streaming plan, slice 3): Xvnc (an X server
- * and VNC server in one process), software OpenGL (llvmpipe — raylib/GLFW get a
- * GL context with no GPU), and keymaps. ~100MB, which is why it is a per-env
- * toggle and not a BashInjector-style guarantee.
+ * Opt-in GUI display stack (display-streaming plan, slices 3 + stage-2 audio):
+ * Xvnc (an X server and VNC server in one process), software OpenGL (llvmpipe —
+ * raylib/GLFW get a GL context with no GPU), keymaps, and pulseaudio (the audio
+ * tap the Display pane's speaker toggle streams). ~100MB, which is why it is a
+ * per-env toggle and not a BashInjector-style guarantee.
  *
  * Appended to the END of the runtime stage: toggling display support only adds
  * or drops the LAST layer, so the user's apt/pip/npm layers above stay cached.
@@ -31,8 +32,8 @@ export class DisplayInjector implements PipelineInjector {
       type: 'shell',
       command: [
         'command -v Xvnc >/dev/null 2>&1',
-        '(apt-get update && apt-get install -y --no-install-recommends tigervnc-standalone-server libgl1-mesa-dri x11-xkb-utils && rm -rf /var/lib/apt/lists/*)',
-        'apk add --no-cache tigervnc mesa-dri-gallium setxkbmap',
+        '(apt-get update && apt-get install -y --no-install-recommends tigervnc-standalone-server libgl1-mesa-dri x11-xkb-utils pulseaudio && rm -rf /var/lib/apt/lists/*)',
+        'apk add --no-cache tigervnc mesa-dri-gallium setxkbmap pulseaudio',
         '{ echo "GUI display support needs a Debian/Ubuntu or Alpine base image"; exit 1; }',
       ].join(' || '),
       isGlobal: true,

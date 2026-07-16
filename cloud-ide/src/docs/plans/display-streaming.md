@@ -1,4 +1,4 @@
-# Display Streaming — plan
+  # Display Streaming — plan
 
 Status: approved (decisions taken 2026-07-16). Branch: `feat/display`.
 Related: [network-egress-layer.md](./network-egress-layer.md), [editor-detach.md](./editor-detach.md).
@@ -96,3 +96,90 @@ dev servers already have there. Optional hardening later: per-boot random VNC pa
 - Unit: WS↔TCP bridge framing; generator injects the apt step + DISPLAY only when enabled;
   restart/shell bus events wire to the right handlers.
 - E2E (slice 5) is the real gate.
+
+---
+
+# Stage 2 — rich media (audio), and the multi-transport seam
+
+Status: approved (2026-07-16). Video + input already ship (Stage 1 RFB pane). This stage
+adds **audio** and reframes the pane as *N independent, ownership-gated transports keyed by
+sandbox* — so a second window, a gamepad, or a clipboard channel is a plug-in, not a rewrite.
+
+## What already exists (do NOT rebuild)
+
+| Capability | Transport | Status |
+|---|---|---|
+| Video (framebuffer) | RFB over WS `/display/stream` → Xvnc :5901 | **shipped** |
+| Mouse + keyboard | RFB (noVNC sends input back on the same socket) | **shipped** |
+| Audio | — | this stage |
+
+## Decision — audio transport
+
+**Decoupled raw PCM**, chosen over Opus-now and full-WebRTC. The existing `bridge(ws, tcp)`
+byte-pipe is transport-agnostic: audio is the SAME primitive pointed at a PulseAudio TCP tap
+instead of RFB. One new small part on each side, opt-in, **zero new infra** (no signaling,
+no STUN/TURN, no GStreamer).
+
+```
+┌ sandbox ─────────────────────────┐     ┌ gateway ─────────────┐     ┌ browser ──────────┐
+│ pulseaudio -D (null-sink default) │ TCP │ WS /display/audio    │ WS  │ speaker toggle     │
+│ app → cide sink → cide.monitor    │◄───►│  bridge() ↔ :4713    │◄───►│ AudioWorklet       │
+│ module-simple-protocol-tcp :4713  │4713 │ (same pipe as RFB)   │ PCM │ int16→float, ring  │
+│   record=true s16le 44100 2ch     │     │  ownership+Origin gated     │  buffer for jitter │
+└───────────────────────────────────┘     └──────────────────────┘     └────────────────────┘
+```
+
+- **Why null-sink + monitor:** headless containers have no audio device. A `module-null-sink`
+  named `cide` set as the default sink gives every app somewhere to play; its `.monitor` source
+  is what we tap. Apps need no config — they hit the default sink.
+- **Raw PCM, not Opus:** ~1.4 Mbps s16le/44.1k/stereo. On localhost/LAN (where the whole stack
+  lives today) that is nothing, and it skips an encoder process + a browser decoder entirely.
+  `ponytail: raw PCM — add Opus encode when a WAN/remote client makes 1.4Mbps hurt.`
+- **AudioWorklet, not ScriptProcessorNode:** playback on the audio render thread (glitch-free,
+  low latency); a small ring buffer absorbs WS jitter. int16-interleaved→float-planar conversion
+  lives in the worklet, off the main thread.
+
+## Tradeoffs (stated, not hidden)
+
+- **A/V sync:** video (RFB) and audio (PCM) are independent transports with independent latency,
+  so heavy scenes can drift a few frames from their sound. Fine for dev preview (hear your game's
+  SFX, see it play). If broadcast-grade sync ever matters → Stage 3 muxes A/V in one WebRTC pipe.
+- **Bandwidth:** raw PCM is WAN-unfriendly; see the Opus upgrade note above.
+- **PulseAudio in a container:** needs `XDG_RUNTIME_DIR` (or `--disable-shm`); the exact daemon
+  flags are real-world tuning the E2E gate validates, not something a minimal model sees.
+
+## The seam (what makes it modular)
+
+Each capability is ONE transport: a WS path + a container-side port + a browser-side consumer,
+all sharing the SAME upgrade guard (Origin + cookie + `userOwnsSandbox`) and the SAME `bridge()`
+pipe. To add a capability you add a `(path → port)` row and its consumer — nothing else moves.
+
+| Capability | WS path | Container port | Consumer |
+|---|---|---|---|
+| Video+input | `/display/stream` | 5901 (RFB) | noVNC |
+| Audio | `/display/audio` | 4713 (PCM tap) | AudioWorklet |
+| *Second window* (future) | `/display/stream?win=N` | 590N | noVNC |
+| *Gamepad* (future) | `/display/gamepad` | uinput shim | Web Gamepad API |
+
+`ponytail: single window in v1 — the ?win=N / port-per-display generalisation lands when a
+second window is actually asked for; the routing table above is the only thing that grows.`
+
+## Slices (audio)
+
+1. **Container stack.** `DisplayInjector` adds `pulseaudio`. `display.ts` gains `AUDIO_PORT` +
+   idempotent `startAudio` (daemon, null-sink default, `module-simple-protocol-tcp` tap). Started
+   from the same POST /display + boot path, non-fatal (no audio stack ≠ broken display).
+2. **Gateway route.** `/display/audio` bridges to `AUDIO_PORT` via the existing `bridge()`;
+   `isDisplayUpgrade` broadened so the unclaimed-socket closer leaves it alone.
+3. **Frontend.** PCM AudioWorklet + a speaker toggle in `DisplayPane` (audio **off by default** —
+   no surprise noise, no cost until enabled).
+4. **Gate.** E2E: the raylib env with a sound-emitting build — enable display, hear the SFX in
+   the pane while playing with keyboard input. Nothing ships until this works.
+
+## Explicitly rejected (now)
+
+- **Full WebRTC A/V rewrite (Selkies/neko/GStreamer):** correct *ceiling*, wrong *v1* — it
+  discards the working sharp-input VNC path and adds signaling + STUN/TURN + an encoder pipeline
+  for sync a dev preview does not need. It is Stage 3, triggered by a real 60fps-with-sync need.
+- **Opus now:** an encoder process + browser decoder to save bandwidth that localhost/LAN does
+  not spend. Add when a remote client measurably hurts.

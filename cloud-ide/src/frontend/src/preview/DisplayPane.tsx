@@ -15,6 +15,7 @@ import RFB from '@novnc/novnc';
 import { startDisplay } from '../api/sandbox';
 import { ApiError } from '../lib/apiClient';
 import { API_BASE_URL } from '../config/env';
+import { connectAudio, type AudioHandle } from './audioStream';
 
 interface DisplayPaneProps {
   sandboxId: string;
@@ -39,6 +40,26 @@ export const DisplayPane = ({ sandboxId, onClose }: DisplayPaneProps) => {
   const [state, setState] = useState<PaneState>({ kind: 'connecting' });
   // Bumping this re-runs the connect effect — the Reconnect button.
   const [attempt, setAttempt] = useState(0);
+  // Audio is a SEPARATE, opt-in transport: off by default (no surprise noise,
+  // no cost until asked). The toggle is the required autoplay user gesture.
+  const audioRef = useRef<AudioHandle | null>(null);
+  const [audioOn, setAudioOn] = useState(false);
+
+  const toggleAudio = async () => {
+    if (audioRef.current) {
+      audioRef.current.stop();
+      audioRef.current = null;
+      setAudioOn(false);
+      return;
+    }
+    try {
+      audioRef.current = await connectAudio(sandboxId);
+      setAudioOn(true);
+    } catch {
+      audioRef.current = null;
+      setAudioOn(false); // no audio stack / tap down — stay muted, no error state
+    }
+  };
 
   useEffect(() => {
     let live = true;
@@ -77,6 +98,14 @@ export const DisplayPane = ({ sandboxId, onClose }: DisplayPaneProps) => {
     };
   }, [sandboxId, attempt]);
 
+  // Audio outlives video reconnects (attempt bumps) but not a sandbox swap.
+  useEffect(() => {
+    return () => {
+      audioRef.current?.stop();
+      audioRef.current = null;
+    };
+  }, [sandboxId]);
+
   return (
     <div className="flex h-full w-full flex-col overflow-hidden border-l border-ide-border bg-[#1e1e1e]">
       {/* Pane chrome — matches PreviewPane's bar. */}
@@ -85,6 +114,16 @@ export const DisplayPane = ({ sandboxId, onClose }: DisplayPaneProps) => {
         <span className="flex-1 truncate text-[11px] text-gray-500">
           {state.kind === 'connected' ? 'connected — 1280×720, scaled to fit' : state.kind}
         </span>
+        <button
+          type="button"
+          onClick={toggleAudio}
+          title={audioOn ? 'Mute audio' : 'Enable audio'}
+          aria-label={audioOn ? 'Mute audio' : 'Enable audio'}
+          aria-pressed={audioOn}
+          className={`px-1 hover:text-white ${audioOn ? 'text-white' : 'text-gray-500'}`}
+        >
+          {audioOn ? '🔊' : '🔇'}
+        </button>
         <button
           type="button"
           onClick={() => setAttempt((n) => n + 1)}

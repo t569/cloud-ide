@@ -1,9 +1,12 @@
 // backend/src/api/DisplayGateway.ts
 //
-// The interactive-display bridge (display-streaming plan, slice 2). Two seams:
+// The interactive-display bridge (display-streaming plan, slice 2 + stage-2 audio):
 //
 //   POST /api/v1/sandboxes/:id/display          → start Xvnc in the sandbox (idempotent)
-//   WS   /api/v1/sandboxes/:id/display/stream   → raw RFB bytes, WS ↔ TCP :5901
+//   WS   /api/v1/sandboxes/:id/display/stream   → raw RFB bytes,  WS ↔ TCP :5901 (noVNC)
+//   WS   /api/v1/sandboxes/:id/display/audio    → raw s16le PCM,  WS ↔ TCP :4713 (AudioWorklet)
+//
+// Both WS paths are one row in TRANSPORTS and share ONE upgrade guard + ONE bridge().
 //
 // The browser runs the VNC client (@novnc/novnc); the gateway is a dumb pipe. No
 // websockify in the container — this IS the websockify, on the `ws` dep we already
@@ -26,12 +29,33 @@ import { readUserId } from './middleware/auth';
 import { config } from '../config/env';
 
 export { RFB_PORT, DISPLAY_NUM } from '../services/sandbox/display';
-import { RFB_PORT as RFB, startDisplay as startDisplayScript, DisplayStartResult } from '../services/sandbox/display';
+import {
+  RFB_PORT as RFB,
+  AUDIO_PORT,
+  startDisplay as startDisplayScript,
+  startAudio as startAudioScript,
+  DisplayStartResult,
+} from '../services/sandbox/display';
 
-const STREAM_PATH = /^\/api\/v1\/sandboxes\/([a-zA-Z0-9_-]+)\/display\/stream$/;
+// One row per media transport (display-streaming stage 2): a WS path → the
+// container port it bridges to. Both share the SAME upgrade guard and bridge()
+// pipe — adding a capability is adding a row here, nothing else moves.
+const TRANSPORTS: { re: RegExp; port: number }[] = [
+  { re: /^\/api\/v1\/sandboxes\/([a-zA-Z0-9_-]+)\/display\/stream$/, port: RFB },
+  { re: /^\/api\/v1\/sandboxes\/([a-zA-Z0-9_-]+)\/display\/audio$/, port: AUDIO_PORT },
+];
+
+/** Match a media-transport upgrade; returns the sandboxId + target port. */
+function matchTransport(pathname: string): { sandboxId: string; port: number } | null {
+  for (const { re, port } of TRANSPORTS) {
+    const m = re.exec(pathname);
+    if (m) return { sandboxId: m[1], port };
+  }
+  return null;
+}
 
 export function isDisplayUpgrade(pathname: string): boolean {
-  return STREAM_PATH.test(pathname);
+  return matchTransport(pathname) !== null;
 }
 
 /** Start the sandbox's virtual display (idempotent). Kept as the controller's
@@ -42,6 +66,15 @@ export function startDisplay(
   sandboxId: string,
 ): Promise<DisplayStartResult> {
   return startDisplayScript((command) => sandboxManager.execBuffered(sandboxId, { command }));
+}
+
+/** Start the sandbox's PCM audio tap (idempotent). Decoupled from startDisplay:
+ *  callers fire it non-fatally, so no audio stack never breaks the display. */
+export function startAudio(
+  sandboxManager: SandboxManager,
+  sandboxId: string,
+): Promise<DisplayStartResult> {
+  return startAudioScript((command) => sandboxManager.execBuffered(sandboxId, { command }));
 }
 
 /**
@@ -98,8 +131,8 @@ export function attachDisplayGateway(server: http.Server, deps: DisplayGatewayDe
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '', 'http://localhost');
-    const match = STREAM_PATH.exec(url.pathname);
-    if (!match) return; // not ours — another handler (or the closer in server.ts) owns it
+    const transport = matchTransport(url.pathname);
+    if (!transport) return; // not ours — another handler (or the closer in server.ts) owns it
 
     // CSWSH: the handshake is outside CORS and carries cookies — refuse foreign origins.
     if (req.headers.origin !== config.FRONTEND_ORIGIN) {
@@ -108,7 +141,7 @@ export function attachDisplayGateway(server: http.Server, deps: DisplayGatewayDe
       return;
     }
 
-    const sandboxId = match[1];
+    const { sandboxId, port } = transport;
     void userOwnsSandbox(sandboxRepo, readUserId(req.headers.cookie), sandboxId)
       .then(async (owns) => {
         if (!owns) {
@@ -117,8 +150,8 @@ export function attachDisplayGateway(server: http.Server, deps: DisplayGatewayDe
           return;
         }
         const ip = await containerIp(sandboxId);
-        const tcp = net.connect(RFB, ip);
-        tcp.once('error', () => socket.destroy()); // Xvnc not up — the pane retries via POST /display
+        const tcp = net.connect(port, ip);
+        tcp.once('error', () => socket.destroy()); // backend not up — the pane retries via POST /display
         tcp.once('connect', () => {
           wss.handleUpgrade(req, socket, head, (ws) => bridge(ws, tcp));
         });

@@ -11,7 +11,7 @@ import { diffSnapshots } from '../services/promotion/toolSnapshot';
 import { ISessionRepository } from '../database/interfaces';
 import { JsonActivityRepository } from '../database/json/JsonActivityRepository';
 import { currentUser, mintPreviewToken } from '../api/middleware/auth';
-import { startDisplay } from '../api/DisplayGateway';
+import { startDisplay, startAudio } from '../api/DisplayGateway';
 
 
 /**
@@ -442,6 +442,10 @@ export class SandboxController {
     try {
       const result = await startDisplay(this.sandboxManager, sandboxId);
       if (result.ok) {
+        // Bring the audio tap up in the background so the pane's speaker toggle
+        // connects instantly. Non-fatal and decoupled: a missing/failed audio
+        // stack never blocks or fails the display.
+        void startAudio(this.sandboxManager, sandboxId).catch(() => {});
         res.status(200).json({ running: true });
         return;
       }

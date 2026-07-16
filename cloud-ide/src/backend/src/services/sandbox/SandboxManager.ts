@@ -14,7 +14,7 @@ import { IEnvironmentRepository } from '../../database/interfaces/IEnvironmentRe
 import { EnvironmentRecord } from '../../database/models';
 import { JsonActivityRepository } from '../../database/json/JsonActivityRepository';
 import { ExecConnectionInfo, SandboxEndpoint } from '../../types/engine';
-import { startDisplay } from './display';
+import { startDisplay, startAudio } from './display';
 import { cacheVolumeFor, CACHE_ENV } from './cacheVolumes';
 import { RustEngineClient } from './rustClient';
 import { ISandboxDriver, DriverCapabilities, ISandboxSession, PtyOptions } from './drivers/ISandboxDriver';
@@ -210,6 +210,12 @@ export class SandboxManager {
     // cold-boot retry absorbs execd's startup, and a failure only means the pane's
     // own idempotent start (POST /display) does the job later.
     if (finalSpec.envVars?.DISPLAY) {
+      // Audio tap alongside the display (decoupled transport, non-fatal): a GUI
+      // app that plays sound before the pane's speaker toggle is touched still
+      // has somewhere to play. A missing audio stack is a warn, never a failure.
+      void startAudio((command) => this.execBuffered(record.sandboxId, { command })).catch(
+        (err) => console.warn(`[SandboxManager] Boot-time audio start errored for ${record.sandboxId}:`, err),
+      );
       void startDisplay((command) =>
         this.execBuffered(record.sandboxId, { command }),
       )

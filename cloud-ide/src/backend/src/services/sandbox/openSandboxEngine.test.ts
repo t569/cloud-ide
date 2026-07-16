@@ -71,7 +71,9 @@ describe('OpenSandboxEngine', () => {
     global.fetch = fetchMock as any;
 
     await new OpenSandboxEngine().bootSandbox({ imageTag: 'img:latest' });
-    expect(fetchMock.calls[0].body.resourceLimits).toEqual({ cpu: '1', memory: '512Mi' });
+    // 2cpu/2048Mi: 512MB OOM-killed real compiles (cgo raylib → 'gcc: Killed').
+    // Operators tune via SANDBOX_DEFAULT_CPU / SANDBOX_DEFAULT_MEMORY_MB.
+    expect(fetchMock.calls[0].body.resourceLimits).toEqual({ cpu: '2', memory: '2048Mi' });
   });
 
   it('sends no TTL — timeout is an absolute deadline, not an idle timer', async () => {

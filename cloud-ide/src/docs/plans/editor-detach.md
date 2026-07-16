@@ -1,6 +1,6 @@
 # Editor Detach — plan
 
-Status: proposed. Owner: TBD. Related: [network-egress-layer.md](./network-egress-layer.md).
+Status: **implemented** (2026-07-16). Related: [network-egress-layer.md](./network-egress-layer.md).
 
 ## Goal
 
@@ -83,8 +83,21 @@ Reopen (already works): from the Sandboxes list / home, `openWorkspace(sandboxId
   (b) the edit was saved, (c) home is shown → reopen → resumes with edits **and** a still-running
   dev server.
 
-## Open questions
+## Open questions — resolved
 
-1. **Placement** — top-bar button, `File → Detach` menu item, or both?
-2. **Confirm dialog?** Recommend **no** — detach is non-destructive and reversible.
-3. **Label** — "Detach", "Detach & pause", or "Leave workspace"?
+1. **Placement** — **both**: a top-bar button (right side, next to the workspace name —
+   the discoverable primary) and `File → Detach` (one line in `coreContributions`). Both
+   emit one `DETACH_REQUESTED` bus event; `EditorWorkspace` owns the single handler.
+2. **Confirm dialog?** **No** — non-destructive and reversible.
+3. **Label** — **"Detach"**; the button tooltip spells out "save, pause, return home".
+
+## Implementation notes (what shipped differs from the sketch)
+
+- `eventBus.emit('SAVE_REQUESTED')` is fire-and-forget (`setTimeout 0`), so the handler
+  can't know when the flush lands. Instead `VFSController.flush()` (awaitable
+  `vfs.forceSync()`) is exposed through `useWorkspaceBootstrap`; detach **awaits** it and
+  **cancels** (with a toast) if it fails — never navigate away over an unflushed queue.
+- Residual bug fixed while here: `VirtualFileSystem.destroy()` dropped the pending sync
+  queue, so ANY exit (navigate away, close tab) lost the last ≤2 s of typing. It now
+  fires `flushSyncQueue()` on destroy (in-flight fetches complete after unmount).
+  Covered by `VirtualFileSystem.destroy.test.ts`.

@@ -155,6 +155,13 @@ export const TopNavBar = ({ menus, activeFilePath, workspaceName, eventBus }: To
           </span>
         )}
         <span className="truncate max-w-[20vw]">{workspaceName}</span>
+        <button
+          onClick={() => eventBus.emit('DETACH_REQUESTED', {})}
+          title="Save everything, pause this workspace, and return home"
+          className="ml-1 px-2.5 h-6 text-[12px] rounded-md border border-ide-border text-ide-muted hover:bg-ide-hover hover:text-ide-text transition-colors shrink-0"
+        >
+          Detach
+        </button>
       </div>
 
       {/* Dropdown — portaled to <body> so no ancestor stacking context can trap it. */}

@@ -536,5 +536,9 @@ export class VirtualFileSystem {
    */
   public destroy() {
     if (this.syncIntervalId) clearInterval(this.syncIntervalId);
+    // Unmount must not drop the last ≤2s of typing: fire the flush and let the
+    // in-flight fetches complete after the component is gone. Fire-and-forget —
+    // destroy() has no caller that can await it.
+    this.flushSyncQueue();
   }
 }

@@ -4,7 +4,7 @@
 //   - VFSController        (routes bus events <-> the virtual file system)
 //   - LanguageServiceRegistry (LSP transports from the manifest)
 // plus the live file tree it keeps in sync via the VFS_TREE_UPDATED event.
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { FileNode } from '../types/editor';
 import { EditorEventBus } from '../core/EditorEventBus';
 import { VFSController } from '../core/VFSController';
@@ -57,19 +57,25 @@ export function useWorkspaceBootstrap(sandboxId: string) {
   }, [eventBus, langRegistry, languages]);
 
   // Boot the VFS controller. Subscribe to tree updates BEFORE booting so the
-  // initial hydration payload isn't missed.
+  // initial hydration payload isn't missed. The ref exposes an awaitable flush
+  // (Detach must know the writes landed before it pauses the sandbox).
+  const vfsRef = useRef<VFSController | null>(null);
   useEffect(() => {
     const unsubTree = eventBus.on('VFS_TREE_UPDATED', (p) => setFileTree(p.tree));
     const vfs = new VFSController(eventBus, dispatch, sandboxId, languages);
+    vfsRef.current = vfs;
     vfs.initWorkspace();
     return () => {
       unsubTree();
+      vfsRef.current = null;
       vfs.destroy();
     };
   }, [eventBus, dispatch, sandboxId, languages]);
 
+  const flush = useCallback(() => vfsRef.current?.flush() ?? Promise.resolve(), []);
+
   // Tear down transports (close sockets) when the workspace unmounts.
   useEffect(() => () => langRegistry.dispose(), [langRegistry]);
 
-  return { eventBus, fileTree, langRegistry, languages };
+  return { eventBus, fileTree, langRegistry, languages, flush };
 }

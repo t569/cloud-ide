@@ -145,6 +145,10 @@ export interface EditorEventPayloads {
   /** Fired by Ctrl+S or the TopNav File -> Save button. */
   'SAVE_REQUESTED': { path: string };
 
+  /** Detach: flush edits, pause the sandbox (Scale-to-Zero), navigate home.
+   *  Fired by the top-bar Detach button and File → Detach. */
+  'DETACH_REQUESTED': {};
+
   /** Fired by the VFS to update the Traffic Light UI (Sidebar). */
   'SYNC_STATUS_CHANGED': { status: SyncStatus };
 

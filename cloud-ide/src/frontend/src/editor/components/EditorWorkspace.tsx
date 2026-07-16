@@ -3,6 +3,8 @@ import { WorkspaceSession, FileNode } from '../types/editor';
 import { LocalStorageManager } from '../utils/LocalStoragemanager';
 import { isExternal } from '../core/VFSController';
 import { toast } from '../../notifications';
+import { pauseSandbox } from '../../api/sandbox';
+import { navigate } from '../../pages/router';
 
 import { EditorTabs } from './EditorTabs';
 import { StatusBar } from './StatusBar';
@@ -42,7 +44,7 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
   const { settings } = useDesignSystem();
 
   // Non-visual engines: bus, VFS controller, LSP registry, live file tree.
-  const { eventBus, fileTree, langRegistry, languages } = useWorkspaceBootstrap(sandboxId);
+  const { eventBus, fileTree, langRegistry, languages, flush } = useWorkspaceBootstrap(sandboxId);
 
   // Layout + per-sandbox persistence + drag resizing.
   const { layout, toggleSidebar, setSidebarWidth, setBottomPanelHeight } =
@@ -166,6 +168,30 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
       toast.error(err.message, { title: `${activeLanguage} server unreachable` }),
     );
   };
+
+  // Detach: flush dirty buffers, pause the sandbox (Scale-to-Zero), go home.
+  // Non-destructive and reversible (reopen resumes the same container), so no
+  // confirm dialog. One bus event serves both the top-bar button and File → Detach.
+  const workspaceName = workspaceState.workspaceName;
+  useEffect(() => {
+    return eventBus.on('DETACH_REQUESTED', async () => {
+      try {
+        await flush(); // the writes MUST land before we leave — else they're lost
+      } catch {
+        toast.error('Could not save your changes — detach cancelled. Check your connection and retry.', {
+          title: 'Detach',
+        });
+        return;
+      }
+      try {
+        await pauseSandbox(sandboxId);
+      } catch {
+        // 409 = not running (already paused / stale record) — same end state, proceed.
+      }
+      navigate('/');
+      toast.success(`Detached — ${workspaceName} paused`);
+    });
+  }, [eventBus, flush, sandboxId, workspaceName]);
 
   // A dev server the user started in the terminal, proxied through the Gateway's
   // ingress so the browser can actually reach it (the container's localhost can't

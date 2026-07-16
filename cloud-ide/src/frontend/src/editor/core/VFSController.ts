@@ -246,6 +246,13 @@ export class VFSController {
     }));
   }
 
+  /** Awaitable flush of every dirty buffer. Detach needs this — the bus's
+   *  SAVE_REQUESTED is fire-and-forget, and pausing before the writes land
+   *  would drop the last keystrokes. */
+  public flush(): Promise<void> {
+    return this.vfs.forceSync();
+  }
+
   // ==========================================
   // CLEANUP (Prevents the Ghost Duplicate Logs)
   // ==========================================

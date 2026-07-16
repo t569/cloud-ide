@@ -14,6 +14,9 @@ const MENUS: TopMenuCategory[] = [
       { id: 'div-1', label: '', isDivider: true },
       { id: 'save', label: 'Save', shortcut: 'Ctrl+S', action: 'SAVE_REQUESTED' },
       { id: 'save-all', label: 'Save All', shortcut: 'Ctrl+K S' },
+      { id: 'div-2', label: '', isDivider: true },
+      // Pause the sandbox and go home; non-destructive, so no confirm dialog.
+      { id: 'detach', label: 'Detach', action: 'DETACH_REQUESTED' },
     ],
   },
   {

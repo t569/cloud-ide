@@ -41,6 +41,7 @@ import { isPreviewHost } from './api/previewHost';
 import { createEnvironmentRouter } from './api/routes/environment.routes';
 import { createImageRouter } from './api/routes/images.routes';
 import { attachPtyGateway, isPtyUpgrade } from './api/PtyGateway';
+import { attachDisplayGateway, isDisplayUpgrade } from './api/DisplayGateway';
 
 import { EventEmitter } from 'events';
 import { JsonEnvironmentRepository } from './database/json/JsonEnvironmentRepository';
@@ -241,6 +242,10 @@ const server = http.createServer(app);
 // (provider-agnostic; inert until a pty-capable driver is active). See PtyGateway.
 attachPtyGateway(server, { sandboxManager, sandboxRepo });
 
+// Interactive display: bridge WS /api/v1/sandboxes/:id/display/stream ↔ the
+// sandbox's Xvnc RFB port. Browser-side client; the gateway is a dumb pipe.
+attachDisplayGateway(server, { sandboxManager, sandboxRepo });
+
 // Preview hot-reload: a dev server's HMR socket, proxied into the sandbox. Each
 // upgrade handler ignores paths that aren't its own rather than destroying the
 // socket — Node fires EVERY 'upgrade' listener, so a handler that closed anything
@@ -255,7 +260,7 @@ server.on('upgrade', (req, socket, head) => {
 // it runs after both handlers above have had their look.
 server.on('upgrade', (req, socket) => {
   const { pathname } = new URL(req.url ?? '', 'http://localhost');
-  if (!isPtyUpgrade(pathname) && !isPreviewHost(req.headers.host)) socket.destroy();
+  if (!isPtyUpgrade(pathname) && !isDisplayUpgrade(pathname) && !isPreviewHost(req.headers.host)) socket.destroy();
 });
 
 // 2. USE THE CONFIG OBJECT

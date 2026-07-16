@@ -11,6 +11,7 @@ import { diffSnapshots } from '../services/promotion/toolSnapshot';
 import { ISessionRepository } from '../database/interfaces';
 import { JsonActivityRepository } from '../database/json/JsonActivityRepository';
 import { currentUser, mintPreviewToken } from '../api/middleware/auth';
+import { startDisplay } from '../api/DisplayGateway';
 
 
 /**
@@ -420,6 +421,33 @@ export class SandboxController {
     try {
       const revived = await this.sandboxManager.restart(sandboxId);
       res.status(200).json({ sandboxId: revived.sandboxId, state: 'RUNNING' });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  };
+
+  /**
+   * Start the sandbox's virtual display (Xvnc) if it isn't running — idempotent,
+   * called by the Display pane on every open/reconnect. 409 with NO_DISPLAY_STACK
+   * when the image lacks the GUI packages (the pane offers the enable+rebuild fix).
+   */
+  public startDisplay = async (req: Request, res: Response): Promise<void> => {
+    const sandboxId = this.getStringParam(req.params.sandboxId);
+
+    if (!sandboxId) {
+      res.status(400).json({ error: 'sandboxId is required.' });
+      return;
+    }
+
+    try {
+      const result = await startDisplay(this.sandboxManager, sandboxId);
+      if (result.ok) {
+        res.status(200).json({ running: true });
+        return;
+      }
+      res
+        .status(result.code === 'NO_DISPLAY_STACK' ? 409 : 500)
+        .json({ error: result.detail, code: result.code });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

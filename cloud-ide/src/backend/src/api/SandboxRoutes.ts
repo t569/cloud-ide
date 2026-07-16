@@ -51,6 +51,8 @@ export function createSandboxRouter(
   router.post('/:sandboxId/resume', controller.resumeSandbox);
   // Replace the container, keep the worktree — applies boot-time changes (egress).
   router.post('/:sandboxId/restart', controller.restartSandbox);
+  // Start the virtual display (Xvnc) — idempotent; the Display pane's open/reconnect.
+  router.post('/:sandboxId/display', controller.startDisplay);
   router.delete('/:sandboxId', controller.destroySandbox);
   router.post('/:sandboxId/volumes', controller.attachVolume);
   router.delete('/:sandboxId/volumes/:volumeName', controller.detachVolume);

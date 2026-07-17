@@ -228,11 +228,18 @@ writes are host-direct as root, so those are unaffected).
   `BuildService.ts:188`), and non-root changes the Dockerfile (adds `useradd`/`USER`), so the
   content hash changes → existing envs rebuild correctly on next build. No epoch bump / rebuild
   storm.
-- [x] **F3 payoff proven at the daemon level.** Verified live: an env with no `bootUpAsRoot`
-  boots as `sandbox-user`; the root terminal (`-u 0`) escalates to `root`; the worktree is
-  writable; and **`pulseaudio -D` starts as uid 1000** (`PULSE_RUNNING_AS_NONROOT`) where it
-  died as root — so the audio tap comes up. The only piece left is the *perceptual* browser
-  check (open a display env's pane and hear the SFX), which is a manual gate.
+- [x] **F3 payoff — proven end to end at the container level (and a real bug fixed on the way).**
+  An env with no `bootUpAsRoot` boots as `sandbox-user`; the root terminal (`-u 0`) escalates to
+  `root`; the worktree is writable. Audio, though, was **still broken for non-root** despite
+  pulseaudio-refuses-root being the whole point: `startAudio` hardcoded `XDG_RUNTIME_DIR=/tmp`,
+  which is **root-owned**, and pulseaudio-as-uid-1000 aborts on a runtime dir it doesn't own
+  (`"XDG_RUNTIME_DIR is not owned by us"`). Fixed to a per-uid user-owned dir
+  (`/tmp/cide-pulse-$(id -u)`, `mkdir`+`chmod 700`) in `display.ts`. **Verified live on a real
+  non-root env image (`1ht0hf9dl2`):** pulseaudio starts as `sandbox-user`, the null-sink + TCP
+  tap load, `:4713` listens, and a 440 Hz tone played into `cide` is captured off the monitor —
+  exactly 176 400 bytes (1 s of s16le/44100/stereo), **non-zero PCM** (the tone flows, not
+  silence). Guarded by `display.test.ts`. Only the *perceptual* browser check (open a display
+  env's pane and hear the SFX through the AudioWorklet) remains a manual gate.
 - [~] **Sudo-password pane — built then removed** (incompatible with `no-new-privileges`; see the
   escalation slice above). The **root terminal broker** is the escalation surface.
 - [x] **Follow-up: Phase 2.1 edit/build write parity** — done (see Phase 2 above). In-container

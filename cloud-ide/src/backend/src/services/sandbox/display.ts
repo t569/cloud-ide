@@ -66,11 +66,16 @@ export async function startDisplay(
 export async function startAudio(
   exec: (command: string[]) => Promise<SandboxExecResult>,
 ): Promise<DisplayStartResult> {
-  // XDG_RUNTIME_DIR: pulseaudio's default per-user runtime path may not exist in
-  // a container; point it at /tmp so the daemon has somewhere to put its socket.
+  // XDG_RUNTIME_DIR must be a dir OWNED by the user pulseaudio runs as, mode 0700 —
+  // pulseaudio refuses one it doesn't own ("XDG_RUNTIME_DIR is not owned by us"). Now that
+  // sandboxes are non-root (uid 1000), the old hardcoded `/tmp` (root-OWNED) made the daemon
+  // fail on startup, silently killing the audio tap. Use a per-uid dir the exec'ing user
+  // creates (and therefore owns): `/tmp/cide-pulse-$(id -u)`. Deterministic, so the idempotent
+  // pgrep/pactl guards below still find the same daemon across calls.
   const script =
     `command -v pulseaudio >/dev/null 2>&1 || { echo NO_PULSE; exit 3; }; ` +
-    `export XDG_RUNTIME_DIR=\${XDG_RUNTIME_DIR:-/tmp}; ` +
+    `export XDG_RUNTIME_DIR="\${XDG_RUNTIME_DIR:-/tmp/cide-pulse-$(id -u)}"; ` +
+    `mkdir -p "\$XDG_RUNTIME_DIR" && chmod 700 "\$XDG_RUNTIME_DIR"; ` +
     `pgrep -x pulseaudio >/dev/null 2>&1 || pulseaudio -D --exit-idle-time=-1 --disable-shm=1 >/tmp/pulse.log 2>&1; ` +
     `for i in $(seq 1 25); do pactl info >/dev/null 2>&1 && break; sleep 0.2; done; ` +
     `pactl list short sinks 2>/dev/null | grep -q '\\bcide\\b' || pactl load-module module-null-sink sink_name=cide sink_properties=device.description=cide >/dev/null; ` +

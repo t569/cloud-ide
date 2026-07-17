@@ -14,9 +14,12 @@ import { WebSocketTransport } from './WebSocketTransport';
 /** Derive the ws(s):// PTY URL from the http(s) API base (same host/port/origin).
  *  `termId` is the stable per-tab id the backend keys reattach on, so a reconnect
  *  re-binds to the same server-side shell rather than spawning a fresh one. */
-function ptyUrl(sandboxId: string, terminalId?: string): string {
+function ptyUrl(sandboxId: string, terminalId?: string, root?: boolean): string {
   const wsBase = API_BASE_URL.replace(/^http/, 'ws');
-  const q = terminalId ? `?termId=${encodeURIComponent(terminalId)}` : '';
+  const params = new URLSearchParams();
+  if (terminalId) params.set('termId', terminalId);
+  if (root) params.set('root', '1'); // owner-gated root shell — see PtyGateway / sandbox-privileges.md
+  const q = params.toString() ? `?${params.toString()}` : '';
   return `${wsBase}/v1/sandboxes/${encodeURIComponent(sandboxId)}/pty${q}`;
 }
 
@@ -27,9 +30,12 @@ export interface TransportOptions {
   initialSize?: { cols: number; rows: number };
   /** Stable per-tab id → the backend reattaches to the same shell on reconnect. */
   terminalId?: string;
+  /** Open the shell as root (`docker exec -u 0`). PTY only; the gateway authorizes it
+   *  with the SAME ownership check as any PTY — the owner's own privilege. */
+  root?: boolean;
 }
 
 export function createTerminalTransport(sandboxId: string, opts: TransportOptions = {}): ITransportStream {
-  if (opts.pty) return new WebSocketTransport(ptyUrl(sandboxId, opts.terminalId), opts.initialSize);
+  if (opts.pty) return new WebSocketTransport(ptyUrl(sandboxId, opts.terminalId, opts.root), opts.initialSize);
   return new SseExecTransport(sandboxId);
 }

@@ -45,6 +45,9 @@ interface TerminalTabsProps {
   initialSessions: TerminalSession[];
   /** Callback fired when the user clicks the '+' button to spin up a new PTY. */
   onAddTab: () => void;
+  /** Optional: open an owner-gated ROOT shell (the escalation broker). Renders a
+   *  distinct button when provided; omit to hide it. */
+  onAddRootTab?: () => void;
   /** Callback fired when the user clicks the 'x' button to kill a PTY. */
   onCloseTab: (id: string) => void;
   /** Passthrough callback for the Context HUD: fired when a file is clicked. */
@@ -63,10 +66,11 @@ interface TerminalTabsProps {
  * Renders the terminal tab bar and manages the layout of the terminal panels.
  * * @param {TerminalTabsProps} props - The component props.
  */
-export const TerminalTabs = ({ 
-  initialSessions, 
-  onAddTab, 
-  onCloseTab, 
+export const TerminalTabs = ({
+  initialSessions,
+  onAddTab,
+  onAddRootTab,
+  onCloseTab,
   onFileClick,
   onLinkClick,
   onActiveChange,
@@ -154,13 +158,24 @@ export const TerminalTabs = ({
         ))}
         
         {/* ADD NEW TAB BUTTON */}
-        <button 
+        <button
           onClick={onAddTab}
           className="px-2 py-1.5 text-gray-400 hover:text-white hover:bg-[#2a2d2e] transition-colors"
           title="New Terminal"
         >
           <Icon icon="mdi:plus" width={18} />
         </button>
+
+        {/* NEW ROOT TERMINAL — owner-gated escalation broker (amber = elevated privilege) */}
+        {onAddRootTab && (
+          <button
+            onClick={onAddRootTab}
+            className="px-2 py-1.5 text-amber-500/80 hover:text-amber-400 hover:bg-[#2a2d2e] transition-colors"
+            title="New root terminal — full privileges in this sandbox"
+          >
+            <Icon icon="mdi:shield-key-outline" width={18} />
+          </button>
+        )}
       </div>
 
       {/* ==========================================

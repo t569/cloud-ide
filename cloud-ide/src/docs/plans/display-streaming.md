@@ -183,3 +183,63 @@ second window is actually asked for; the routing table above is the only thing t
   for sync a dev preview does not need. It is Stage 3, triggered by a real 60fps-with-sync need.
 - **Opus now:** an encoder process + browser decoder to save bandwidth that localhost/LAN does
   not spend. Add when a remote client measurably hurts.
+
+---
+
+# Optimization store (speed & memory) — a browser editor pays for every idle byte
+
+Status: **store only, not scheduled.** This is the backlog of speed/memory wins for the
+display stack, written down *before* implementing so we pick from it deliberately. It is a
+GUI stream — a VNC framebuffer decoder, an audio worklet, two WS byte-pipes, software GL and
+a PulseAudio daemon — so it is the heaviest new compute/memory consumer in the whole client.
+
+**Sequencing rule (from the mandate): land Tier 1 first, and only Tier 1, until the feature
+is fully soaked and the E2E gate is green. Tiers 2–3 change behaviour or architecture — they
+wait until we are *sure* they can't break the working sharp-input path.** Don't reach for the
+WebCodecs rewrite to save bytes a lifecycle guard already saves for free.
+
+Each item names the **win**, the **risk**, and the **trigger** that should promote it.
+
+## Tier 1 — safe, additive, do first (lifecycle + config; cannot break the transport)
+
+These are the "optimise early" wins: none touches the RFB/PCM protocol or the `bridge()` seam.
+They are pure adds — a guard, a lazy import, a config flag.
+
+| # | Win | What | Risk | Trigger |
+|---|---|---|---|---|
+| **O1** | **Pause when unseen** | RFB currently keeps decoding while the pane is off-screen or the tab is backgrounded — full container render + WS + JS decode for pixels nobody sees. Gate on `IntersectionObserver` + `visibilitychange`: disconnect (or stop drawing) when hidden, reconnect on show. Audio: pause the worklet node the same way. | Low — reuses the existing Reconnect path. Only edge: a game that must keep running while hidden (rare; keep the container process alive, just stop *pulling frames*). | **Now.** Biggest idle-cost win, zero protocol change. |
+| **O2** | **Lazy-load the pane + noVNC** | `DisplayPane` is a static import in `EditorWorkspace`, so `@novnc/novnc` + the worklet glue parse into *every* session's bundle — most never open the display. `React.lazy(() => import('../../preview/DisplayPane'))` moves it behind the first open. | Low — a Suspense boundary around a pane that's already conditionally mounted. | **Now.** Cuts initial JS parse + heap for the common case. |
+| **O3** | **Gateway backpressure** | `bridge()` does `tcp.on('data') → ws.send()` with no check on `ws.bufferedAmount`. A slow client makes Node buffer the framebuffer/PCM stream unboundedly — a gateway memory leak under load, not just a slowdown. Pause the TCP socket when `bufferedAmount` crosses a high-water mark, resume on drain. | Low — standard Node stream backpressure; the pipe stays byte-for-byte. | **Now.** This is a memory-safety fix wearing an optimisation hat; do it regardless of load. |
+| **O4** | **Tune Xvnc + noVNC encoding** | Xvnc runs defaults; `DisplayPane` sets only `scaleViewport`. Set noVNC `qualityLevel`/`compressionLevel`, and pick Xvnc `-DeferUpdate` (coalesce a busy frame window) + Tight/JPEG params. Cuts bandwidth **and** browser decode CPU on mixed/photographic content. | Low — all config; wrong values only trade quality↔latency, never correctness. Measure, don't guess. | **Now**, once O1/O2 land — cheapest compute/byte reduction. |
+| **O5** | **Shrink the audio ring** | The worklet ring is ~2 s of interleaved Float32 (`sampleRate*channels*2` ≈ 0.7 MB stereo). 300–500 ms absorbs WS jitter on localhost/LAN and cuts both memory and added latency. | Low — one constant; underflow already degrades to silence, not a glitch. | **Now** for latency; the memory alone isn't worth a dedicated pass. |
+
+## Tier 2 — behaviour changes; land after the feature has soaked
+
+Each of these changes what the user *sees or hears*, or needs a new browser capability. Correct,
+but only after Tier 1 and a green E2E gate prove the baseline.
+
+| # | Win | What | Risk | Trigger |
+|---|---|---|---|---|
+| **O6** | **Adaptive desktop size** | Fixed 1280×720 is rendered, encoded, shipped and decoded even when the pane is a 400 px strip (`scaleViewport` just downscales it client-side — the cost was already paid). RFB `SetDesktopSize` to match the pane (debounced) shrinks render + encode + bytes + decode together. | Medium — apps handle live resize unevenly (a fullscreen GL game may not reflow). Ship behind the fixed-size default; opt in. | A large pane on a weak host, or the deferred "Resize" row in the edge-case table becoming real. |
+| **O7** | **Opus audio** | Raw s16le is ~1.4 Mbps. An in-container Opus encode + browser decode drops it ~20×. Already flagged in the audio decision as the WAN upgrade. | Medium — adds an encoder process + a browser decoder (WebCodecs `AudioDecoder` or `libopus` wasm); a decode stall must fall back to silence, not block. | A remote/WAN client where 1.4 Mbps measurably hurts. Not on localhost/LAN. |
+| **O8** | **SharedArrayBuffer audio ring + COOP/COEP** | Replace `postMessage` hand-off with a SAB ring the worklet reads directly — removes per-chunk message overhead and GC pressure. COOP/COEP headers it needs *also* unlock wasm threads/`SharedArrayBuffer` for Monaco/LSP wasm later. | Medium — COOP/COEP is app-wide and can break third-party embeds/iframes (incl. the preview pane). Validate the whole app cross-origin isolates cleanly first. | Audio message-passing showing up in a profile, or wanting wasm threads elsewhere. |
+
+## Tier 3 — architectural; only when a concrete need triggers it (defer)
+
+The "cutting-edge" options. Each is the right *ceiling* and the wrong *now* — they discard or
+duplicate the working RFB path. Kept here so the research isn't lost, **not** to build early.
+
+| # | Win | What | Why defer |
+|---|---|---|---|
+| **O9** | **WebCodecs hybrid transport (the headline research)** | Keep the WS `bridge()` and the transport-row seam, but add a `/display/video` row: the container encodes the X framebuffer to H.264/VP8 chunks (ffmpeg/gstreamer capturing `:99`) and the browser decodes with **WebCodecs `VideoDecoder`** → canvas. For high-motion 3D this is far lighter on bytes *and* browser CPU than RFB Tight, **without** WebRTC's ICE/DTLS/SRTP/signalling. Input keeps flowing over the RFB control channel (or a small JSON input row). It is a *hybrid*: WS+seam we already have, modern codec we don't. | Big lift; splits video from input; needs an in-container encoder (compute the software-GL host may not spare). Trigger: a real 60 fps 3D need that Tier-1 tuning (O4/O6) can't satisfy — measured, not assumed. Sits *below* full WebRTC (Stage 3), above RFB. |
+| **O10** | **GPU/DRI passthrough** | llvmpipe renders 3D on the CPU — the single biggest container-side compute cost. Mounting `/dev/dri` when the host has a GPU moves it to hardware. | Infra/host-dependent, not a browser-client win, and orthogonal to the transport. Trigger: GPU hosts in the fleet. |
+| **O11** | **Full WebRTC A/V mux (Stage 3)** | Already the documented ceiling for broadcast-grade A/V sync. | Explicitly rejected for now above; only a real sync-critical need promotes it. |
+
+## Beyond the display pane (editor-wide, tracked elsewhere)
+
+Same "idle byte" discipline applies to the rest of the client, but these don't belong in a
+display plan — noting the shape so they're not forgotten: **file-explorer virtualization** (render
+only visible tree nodes; the VFS flat map is fine, the DOM isn't), **Monaco model/worker
+disposal** on tab close, and **route-level code-splitting** (env-manager vs editor vs display).
+If we want a standing optimisation ledger for the whole editor, that's its own doc — don't
+graft it onto this one.

@@ -15,7 +15,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { getPreviewToken } from '../api/sandbox';
 import { API_BASE_URL } from '../config/env';
-import { toPreviewUrl, fromPreviewUrl, prettyToLocalhostUrl } from '../terminal/core/devUrl';
+import {
+  toPreviewUrl,
+  fromPreviewUrl,
+  prettyToLocalhostUrl,
+  isExternalWebUrl,
+} from '../terminal/core/devUrl';
 
 interface PreviewPaneProps {
   sandboxId: string;
@@ -54,7 +59,17 @@ export const PreviewPane = ({ sandboxId, url, onClose }: PreviewPaneProps) => {
   // Resolve a pretty target to the actual subdomain src (with a fresh token) and load it.
   const load = useCallback(
     async (prettyTarget: string) => {
-      const localhostUrl = prettyToLocalhostUrl(prettyTarget, port);
+      const t = prettyTarget.trim();
+      // A full external http(s):// URL browses there directly — no sandbox proxy, no token.
+      // Whether it renders is the target site's frame policy, not ours. Sandbox ports (below)
+      // still go through the ingress.
+      if (isExternalWebUrl(t)) {
+        setPretty(t);
+        setExposedHost(`${hostOf(t)} · external`);
+        setSrc(t);
+        return;
+      }
+      const localhostUrl = prettyToLocalhostUrl(t, port);
       if (!localhostUrl) return;
       try {
         const { token } = await getPreviewToken(sandboxId);

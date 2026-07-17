@@ -27,9 +27,13 @@ export type DisplayStartResult =
 export async function startDisplay(
   exec: (command: string[]) => Promise<SandboxExecResult>,
 ): Promise<DisplayStartResult> {
+  // Idempotency guards on the RFB PORT, not the process name. TigerVNC's binary runs
+  // as `Xtigervnc` (Xvnc is a wrapper script), so `pgrep -x Xvnc` never matched a live
+  // server — every call spawned a doomed second Xvnc that failed to bind ${RFB_PORT}
+  // and exited. A port probe is name-agnostic and is the thing we actually care about.
   const script =
     `command -v Xvnc >/dev/null 2>&1 || { echo NO_XVNC; exit 3; }; ` +
-    `pgrep -x Xvnc >/dev/null 2>&1 || nohup setsid Xvnc :${DISPLAY_NUM} -rfbport ${RFB_PORT} ` +
+    `(exec 3<>/dev/tcp/127.0.0.1/${RFB_PORT}) 2>/dev/null || nohup setsid Xvnc :${DISPLAY_NUM} -rfbport ${RFB_PORT} ` +
     `-SecurityTypes None -AlwaysShared -geometry 1280x720 -depth 24 >/tmp/xvnc.log 2>&1 & ` +
     `for i in $(seq 1 25); do (exec 3<>/dev/tcp/127.0.0.1/${RFB_PORT}) 2>/dev/null && { echo OK; exit 0; }; sleep 0.2; done; ` +
     `echo START_TIMEOUT; tail -5 /tmp/xvnc.log 2>/dev/null; exit 4`;

@@ -193,9 +193,17 @@ writes are host-direct as root, so those are unaffected).
   container-side `safe.directory`. Not needed for the display E2E (the app doesn't write
   `/workspace`); schedule it when in-container `git`/edit parity is the priority.
 
-### Phase 3 — Turn it on (opt-in), validate end to end
-- [ ] Display envs default non-root. Full E2E: boots RUNNING, execd works, editor reads AND
-  writes files, glxgears renders, **audio plays** (pulseaudio now runs as `sandbox-user`).
+### Phase 3 — Turn it on (default flip), validate end to end
+- [x] **Default flipped to non-root.** `StageOrchestrator` (both single- and multi-stage) and
+  `ContextManager` now default `bootUpAsRoot: false`. Every env without an explicit
+  `bootUpAsRoot:true` builds non-root; `true` stays the escape hatch (runtime-root needs, exotic
+  bases). **Cache handled for free:** `contentTag` hashes the generated Dockerfile (`recipe`,
+  `BuildService.ts:188`), and non-root changes the Dockerfile (adds `useradd`/`USER`), so the
+  content hash changes → existing envs rebuild correctly on next build. No epoch bump / rebuild
+  storm.
+- [ ] **Full E2E (the payoff):** a fresh display env → boots RUNNING, execd works, editor
+  reads+writes files, glxgears renders, **audio plays** (pulseaudio now runs as `sandbox-user`).
+  This is the F3 close-out from the display gate.
 
 ### Phase 4 — Security hardening + default flip
 - [ ] userns-remap / cap-drop review (pair with the egress `NET_ADMIN` drop).

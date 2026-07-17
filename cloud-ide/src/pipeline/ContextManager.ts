@@ -13,7 +13,7 @@ export class PipelineContext {
   private currentUser: string = 'root';
   private envVars: Record<string, string> = {};
 
-  constructor(initialEnv?: Record<string, string>, bootUpAsRoot: boolean = true) {
+  constructor(initialEnv?: Record<string, string>, bootUpAsRoot: boolean = false) {
     if (initialEnv) {
       this.envVars = { ...initialEnv };
     }

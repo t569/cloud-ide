@@ -74,17 +74,25 @@ const dataDir = process.env.CIDE_DATA_DIR
   ? path.resolve(process.env.CIDE_DATA_DIR)
   : path.resolve(sandboxDir, '..', 'backend', 'data');
 const worktreesRoot = path.join(dataDir, 'worktrees');
+// The per-user package cache (backend/services/sandbox/cacheVolumes.ts) bind-mounts
+// <dataDir>/caches/<owner> into every sandbox alongside the worktree, so its root must
+// be allow-listed too — otherwise the daemon 400s EVERY boot with HOST_PATH_NOT_ALLOWED.
+// Both are named subdirs of dataDir; we list the two specific roots rather than dataDir
+// itself, so the allow-list stays as tight as the mounts we actually make.
+const cachesRoot = path.join(dataDir, 'caches');
 fs.mkdirSync(worktreesRoot, { recursive: true });
+fs.mkdirSync(cachesRoot, { recursive: true });
 
 const resolvedConfig = path.join(sandboxDir, '.sandbox.resolved.toml');
 const template = fs.readFileSync(path.join(sandboxDir, '.sandbox.toml'), 'utf8');
-const allowlist = `allowed_host_paths = [${JSON.stringify(worktreesRoot.replace(/\\/g, '/'))}]`;
+const toToml = (p) => JSON.stringify(p.replace(/\\/g, '/'));
+const allowlist = `allowed_host_paths = [${toToml(worktreesRoot)}, ${toToml(cachesRoot)}]`;
 if (!/^allowed_host_paths\s*=/m.test(template)) {
   console.error('\n❌ [OpenSandbox] .sandbox.toml has no `allowed_host_paths` key to resolve.');
   process.exit(1);
 }
 fs.writeFileSync(resolvedConfig, template.replace(/^allowed_host_paths\s*=.*$/m, allowlist));
-console.log(`🔓 [OpenSandbox] Bind mounts allowed under ${worktreesRoot}`);
+console.log(`🔓 [OpenSandbox] Bind mounts allowed under ${worktreesRoot} and ${cachesRoot}`);
 
 // 4b. Ensure the egress sidecar image is present.
 // Every sandbox now boots with an egress policy (tenant isolation), so the daemon

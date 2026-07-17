@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { WorkspaceSession, FileNode } from '../types/editor';
 import { LocalStorageManager } from '../utils/LocalStoragemanager';
 import { isExternal } from '../core/VFSController';
@@ -19,7 +19,12 @@ import { IDETerminal } from './IDETerminal';
 import { NetworkPanel } from './NetworkPanel';
 import { ComingSoon } from './ComingSoon';
 import { PreviewPane } from '../../preview/PreviewPane';
-import { DisplayPane } from '../../preview/DisplayPane';
+// Lazy (optimization store O2): @novnc/novnc + the audio-worklet glue parse only when
+// the display pane is first opened — most sessions never open it, so it stays out of
+// the initial editor bundle.
+const DisplayPane = lazy(() =>
+  import('../../preview/DisplayPane').then((m) => ({ default: m.DisplayPane })),
+);
 import { VscSearch, VscExtensions, VscSettingsGear } from 'react-icons/vsc';
 
 import { DesignSystemProvider, useDesignSystem } from '../context/DesignSystemContext';
@@ -360,7 +365,15 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
 
               {displayOpen ? (
                 <div className="w-1/2 min-w-0 shrink-0">
-                  <DisplayPane sandboxId={sandboxId} onClose={() => setDisplayOpen(false)} />
+                  <Suspense
+                    fallback={
+                      <div className="flex h-full w-full items-center justify-center bg-[#1e1e1e] text-xs text-gray-500">
+                        Loading display…
+                      </div>
+                    }
+                  >
+                    <DisplayPane sandboxId={sandboxId} onClose={() => setDisplayOpen(false)} />
+                  </Suspense>
                 </div>
               ) : (
                 previewUrl && (

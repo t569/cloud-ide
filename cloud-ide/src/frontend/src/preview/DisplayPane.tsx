@@ -26,6 +26,7 @@ type PaneState =
   | { kind: 'connecting' }
   | { kind: 'connected' }
   | { kind: 'no-stack' }
+  | { kind: 'paused' } // off-screen / tab hidden — stream torn down to save work (O1)
   | { kind: 'error'; detail: string };
 
 /** ws(s) URL of the gateway's RFB bridge for this sandbox. */
@@ -40,6 +41,12 @@ export const DisplayPane = ({ sandboxId, onClose }: DisplayPaneProps) => {
   const [state, setState] = useState<PaneState>({ kind: 'connecting' });
   // Bumping this re-runs the connect effect — the Reconnect button.
   const [attempt, setAttempt] = useState(0);
+  // Pause the whole stream while the pane is off-screen or the browser tab is hidden
+  // (optimization store O1): a backgrounded GUI app otherwise keeps the container
+  // rendering, the WS flowing, and noVNC decoding frames nobody can see. active =
+  // on-screen AND tab-visible; when false we tear the RFB down and suspend audio, and
+  // rebuild on return (POST /display is idempotent, so the round-trip back is cheap).
+  const [active, setActive] = useState(true);
   // Audio is a SEPARATE, opt-in transport: off by default (no surprise noise,
   // no cost until asked). The toggle is the required autoplay user gesture.
   const audioRef = useRef<AudioHandle | null>(null);
@@ -61,7 +68,41 @@ export const DisplayPane = ({ sandboxId, onClose }: DisplayPaneProps) => {
     }
   };
 
+  // Track visibility: on-screen (IntersectionObserver on the canvas) AND tab-visible
+  // (visibilitychange). Either going false pauses the stream. ponytail: immediate
+  // pause/resume — add a short debounce only if rapid tab-flipping proves to thrash.
   useEffect(() => {
+    const el = screenRef.current;
+    let onScreen = true;
+    const update = () => setActive(onScreen && !document.hidden);
+    const io = new IntersectionObserver(
+      ([entry]) => { onScreen = entry.isIntersecting; update(); },
+      { threshold: 0.01 },
+    );
+    if (el) io.observe(el);
+    document.addEventListener('visibilitychange', update);
+    update();
+    return () => {
+      io.disconnect();
+      document.removeEventListener('visibilitychange', update);
+    };
+  }, []);
+
+  // Suspend/resume audio in lock-step with the video pause (O1). Reads the ref live so
+  // toggling audio on while active still works; no-op when audio is off.
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (active) a.resume();
+    else a.suspend();
+  }, [active]);
+
+  useEffect(() => {
+    if (!active) {
+      // Off-screen / hidden: the cleanup below already tore down any live RFB.
+      setState({ kind: 'paused' });
+      return;
+    }
     let live = true;
     setState({ kind: 'connecting' });
 
@@ -96,7 +137,7 @@ export const DisplayPane = ({ sandboxId, onClose }: DisplayPaneProps) => {
       rfbRef.current?.disconnect();
       rfbRef.current = null;
     };
-  }, [sandboxId, attempt]);
+  }, [sandboxId, attempt, active]);
 
   // Audio outlives video reconnects (attempt bumps) but not a sandbox swap.
   useEffect(() => {
@@ -150,6 +191,9 @@ export const DisplayPane = ({ sandboxId, onClose }: DisplayPaneProps) => {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[#1e1e1e]/95 p-6 text-center">
             {state.kind === 'connecting' && (
               <p className="text-sm text-gray-400">Starting virtual display…</p>
+            )}
+            {state.kind === 'paused' && (
+              <p className="text-sm text-gray-400">Paused while hidden — return to resume.</p>
             )}
             {state.kind === 'no-stack' && (
               <>

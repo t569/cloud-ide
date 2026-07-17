@@ -9,6 +9,10 @@ import workletUrl from './pcmPlayer.worklet.js?url';
 
 export interface AudioHandle {
   stop: () => void;
+  /** Pause/resume playback without dropping the stream (optimization store O1):
+   *  the AudioContext suspends while the pane is hidden, so no decode/output runs. */
+  suspend: () => void;
+  resume: () => void;
 }
 
 function audioUrl(sandboxId: string): string {
@@ -45,6 +49,11 @@ export async function connectAudio(sandboxId: string): Promise<AudioHandle> {
   };
   ws.onclose = () => node.disconnect();
 
+  // While suspended the WS keeps arriving; the worklet ring drops oldest on overflow,
+  // so a long hide can't grow memory — playback just resumes from "now", not backlog.
+  const suspend = () => { void ctx.suspend(); };
+  const resume = () => { void ctx.resume(); };
+
   await new Promise<void>((resolve, reject) => {
     ws.onopen = () => {
       void ctx.resume(); // autoplay policy: a user gesture (the toggle) precedes this
@@ -53,5 +62,5 @@ export async function connectAudio(sandboxId: string): Promise<AudioHandle> {
     ws.onerror = () => reject(new Error('Audio stream failed to open.'));
   });
 
-  return { stop };
+  return { stop, suspend, resume };
 }

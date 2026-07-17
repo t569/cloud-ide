@@ -163,6 +163,8 @@ writes are host-direct as root, so those are unaffected).
   (`useradd || adduser`). So `bootUpAsRoot: false` now produces a buildable image.
 - [x] Confirmed the assembler's `USER sandbox-user` line lands (single-stage verified via
   generated Dockerfile; multi-stage uses the same `role==='runtime'` gate).
+- [x] **Verified live:** a `bootUpAsRoot:false` env builds cleanly (no `chown` failure) and
+  ships as `Config.User=sandbox-user` / `uid=1000(sandbox-user)`.
 - [ ] **Deferred to Phase 3 — reconcile the `bootUpAsRoot` default.** Three unset-defaults
   disagree: orchestrator `?? true` (drives the build), `contentTag` `?? false` (hash), and
   `ContextManager = true`. Reconciling is entangled with (a) the posture decision (non-root

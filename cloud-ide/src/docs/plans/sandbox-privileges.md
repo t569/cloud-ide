@@ -125,19 +125,24 @@ and only once userns lands.
   the WS with `&root=1` (`createTerminalTransport({root:true})` → `PtyGateway -u 0`). Guarded to
   PTY drivers, titled `root-N`, keyed apart from normal shells. Broker complete end to end.
 - [ ] One-shot **run-as-root** (`POST /:id/root-exec`) for a command-palette action — optional.
-- [x] **Sudo-password pane** — a "Sandbox access" sidebar pane (shield-key activity item) with a
-  click-to-reveal root password. Owner-gated `POST /:id/sudo-access` derives the password
-  statelessly from the auth HMAC (`sandboxRootPassword`, nothing stored) and applies it in the
-  live container as root: `chpasswd` for `su -`, plus a `Defaults rootpw` + sudoers drop-in where
-  `sudo`/`sandbox-user` exist. Password fed on stdin (never argv); deterministic, so it survives
-  container swaps. Container code can't compute it (no secret) or read it (`/etc/shadow`).
-  **Verified live** against the real non-root env image + a sudo-capable image: `chpasswd`
-  turns root's `/etc/shadow` field from `*` into a `$y$` (yescrypt) hash; the sudoers drop-in
-  is written where `sudo`+`sandbox-user` exist and correctly **skipped** where `sudo` is absent
-  (no warning); `sudo -S` as `sandbox-user` with the root password returns `uid=0` (live PAM
-  auth against that hash — `Defaults rootpw`), a wrong password is rejected; and non-root `cat
-  /etc/shadow` is denied. Password fed on stdin throughout (never argv).
-- Decision: **both** the gateway broker and the sudo pane (broker shipped here; pane next).
+  Works under the hardened posture (it's a broker `docker exec -u 0`, not setuid), so this is
+  the natural replacement for the retired sudo pane's muscle-memory if wanted.
+- [~] **Sudo-password pane — BUILT, THEN REMOVED (Phase 4 finding).** A "Sandbox access" pane
+  revealed an owner-gated, HMAC-derived root password and applied it via `chpasswd` (+ a
+  `Defaults rootpw` sudoers drop-in) so `su -` / `sudo` worked in a normal shell. The container
+  mechanics verified live on a container **without** `no-new-privileges`. But **real sandboxes
+  run with `--security-opt no-new-privileges:true`** (the OpenSandbox daemon default), and
+  `su`/`sudo` are **setuid-root** — the whole point of NNP is to stop a setuid binary from
+  elevating. Verified live under the true posture: `sudo` → *"the 'no new privileges' flag is
+  set, which prevents sudo from running as root"*, `su` → *"Authentication failure"*. So the
+  pane could never work in a real sandbox without dropping NNP, and dropping a keystone hardening
+  for a convenience feature is the wrong trade for a branch whose whole job is shrinking blast
+  radius. **Removed** (endpoint, `sandboxRootPassword`, pane UI, activity item). The gateway
+  broker below is the sound escalation path — it survives NNP because the daemon spawns the
+  uid-0 process directly (verified: `docker exec -u 0` → `uid=0`, writes `/etc`, under
+  `no-new-privileges:true`).
+- Decision: **gateway broker only** (root terminal; optional one-shot run-as-root). The
+  setuid sudo-password pane is incompatible with the hardened default and was retired.
 
 ## Decisions to make (asked, to be answered)
 
@@ -228,16 +233,53 @@ writes are host-direct as root, so those are unaffected).
   writable; and **`pulseaudio -D` starts as uid 1000** (`PULSE_RUNNING_AS_NONROOT`) where it
   died as root — so the audio tap comes up. The only piece left is the *perceptual* browser
   check (open a display env's pane and hear the SFX), which is a manual gate.
-- [x] **Sudo-password pane shipped + verified live** (second escalation surface) — see the escalation slice above.
+- [~] **Sudo-password pane — built then removed** (incompatible with `no-new-privileges`; see the
+  escalation slice above). The **root terminal broker** is the escalation surface.
 - [x] **Follow-up: Phase 2.1 edit/build write parity** — done (see Phase 2 above). In-container
   `git` ruled a non-goal (scoping decision there), not a pending item.
-- [ ] **Follow-up:** migrate existing root sandboxes (they rebuild non-root on next build via
-  the recipe-hash).
+- [x] **Follow-up: migrate existing root sandboxes — verified in the wild, no code.** Migration
+  is the Phase-3 rebuild primitive: a rebuild regenerates the (now non-root) Dockerfile → new
+  content-hash tag → non-root image → `:latest` repointed. **Proven live on the fleet:** env
+  `1ht0hf9dl2` carries a *stale* root tag (`3e3d36f95718d714`, `Config.User=[]`) alongside a
+  newer non-root `:latest` (`c36b64e10ea71f5f`, `USER=sandbox-user`) — a completed root→non-root
+  migration, old root tag left as dangling history. Launch boots the stored `env.imageName`
+  and never rebuilds (SessionController gate), so migration is strictly **opt-in per env** (no
+  rebuild storm, per Rollout): an env stays root until *its* next rebuild; a running/paused root
+  sandbox stays root until destroyed + re-provisioned from the rebuilt image. Envs still root as
+  of this writing (`lshi1xh8ex`, `olio24wf0b`, `2nr53zc407`, `01ouek0r6h`) move over on their
+  next build. Root/non-root is purely an image property (the daemon honors `Config.User`,
+  Phase 0) — there is no sandbox-side migration code to write.
 
-### Phase 4 — Security hardening + default flip
-- [ ] userns-remap / cap-drop review (pair with the egress `NET_ADMIN` drop).
-- [ ] Flip the default to non-root for all envs once proven; document migration (existing
-  images are root — a rebuild moves them over). Update `SECURITY.md`.
+### Phase 4 — Security hardening — ✅ REVIEW DONE
+The default flip already landed in Phase 3; Phase 4 is the hardening **review**. It found the
+runtime posture already strong (the egress workstream + Phase 3 non-root did the heavy lifting)
+and surfaced one real conflict (the sudo pane). Inspected a live sandbox's `HostConfig`:
+
+- [x] **Posture inventory (already in place, via the OpenSandbox daemon + `.sandbox.toml`):**
+  `Privileged=false`, `CapAdd=[]`, `SecurityOpt=[no-new-privileges:true]`, seccomp = Docker
+  builtin, `PidsLimit=512`, non-root `USER=sandbox-user` (Phase 3), egress sidecar holds the
+  only `NET_ADMIN`. `CapDrop` = `[AUDIT_WRITE MKNOD NET_ADMIN NET_RAW SYS_ADMIN SYS_MODULE
+  SYS_PTRACE SYS_TIME SYS_TTY_CONFIG]`.
+- [x] **cap-drop review — current curated list is correct; do NOT tighten to `cap-drop=ALL`.**
+  `--cap-drop` removes caps from the **bounding set**, so a cap dropped there can't be regained
+  *even by root* obtained through the broker. The broker's #1 use case is `sudo apt install`,
+  and dpkg needs `CHOWN`/`DAC_OVERRIDE`/`FOWNER`/`FSETID` — all deliberately KEPT. The list
+  drops exactly the escape-dangerous caps (`SYS_ADMIN`, `SYS_PTRACE`, `SYS_MODULE`, `NET_ADMIN`,
+  `NET_RAW`, `MKNOD`, `SYS_TIME`, …) while preserving what legitimate in-sandbox root needs. No
+  change warranted.
+- [x] **`no-new-privileges` vs the sudo pane (the finding).** NNP is a keystone hardening (stops
+  untrusted in-container code abusing *any* setuid binary to escalate) and stays ON. It makes the
+  setuid `su`/`sudo` pane impossible; the pane was removed (escalation slice). The gateway broker
+  is unaffected — the daemon spawns uid-0 directly, not via setuid. Verified both live.
+- [x] **userns-remap — deferred (opt-in extra-hardened posture), not defaulted.** The non-root
+  `USER` already delivers most of the escape-surface reduction *and* keeps audio (userns keeps
+  in-container `getuid()==0`, which is why the plan's Option C "doesn't fix pulseaudio"). Enabling
+  `userns-remap` is a **host `daemon.json`** change (not repo config), shifts container uids on the
+  host (complicating the uid-parity Phase 2 relies on — though the world-writable 0666/0777 posture
+  would still function), and buys only marginal defense-in-depth on top of an already non-root +
+  NNP + seccomp + cap-dropped container. Reserve it for an explicit hardened-node posture.
+- [x] **Default flip** — done in Phase 3 (non-root default; `bootUpAsRoot:true` is the escape hatch).
+- [x] **`SECURITY.md` updated** — runtime privilege model + this posture recorded there, pointing here.
 
 ## Testing / acceptance
 

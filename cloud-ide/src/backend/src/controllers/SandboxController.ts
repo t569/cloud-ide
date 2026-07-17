@@ -10,7 +10,7 @@ import { DirtyWorktreeError, SandboxManager } from '../services/sandbox/SandboxM
 import { diffSnapshots } from '../services/promotion/toolSnapshot';
 import { ISessionRepository } from '../database/interfaces';
 import { JsonActivityRepository } from '../database/json/JsonActivityRepository';
-import { currentUser, mintPreviewToken, sandboxRootPassword } from '../api/middleware/auth';
+import { currentUser, mintPreviewToken } from '../api/middleware/auth';
 import { startDisplay, startAudio } from '../api/DisplayGateway';
 
 
@@ -220,79 +220,6 @@ export class SandboxController {
     res.status(200).json({ token: mintPreviewToken(sandboxId) });
   };
 
-
-  /**
-   * POST /:sandboxId/sudo-access — reveal (and apply) this sandbox's root password.
-   *
-   * The second escalation surface, next to the root terminal: it hands the OWNER a
-   * password to become root in their OWN (non-root) shell via `su -` / `sudo`, with no
-   * new in-container secret. The password is derived from the gateway's HMAC secret, so
-   * code inside the container can't compute it, and it's written straight into
-   * /etc/shadow, which that code can't read. Owner-gated by the router exactly like
-   * getPreviewToken — obtaining it IS proof of ownership.
-   *
-   * Applying is idempotent (the value is deterministic), so calling this repeatedly — or
-   * after a container swap that reset /etc/shadow — always re-establishes the same password.
-   */
-  public getSudoAccess = async (req: Request, res: Response): Promise<void> => {
-    const sandboxId = this.getStringParam(req.params.sandboxId);
-
-    if (!sandboxId) {
-      res.status(400).json({ error: 'sandboxId is required.' });
-      return;
-    }
-
-    try {
-      // Setting the password needs a live container — wake a paused one, same as exec.
-      const status = await this.sandboxManager.getStatus(sandboxId);
-      if (status.state === 'PAUSED') {
-        await this.sandboxManager.resume(sandboxId);
-        await new Promise((r) => setTimeout(r, 300));
-      }
-
-      const password = sandboxRootPassword(sandboxId);
-      await this.applyRootPassword(sandboxId, password);
-      res.status(200).json({ user: 'sandbox-user', password });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  };
-
-  /**
-   * Set root's password in the live container, and where `sudo` exists let sandbox-user
-   * use it with the ROOT password (`Defaults rootpw`). Runs as root via `docker exec -u 0`
-   * — the gateway's own privilege, the same broker the root terminal uses. The password is
-   * fed on STDIN (never argv/env), so it never appears in a process listing.
-   *
-   * ponytail: shells out to the docker CLI, like streamLogs — the gateway is colocated
-   * with dockerd. A non-docker driver would need a rootExec() on ISandboxDriver.
-   */
-  private applyRootPassword(sandboxId: string, password: string): Promise<void> {
-    // The sudoers drop-in is written only when BOTH sudo and sandbox-user exist — on a
-    // root image (no sandbox-user) sudo would otherwise warn "unknown user" every call.
-    const script = [
-      'set -e',
-      'chpasswd', // reads "root:<pw>" from stdin
-      'if command -v sudo >/dev/null 2>&1 && id sandbox-user >/dev/null 2>&1; then',
-      "  printf 'Defaults rootpw\\nsandbox-user ALL=(ALL:ALL) ALL\\n' > /etc/sudoers.d/cide-sudo",
-      '  chmod 440 /etc/sudoers.d/cide-sudo',
-      'fi',
-    ].join('\n');
-
-    return new Promise((resolve, reject) => {
-      // Array args: sandboxId can't inject a flag. `-i` keeps stdin open for chpasswd.
-      const child = spawn('docker', ['exec', '-i', '-u', '0', `sandbox-${sandboxId}`, 'sh', '-c', script]);
-      let stderr = '';
-      child.stderr.on('data', (d) => (stderr += String(d)));
-      child.on('error', reject);
-      child.on('close', (code) =>
-        code === 0
-          ? resolve()
-          : reject(new Error(stderr.trim() || `Setting the root password failed (exit ${code}).`)),
-      );
-      child.stdin.end(`root:${password}\n`);
-    });
-  }
 
   /**
    * @description Executes a shell command inside the container and streams

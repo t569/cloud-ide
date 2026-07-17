@@ -1,4 +1,4 @@
-import { mintPreviewToken, verifyPreviewToken, sandboxRootPassword } from './auth';
+import { mintPreviewToken, verifyPreviewToken } from './auth';
 
 describe('preview access tokens', () => {
   it('a freshly minted token verifies for its sandbox', () => {
@@ -27,18 +27,5 @@ describe('preview access tokens', () => {
       delete process.env.PREVIEW_TOKEN_TTL_MS;
       expect(m.verifyPreviewToken(expired, 'sbx-1')).toBe(false);
     });
-  });
-});
-
-describe('sandbox root password', () => {
-  it('is deterministic per sandbox and differs across sandboxes', () => {
-    expect(sandboxRootPassword('sbx-1')).toBe(sandboxRootPassword('sbx-1'));
-    expect(sandboxRootPassword('sbx-1')).not.toBe(sandboxRootPassword('sbx-2'));
-  });
-
-  it('is a fixed-length, shell-safe token (no chars that break `root:<pw>`)', () => {
-    const pw = sandboxRootPassword('sbx-1');
-    expect(pw).toHaveLength(20);
-    expect(pw).toMatch(/^[A-Za-z0-9_-]+$/); // base64url — no ':' or newline
   });
 });

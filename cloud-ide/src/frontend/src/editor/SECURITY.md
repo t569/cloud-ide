@@ -273,6 +273,43 @@ git checkout writes symlinks); upgrade path is `O_NOFOLLOW` opens.
 
 ---
 
+## 8. Container runtime privilege model (non-root sandboxes) · **Hardening** · ✅ IN PLACE
+
+The in-container privilege posture — a separate trust boundary from the gateway API above.
+Full design + phase history: [`docs/plans/sandbox-privileges.md`](../../../docs/plans/sandbox-privileges.md).
+Untrusted user code runs in the sandbox, so the posture is defence-in-depth around it:
+
+- **Non-root by default.** Sandboxes boot as `sandbox-user` (uid 1000), not root — the build
+  default since the privileges workstream. `bootUpAsRoot: true` is an explicit per-env escape
+  hatch. Existing root images migrate to non-root on their next rebuild (content-hash driven; no
+  forced rebuild storm), so the fleet moves over as envs rebuild.
+- **`no-new-privileges:true`** on every sandbox — untrusted in-container code cannot abuse a
+  setuid binary (`sudo`, `su`, ping, …) to escalate. This is load-bearing and stays on.
+- **Capabilities:** a curated `cap-drop` removes the escape-dangerous set (`SYS_ADMIN`,
+  `SYS_PTRACE`, `SYS_MODULE`, `NET_ADMIN`, `NET_RAW`, `MKNOD`, `SYS_TIME`, `AUDIT_WRITE`,
+  `SYS_TTY_CONFIG`); `Privileged=false`, default seccomp, `PidsLimit=512`. Not tightened to
+  `cap-drop=ALL`: caps leave the bounding set irrecoverably, which would break the legitimate
+  `sudo apt install` the broker enables.
+- **Escalation is broker-only.** Root in your own sandbox comes from the **owner-authenticated
+  gateway** (`docker exec -u 0` — the root-terminal tab), gated by the same `userOwnsSandbox`
+  boundary as every sandbox route. There is **no in-container escalation path**: no ambient
+  credential, and a setuid `sudo`/`su` password pane was built then **removed** because it cannot
+  work under `no-new-privileges` — and weakening NNP to enable it would hand escalation back to
+  untrusted in-container code, defeating the point. The broker works precisely because the daemon
+  spawns the privileged process directly, not via setuid.
+- **File boundary.** The gateway (root) and the container (uid 1000) share the worktree; it is
+  world-writable (0666/0777, root-owned), the same single-tenant posture as the cache mount, so
+  in-container tooling can edit what the IDE wrote. Cross-**tenant** isolation is the real boundary
+  (per-sandbox worktree + egress), not intra-worktree perms. In-container `git` against the shared
+  bare repo is deliberately NOT exposed (it would leak every tenant's branches); git is a gateway
+  broker, host-direct.
+
+`userns-remap` (container-root → host-unprivileged) is a reserved, opt-in hardened-node posture,
+not the default — the non-root user already captures most of the escape-surface win and keeps
+audio working (userns would not).
+
+---
+
 ## Not vulnerabilities (verified)
 
 - **Filename rendering** (tabs `components/EditorTabs.tsx`, explorer
@@ -294,6 +331,7 @@ git checkout writes symlinks); upgrade path is `O_NOFOLLOW` opens.
 | 4 | No CSP / security headers | Low | ✅ Fixed (edge header still owed) |
 | 5 | localStorage → CSS custom property | Low | ➖ Accepted (defense-in-depth only) |
 | 7 | Backend path traversal (client path not trusted) | High | ✅ Fixed (lexical + symlink) |
+| 8 | Container runtime privilege model (non-root + broker-only escalation) | Hardening | ✅ In place |
 
 All ranked findings are resolved. Remaining hardening is ops/defense-in-depth:
 production CSP + HSTS headers at the edge (#4) and tightening `script-src` to nonces.

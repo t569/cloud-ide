@@ -173,10 +173,17 @@ writes are host-direct as root, so those are unaffected).
   and the hash change is rolled out deliberately.
 
 ### Phase 2 — Close the uid boundary (make non-root *work*)
-- [ ] Worktree mounts writable by the container user (Option A: 0777 on `createWorktree`,
-  mirroring `cacheVolumeFor`; or the chosen strategy).
-- [ ] Reconcile host-direct `FileSystemManager`/`WorktreeEngine` writes with the container
-  uid (umask, ownership, `git` safe.directory as needed).
+- [x] **Worktree writable by the container user.** `WorktreeEngine.createWorktree` now
+  `chmod -R a+rwX`'s the checkout (both fresh and recovery paths), keeping it root-OWNED so
+  the gateway's root `git` sees no ownership change. A non-root container can now read, edit,
+  and create in `/workspace`. Same permissive single-tenant posture as the 0777 cache mount.
+- [ ] **Phase 2.1 — full read/write parity (deferred).** The `a+rwX` covers the INITIAL
+  checkout; files the gateway CREATES afterward (git commits, brand-new IDE files) come back
+  root-owned 0644, and in-container `git` hits "dubious ownership" on a root-owned repo. Full
+  parity needs the deeper reconciliation: run the gateway's `git`/FS writes as the container
+  uid, or a non-root gateway (Option D), or `core.sharedRepository` + a shared group + a
+  container-side `safe.directory`. Not needed for the display E2E (the app doesn't write
+  `/workspace`); schedule it when in-container `git`/edit parity is the priority.
 
 ### Phase 3 — Turn it on (opt-in), validate end to end
 - [ ] Display envs default non-root. Full E2E: boots RUNNING, execd works, editor reads AND

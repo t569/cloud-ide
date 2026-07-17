@@ -59,6 +59,7 @@ export class WorktreeEngine {
         try {
             await fs.access(targetPath);
             console.log(`[WorktreeEngine] Worktree for ${sandboxId} already exists. Reusing path.`);
+            await this.makeContainerWritable(targetPath); // a recovered non-root sandbox needs it too
             return targetPath;
         } catch {
             // Directory does not exist, proceed to create
@@ -87,10 +88,35 @@ export class WorktreeEngine {
                 cwd: this.baseRepoPath,
             });
         }
+        await this.makeContainerWritable(targetPath);
         return targetPath;
         } catch (error: any) {
         throw new Error(`Failed to provision worktree: ${error.message}`);
         }
+    }
+
+    /**
+     * Grant the non-root sandbox user write access to its worktree (Phase 2 of the
+     * non-root workstream — docs/plans/sandbox-privileges.md).
+     *
+     * The gateway (and its `git`) run as ROOT, so a fresh checkout is root-owned 0644. A
+     * non-root container (bootUpAsRoot:false ⇒ sandbox-user, uid 1000) then gets a
+     * READ-ONLY workspace — it can't `npm install`, write build output, or save from a
+     * terminal editor. `a+rwX` opens the tree to the container user (`X` adds +x on
+     * directories and already-executable files only) while leaving it root-OWNED, so the
+     * gateway's own root `git` sees no ownership change (no "dubious ownership"). Same
+     * permissive, single-tenant posture as the 0777 package-cache mount (cacheVolumes.ts),
+     * and a no-op for root sandboxes (root ignores perms).
+     *
+     * ponytail: this covers the INITIAL checkout. Files the gateway CREATES afterward (git
+     * commits, brand-new IDE files) come back root-owned 0644 — full read/write parity for
+     * in-container `git`/editing needs the deeper uid reconciliation (run gateway ops as the
+     * container uid, or a non-root gateway). Tracked as Phase 2.1 in the plan.
+     */
+    private async makeContainerWritable(targetPath: string): Promise<void> {
+        await execAsync(`chmod -R a+rwX '${targetPath}'`).catch((e: any) =>
+            console.warn(`[WorktreeEngine] Could not open worktree perms for ${targetPath}: ${e.message}`),
+        );
     }
     
 

@@ -196,13 +196,24 @@ writes are host-direct as root, so those are unaffected).
   **Verified live:** a `bootUpAsRoot:false` sandbox `touch`/`echo >`/`mkdir`s in `/workspace`
   with no manual chmod (all WROTE; files owned by `sandbox-user`) — the Phase-0 "Permission
   denied" is gone.
-- [ ] **Phase 2.1 — full read/write parity (deferred).** The `a+rwX` covers the INITIAL
-  checkout; files the gateway CREATES afterward (git commits, brand-new IDE files) come back
-  root-owned 0644, and in-container `git` hits "dubious ownership" on a root-owned repo. Full
-  parity needs the deeper reconciliation: run the gateway's `git`/FS writes as the container
-  uid, or a non-root gateway (Option D), or `core.sharedRepository` + a shared group + a
-  container-side `safe.directory`. Not needed for the display E2E (the app doesn't write
-  `/workspace`); schedule it when in-container `git`/edit parity is the priority.
+- [x] **Phase 2.1 — edit/build write parity.** The `a+rwX` covered only the INITIAL checkout;
+  files the gateway CREATES afterward (IDE saves via `FileSystemManager.writeFile`, the sole
+  post-checkout working-tree writer) came back root-owned 0644 / new dirs 0755 — read-only to
+  the container's `sandbox-user` (uid 1000), so an in-container `npm install` / build / terminal
+  editor couldn't rewrite what the IDE just wrote. `writeFile` now chmods the new file 0666 and
+  every directory it created 0777 (root-OWNED still; `chmod` is umask-exact where a create-`mode`
+  isn't), the same single-tenant posture as the 0777 cache mount. Scoped to the VFS choke point —
+  the auth secret (`auth.ts` 0600) stays untouched, so no process-wide umask change.
+  **Verified:** posix unit test asserts 0666/0777; and live — a uid-1000 container `>>`-appends a
+  gateway-written 0666 file and `touch`es into a 0777 gateway-created dir (both **WROTE**), where
+  the pre-fix 0644/0755 equivalents are **DENIED**.
+- **In-container `git` is a NON-GOAL here (scoping decision), not deferred parity.** A linked
+  worktree's gitdir lives in the shared `central-repo.git`, which holds EVERY sandbox's branches
+  and is deliberately NOT bind-mounted in (doing so would leak all tenants' history into one
+  container). So in-container `git` can't reach its gitdir at all — it's structural, not a
+  `chmod`/`safe.directory` fix. Git stays a **gateway broker** (host-direct), the same pattern as
+  the privilege broker. A real "git in the terminal" feature would need a per-sandbox standalone
+  git dir mounted in — its own workstream, out of scope for the privilege model.
 
 ### Phase 3 — Turn it on (default flip), validate end to end
 - [x] **Default flipped to non-root.** `StageOrchestrator` (both single- and multi-stage) and
@@ -218,9 +229,10 @@ writes are host-direct as root, so those are unaffected).
   died as root — so the audio tap comes up. The only piece left is the *perceptual* browser
   check (open a display env's pane and hear the SFX), which is a manual gate.
 - [x] **Sudo-password pane shipped + verified live** (second escalation surface) — see the escalation slice above.
-- [ ] **Follow-ups:** Phase 2.1
-  (in-container `git`/edit write parity); migrate existing root sandboxes (they rebuild
-  non-root on next build via the recipe-hash).
+- [x] **Follow-up: Phase 2.1 edit/build write parity** — done (see Phase 2 above). In-container
+  `git` ruled a non-goal (scoping decision there), not a pending item.
+- [ ] **Follow-up:** migrate existing root sandboxes (they rebuild non-root on next build via
+  the recipe-hash).
 
 ### Phase 4 — Security hardening + default flip
 - [ ] userns-remap / cap-drop review (pair with the egress `NET_ADMIN` drop).

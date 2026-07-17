@@ -32,6 +32,19 @@ describe('FileSystemManager path containment', () => {
     expect(listed.map((e) => e.name)).toContain('notes');
   });
 
+  // Phase 2.1: gateway (root) writes must be writable by the non-root container user.
+  // POSIX-only — Windows has no such mode bits, so asserting them there is false confidence.
+  const posixIt = process.platform === 'win32' ? it.skip : it;
+  posixIt('opens gateway-created files (0666) and new dirs (0777) to the container user', async () => {
+    await fm.writeFile('sbx', '/workspace/a/b/c.txt', 'x');
+    const fileMode = (await fs.stat(path.join(worktree, 'a/b/c.txt'))).mode & 0o777;
+    const dirMode = (await fs.stat(path.join(worktree, 'a/b'))).mode & 0o777;
+    const midMode = (await fs.stat(path.join(worktree, 'a'))).mode & 0o777;
+    expect(fileMode & 0o002).toBe(0o002);   // world-writable file
+    expect(dirMode).toBe(0o777);            // both newly-created dirs opened
+    expect(midMode).toBe(0o777);
+  });
+
   it('refuses lexical `..` traversal out of the workspace', async () => {
     await expect(fm.readFile('sbx', '/workspace/../outside/secret.txt')).rejects.toThrow(/escapes the workspace/);
     await expect(fm.readFile('sbx', '/workspace/../../etc/passwd')).rejects.toThrow(/escapes the workspace/);

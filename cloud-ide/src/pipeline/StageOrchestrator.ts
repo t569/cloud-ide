@@ -59,7 +59,7 @@ export class StageOrchestrator {
           inboundArtifacts: []
         }],
         globalEnv: config.env || {},
-        bootUpAsRoot: this.resolveBootUpAsRoot(config)
+        bootUpAsRoot: config.bootUpAsRoot ?? true
       };
     }
 
@@ -85,20 +85,8 @@ export class StageOrchestrator {
     return {
       stages: [builderStage, runtimeStage],
       globalEnv: config.env || {},
-      bootUpAsRoot: this.resolveBootUpAsRoot(config)
+      bootUpAsRoot: config.bootUpAsRoot ?? true  // resolve to true if undefined, defaulting to root for better compatibility with various base images and build steps
     };
-  }
-
-  /**
-   * Whether the container's runtime runs as root. Explicit config wins. Unset defaults
-   * to root "for compatibility with various base images and build steps" — EXCEPT for
-   * display-enabled envs, which default to NON-root: pulseaudio refuses to run as root
-   * (so audio never starts), and running untrusted GUI code as non-root is the safer
-   * default anyway. Setting it engages SecurityUserInjector + the assembler's USER line.
-   */
-  private static resolveBootUpAsRoot(config: EnvironmentConfig): boolean {
-    if (config.bootUpAsRoot != null) return config.bootUpAsRoot;
-    return !config.displaySupport;
   }
 
   private static isBuilderStep(step: BuildStep): boolean {

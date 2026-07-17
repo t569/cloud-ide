@@ -17,10 +17,7 @@ export class SecurityUserInjector implements PipelineInjector {
     runtimeStage.steps.unshift({
       name: 'Create Restricted Sandbox User',
       type: 'shell',
-      // Debian `useradd` OR Alpine/busybox `adduser` — a display env can be built on
-      // either base, and `useradd` alone would fail the BUILD (exit 127) on Alpine.
-      command:
-        '(useradd -m -s /bin/bash sandbox-user || adduser -D -s /bin/bash sandbox-user) && chown -R sandbox-user:sandbox-user /workspace',
+      command: 'useradd -m -s /bin/bash sandbox-user && chown -R sandbox-user:sandbox-user /workspace',
       isGlobal: true
     });
 

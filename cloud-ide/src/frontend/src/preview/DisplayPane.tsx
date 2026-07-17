@@ -123,6 +123,15 @@ export const DisplayPane = ({ sandboxId, onClose }: DisplayPaneProps) => {
       const rfb = new RFB(screenRef.current, streamUrl(sandboxId));
       rfb.scaleViewport = true; // fixed 1280x720 server-side; fit whatever the pane is
       rfb.background = '#1e1e1e';
+      // Encoding tuning (optimization store O4, client half): the stack lives on
+      // localhost/LAN — bandwidth is surplus, CPU is scarce (software-GL server + a JS
+      // decoder). So trade bytes for cycles: compressionLevel 0 skips zlib on both ends;
+      // qualityLevel 8 keeps the dev UI crisp (JPEG decode is cheap). These are
+      // client-only knobs — they cannot affect Xvnc boot. The bigger lever, server-side
+      // frame coalescing (Xvnc -DeferUpdate), waits for the live E2E gate to verify the
+      // flag + tune the value; see docs/plans/display-streaming.md O4.
+      rfb.compressionLevel = 0;
+      rfb.qualityLevel = 8;
       rfb.addEventListener('connect', () => live && setState({ kind: 'connected' }));
       rfb.addEventListener('disconnect', () => {
         // Covers pause/resume (socket dies, server survives) and Xvnc crashes —

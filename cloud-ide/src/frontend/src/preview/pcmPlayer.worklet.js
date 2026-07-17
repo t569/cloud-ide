@@ -10,9 +10,11 @@ class PcmPlayer extends AudioWorkletProcessor {
   constructor(options) {
     super();
     const channels = (options.processorOptions && options.processorOptions.channels) || 2;
-    // ~2s of interleaved headroom; overflow drops oldest (producer is realtime,
-    // so this only trips if the tab is badly starved — silence beats unbounded lag).
-    const capacity = sampleRate * channels * 2;
+    // ~0.5s of interleaved headroom (optimization store O5): enough to absorb WS jitter
+    // on localhost/LAN, and it caps worst-case latency — a bigger ring just lets backlog
+    // (and delay) accumulate during recovery. Overflow drops oldest, so a starved tab
+    // hears "now", not a growing lag. Smaller than this would risk underflow on a hiccup.
+    const capacity = Math.max(channels, Math.floor(sampleRate * channels * 0.5));
     this.channels = channels;
     this.ring = new Float32Array(capacity);
     this.capacity = capacity;

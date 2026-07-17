@@ -13,5 +13,9 @@ declare module '@novnc/novnc' {
     /** CSS background behind/around the framebuffer. */
     background: string;
     viewOnly: boolean;
+    /** Tight JPEG quality, 0–9 (higher = crisper, more bytes). */
+    qualityLevel: number;
+    /** zlib level for non-JPEG regions, 0–9 (0 = none; less CPU, more bytes). */
+    compressionLevel: number;
   }
 }

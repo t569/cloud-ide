@@ -177,6 +177,9 @@ writes are host-direct as root, so those are unaffected).
   `chmod -R a+rwX`'s the checkout (both fresh and recovery paths), keeping it root-OWNED so
   the gateway's root `git` sees no ownership change. A non-root container can now read, edit,
   and create in `/workspace`. Same permissive single-tenant posture as the 0777 cache mount.
+  **Verified live:** a `bootUpAsRoot:false` sandbox `touch`/`echo >`/`mkdir`s in `/workspace`
+  with no manual chmod (all WROTE; files owned by `sandbox-user`) — the Phase-0 "Permission
+  denied" is gone.
 - [ ] **Phase 2.1 — full read/write parity (deferred).** The `a+rwX` covers the INITIAL
   checkout; files the gateway CREATES afterward (git commits, brand-new IDE files) come back
   root-owned 0644, and in-container `git` hits "dubious ownership" on a root-owned repo. Full

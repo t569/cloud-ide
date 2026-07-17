@@ -158,10 +158,17 @@ story for git-checked-out files the user edits *inside* the container (the edito
 writes are host-direct as root, so those are unaffected).
 
 ### Phase 1 — Fix the drop-root machinery (make non-root *buildable*)
-- [ ] Single `bootUpAsRoot` default (kill the orchestrator-vs-naming split).
-- [ ] `SecurityUserInjector`: create the user only — **do not** `chown` the runtime mount at
-  build time. Multi-distro (`useradd || adduser`). Idempotent.
-- [ ] Confirm the assembler's `USER` line lands for both single- and multi-stage builds.
+- [x] `SecurityUserInjector`: create the user only — **no** build-time `chown /workspace` (it
+  doesn't exist at build; runtime writability is Phase 2). Idempotent + multi-distro
+  (`useradd || adduser`). So `bootUpAsRoot: false` now produces a buildable image.
+- [x] Confirmed the assembler's `USER sandbox-user` line lands (single-stage verified via
+  generated Dockerfile; multi-stage uses the same `role==='runtime'` gate).
+- [ ] **Deferred to Phase 3 — reconcile the `bootUpAsRoot` default.** Three unset-defaults
+  disagree: orchestrator `?? true` (drives the build), `contentTag` `?? false` (hash), and
+  `ContextManager = true`. Reconciling is entangled with (a) the posture decision (non-root
+  by default?) and (b) the **content hash** — flipping `contentTag`'s default invalidates
+  every cached image (rebuild storm). So it moves to Phase 3 where the posture is decided,
+  and the hash change is rolled out deliberately.
 
 ### Phase 2 — Close the uid boundary (make non-root *work*)
 - [ ] Worktree mounts writable by the container user (Option A: 0777 on `createWorktree`,

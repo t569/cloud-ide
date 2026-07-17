@@ -121,6 +121,10 @@ export class DockerPtyDriver implements ISandboxDriver {
     // interactive + TTY; node-pty gives docker a real host PTY so `-t` succeeds.
     const args = [
       'exec', '-it',
+      // Escalation broker: `-u 0` (root) when the gateway asks for it — only ever after
+      // its userOwnsSandbox check, so this is the owner's own privilege, not the
+      // container's. Absent ⇒ the image's USER (non-root for a dropped-root image).
+      ...(opts.user ? ['-u', opts.user] : []),
       '-e', `TERM=${opts.env?.TERM ?? 'xterm-256color'}`,
       '-w', opts.cwd ?? '/workspace',
       `sandbox-${sandboxId}`,

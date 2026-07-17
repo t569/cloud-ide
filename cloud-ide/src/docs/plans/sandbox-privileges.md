@@ -116,12 +116,17 @@ keeps code out. Reserve **passwordless-sudo + userns** for an explicit "trusted/
 and only once userns lands.
 
 ### Slice (folds into the phases below)
-- Backend: a `-u 0` path on the driver + `POST /v1/sandboxes/:id/root-exec` and/or a `?root=1`
-  PTY upgrade, behind `requireSandboxOwnership`.
-- Frontend: a "root terminal" tab; optionally a "Sandbox access" pane (owner-only route, like
-  the preview-token endpoint) that reveals the user + credential.
-- Decision: broker-only, or also ship the sudo-password pane? (Lean: broker first, pane as
-  fast-follow.)
+- [x] **Backend root PTY (broker).** `PtyOptions.user` → `DockerPtyDriver` adds `-u <user>`;
+  `PtyGateway` reads `?root=1` → `user:'root'`, authorized purely by the existing
+  `userOwnsSandbox` check on the upgrade (no new gate — the owner's own privilege, unreachable
+  from inside the container). Root sessions are keyed apart in the `PtyRegistry` so they never
+  cross-attach to a normal shell. Verified: default exec = uid 1000, `-u 0` = uid 0.
+- [ ] **Frontend "root terminal" tab** — a `TerminalTabs` entry that opens the WS with
+  `&root=1` (the `WebSocketTransport` URL). Next slice.
+- [ ] One-shot **run-as-root** (`POST /:id/root-exec`) for a command-palette action — optional.
+- [ ] **Sudo-password pane** (decided in): per-sandbox password + an owner-only reveal route
+  (like the preview token). Fast-follow after the root terminal.
+- Decision: **both** the gateway broker and the sudo pane (broker shipped here; pane next).
 
 ## Decisions to make (asked, to be answered)
 

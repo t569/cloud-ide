@@ -69,6 +69,60 @@ Options A/B/D) are *different* requirements. A complete answer may combine them
 (userns-remap for escape hardening **and** a non-root in-container user for audio + least
 privilege). Phase 0 exists to pin these down before committing.
 
+## Privilege escalation — the "sudo" question
+
+Non-root creates a real need: a user will sometimes need root **in their own sandbox**
+(`apt install` at runtime, edit `/etc`, poke `systemctl`). This must be **standard, obvious,
+and gated by identity — not by a secret that untrusted in-container code can reuse.** If any
+process in the container can silently become root, we've handed back the very blast-radius
+reduction non-root buys.
+
+### Principle
+Escalation is authorized by the **authenticated owner, through the gateway** — the same
+`userOwnsSandbox` boundary that already gates every sandbox route. Not by an ambient
+in-container credential.
+
+### The gateway is already the privilege broker
+The gateway runs privileged (it owns the Docker socket) and owner-gates every route. "Root in
+a sandbox" is just one more gateway capability — `docker exec -u 0 sandbox-<id> …` — surfaced as:
+- **Root terminal:** a PTY opened with `-u 0` via the existing `PtyGateway`, as an explicit
+  "root shell" tab.
+- **Run as root:** a one-shot owner-gated exec (`-u 0`) for a command-palette action / pane.
+
+Only the browser-authenticated owner can open these; a process *inside* the container cannot
+(there is no local sudo or password for it to abuse). This reuses the whole existing security
+model and introduces **no new in-container secret**.
+
+### Where `sudo` fits (and the password-pane idea)
+Three postures for giving classic `sudo` muscle-memory, each a deliberate trade:
+
+| Posture | How | Who can escalate | Cost |
+|---|---|---|---|
+| **Gateway broker** (recommended) | root terminal / run-as-root via `docker exec -u 0`, owner-gated | only the authenticated human | no `sudo` command — a distinct root affordance instead |
+| **Auth-gated sudo password** | per-sandbox random root password in `/etc/shadow`; revealed in an **owner-only "Sandbox access" pane** (auth-gated endpoint, exactly like the preview token) | the human (who sees the pane); container code can't read `/etc/shadow` | copy-paste per `sudo`; a secret to manage |
+| **Passwordless sudo + userns** | `sandbox-user` `NOPASSWD` sudo, contained by userns-remap (Phase 4) so container-root == host-*un*privileged | any in-container process (but host-contained) | best UX, weakest in-container isolation |
+
+**On identity:** the auth layer decides *who may escalate* (the `uid` owner); the container OS
+user stays `sandbox-user` (fixed per image). A "Sandbox access" pane would say *"you're
+authenticated as `<uid>`; container user is `sandbox-user`; here's your root access"* — the
+cloud-ide identity gates the door, it isn't the Unix user.
+
+### Recommendation
+Ship the **gateway broker** first — a first-class "root terminal" + "run as root", owner-gated,
+no secret. It's the soundest fit (privileged ops already live in the gateway) and the safest
+(untrusted code has *no* escalation path). Offer the **auth-gated sudo password pane** as an
+opt-in for users who want real `sudo`; it keeps escalation tied to the human and `/etc/shadow`
+keeps code out. Reserve **passwordless-sudo + userns** for an explicit "trusted/dev" posture,
+and only once userns lands.
+
+### Slice (folds into the phases below)
+- Backend: a `-u 0` path on the driver + `POST /v1/sandboxes/:id/root-exec` and/or a `?root=1`
+  PTY upgrade, behind `requireSandboxOwnership`.
+- Frontend: a "root terminal" tab; optionally a "Sandbox access" pane (owner-only route, like
+  the preview-token endpoint) that reveals the user + credential.
+- Decision: broker-only, or also ship the sudo-password pane? (Lean: broker first, pane as
+  fast-follow.)
+
 ## Decisions to make (asked, to be answered)
 
 | Question | Options | Lean |
@@ -77,6 +131,7 @@ privilege). Phase 0 exists to pin these down before committing.
 | uid/permission strategy | A (0777) \| B (uid match) \| C (userns) \| D (non-root gateway) \| combo | Start **A** (unblocks fast, matches cache mount); design toward **C+non-root user** for the real security win. |
 | Base-image compat | `useradd` (Debian) \| `adduser` (Alpine) \| bases with neither | Support Debian+Alpine (`useradd || adduser`); fail the build loudly on neither. |
 | Reconcile the two `bootUpAsRoot` defaults | orchestrator `?? true` vs naming `?? false` | One source of truth; pick per the posture decision above. |
+| Privilege escalation | gateway broker \| auth-gated sudo password pane \| passwordless sudo + userns | **Gateway broker first** (owner-gated root terminal / run-as-root), sudo-password pane as opt-in fast-follow. See the section above. |
 
 ## Phases / slices
 

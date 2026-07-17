@@ -43,7 +43,7 @@ This file defines the `SandboxEngine` async trait. It acts as our architectural 
 
 ### 3. `opensandbox.rs` (The Concrete Implementation)
 This is the specific implementation of the `SandboxEngine` trait for Alibaba's OpenSandbox API. It translates our standardized trait commands into the specific REST and Server-Sent Events (SSE) payloads required by the OpenSandbox daemons. 
-*(See `OPENSANDBOX_IMPLEMENTATION.md` for deep-dive mechanics on this specific provider).*
+*(See [`engine/OPENSANDBOX_IMPL.md`](./engine/OPENSANDBOX_IMPL.md) for deep-dive mechanics on this specific provider.)*
 
 ## Implementing a New Engine
 

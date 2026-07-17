@@ -34,7 +34,7 @@ When the `GeneratorService` passes data into this directory, it goes through a s
 
 ### 2. Middleware Mutation (`middleware/MiddlewareEngine.ts`)
 * **Input:** `PipelineManifest`
-* **Action:** The manifest is passed sequentially through an array of plugins (`Injectors`). This is where we inject custom, environment-specific infrastructure logic (like OpenSandbox daemons or security policies) without polluting the core parser.
+* **Action:** The manifest is passed sequentially through an array of plugins (`Injectors`). This is where we inject custom, environment-specific infrastructure logic (e.g. the `SecurityUserInjector` that drops root) without polluting the core parser.
 * **Output:** A mutated `PipelineManifest`.
 
 ### 3. State-Aware Assembly (`assembler/DockerfileAssembler.ts` & `ContextManager.ts`)

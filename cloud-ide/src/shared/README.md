@@ -1,7 +1,7 @@
 # 📁 SHARED WORKSPACE: ./shared/README.md
 
 ## Cloud IDE - Shared Types
-This is a private, internal NPM package containing the universal Data Transfer Objects (DTOs), interfaces, and type definitions shared exactly between the Rust Data Plane, the Node API Gateway, and the React Frontend.
+This is a private, internal NPM package containing the universal Data Transfer Objects (DTOs), interfaces, and type definitions shared exactly between the Node API Gateway and the React Frontend. (The OpenSandbox daemon is Python and speaks its own pydantic schema; these TS types mirror that contract on our side of the wire.)
 
 
 ### 🧠 Philosophy

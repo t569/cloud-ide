@@ -91,7 +91,8 @@ describe('SandboxManager', () => {
     const record = await manager.provision(spec, OWNER);
     const bootSpec = rust.bootSandbox.mock.calls[0][0];
 
-    expect(bootSpec.volumes).toHaveLength(2);
+    // workspace (injected), the normalized user volume, and the per-owner package cache.
+    expect(bootSpec.volumes).toHaveLength(3);
     expect(bootSpec.volumes?.[0]).toMatchObject({
       name: 'git-worktree-workspace',
       kind: 'workspace',
@@ -108,6 +109,13 @@ describe('SandboxManager', () => {
       hostPath: '/host/logs',
       readOnly: true,
     });
+    // A persistent per-user package cache is injected for the owner (cacheVolumes.ts).
+    expect(bootSpec.volumes?.[2]).toMatchObject({
+      name: 'cide-pkg-cache',
+      kind: 'user',
+      mountPath: '/cide-cache',
+      readOnly: false,
+    });
     // The owner is stamped at provision time and is the sole basis of the IDOR guard.
     expect(record.userId).toBe(OWNER);
     expect(repo.save).toHaveBeenCalledWith(
@@ -122,7 +130,7 @@ describe('SandboxManager', () => {
         requiresReprovision: false,
       })
     );
-    expect(record.desiredVolumes).toHaveLength(2);
+    expect(record.desiredVolumes).toHaveLength(3); // workspace + logs + package cache
   });
 
   // The daemon enforces ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ (max 63) and 400s otherwise.

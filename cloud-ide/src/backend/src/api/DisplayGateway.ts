@@ -77,14 +77,33 @@ export function startAudio(
   return startAudioScript((command) => sandboxManager.execBuffered(sandboxId, { command }));
 }
 
+// Backpressure bound (optimization store O3): a slow client makes ws.send() queue the
+// framebuffer/PCM stream in ws.bufferedAmount without limit — an unbounded gateway
+// memory leak, not just lag. RFB is a stateful incremental protocol, so we CANNOT drop
+// bytes; instead pause the container read when the client's send buffer is high and
+// resume once it drains (the ws.send flush callback is our "drain" signal). Byte order
+// is preserved. ponytail: 4MB/1MB is a memory ceiling, not a latency knob — tune only
+// if a real slow-client trace shows stutter, and per-frame drop-old is O1/O6, not here.
+const WS_HIGH_WATER = 4 * 1024 * 1024; // pause reading from the container above this
+const WS_LOW_WATER = 1 * 1024 * 1024; // resume once the client has drained below this
+
 /**
  * Pipe one WebSocket to one TCP socket, byte-for-byte, until either side ends.
  * Exported pure-ish so the framing is unit-testable without a server.
+ *
+ * The container→client direction is bounded by pausing the TCP read under client
+ * backpressure (O3). The client→container direction is human-rate input (mouse/keys),
+ * so tcp.write's own kernel buffer is bound enough — no throttle needed there.
  */
 export function bridge(ws: WebSocket, tcp: net.Socket): void {
   ws.on('message', (data: Buffer) => tcp.write(data));
   tcp.on('data', (chunk) => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(chunk, { binary: true });
+    if (ws.readyState !== WebSocket.OPEN) return;
+    ws.send(chunk, { binary: true }, () => {
+      // Flushed to the socket: if we throttled and the client has caught up, read on.
+      if (tcp.isPaused() && ws.bufferedAmount <= WS_LOW_WATER) tcp.resume();
+    });
+    if (ws.bufferedAmount >= WS_HIGH_WATER) tcp.pause();
   });
   const closeBoth = () => {
     tcp.destroy();

@@ -59,6 +59,17 @@ export const getSandboxNetwork = (sandboxId: string) =>
 export const getPreviewToken = (sandboxId: string) =>
   apiClient.get<{ token: string }>(`/v1/sandboxes/${encodeURIComponent(sandboxId)}/preview-token`);
 
+/**
+ * Reveal (and apply) this sandbox's root password, for `su -` / `sudo` in a normal
+ * terminal. Owner-gated + POST — it sets the password in the live container. The value is
+ * deterministic, so it's stable across calls and container swaps. Only the owner can see it.
+ */
+export const getSudoAccess = (sandboxId: string) =>
+  apiClient.post<{ user: string; password: string }>(
+    `/v1/sandboxes/${encodeURIComponent(sandboxId)}/sudo-access`,
+    {},
+  );
+
 export interface SandboxSummary {
   sandboxId: string;
   environmentId: string;

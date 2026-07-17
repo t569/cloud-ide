@@ -121,11 +121,16 @@ and only once userns lands.
   `userOwnsSandbox` check on the upgrade (no new gate — the owner's own privilege, unreachable
   from inside the container). Root sessions are keyed apart in the `PtyRegistry` so they never
   cross-attach to a normal shell. Verified: default exec = uid 1000, `-u 0` = uid 0.
-- [ ] **Frontend "root terminal" tab** — a `TerminalTabs` entry that opens the WS with
-  `&root=1` (the `WebSocketTransport` URL). Next slice.
+- [x] **Frontend "root terminal" tab** — an amber shield-key `TerminalTabs` entry that opens
+  the WS with `&root=1` (`createTerminalTransport({root:true})` → `PtyGateway -u 0`). Guarded to
+  PTY drivers, titled `root-N`, keyed apart from normal shells. Broker complete end to end.
 - [ ] One-shot **run-as-root** (`POST /:id/root-exec`) for a command-palette action — optional.
-- [ ] **Sudo-password pane** (decided in): per-sandbox password + an owner-only reveal route
-  (like the preview token). Fast-follow after the root terminal.
+- [x] **Sudo-password pane** — a "Sandbox access" sidebar pane (shield-key activity item) with a
+  click-to-reveal root password. Owner-gated `POST /:id/sudo-access` derives the password
+  statelessly from the auth HMAC (`sandboxRootPassword`, nothing stored) and applies it in the
+  live container as root: `chpasswd` for `su -`, plus a `Defaults rootpw` + sudoers drop-in where
+  `sudo`/`sandbox-user` exist. Password fed on stdin (never argv); deterministic, so it survives
+  container swaps. Container code can't compute it (no secret) or read it (`/etc/shadow`).
 - Decision: **both** the gateway broker and the sudo pane (broker shipped here; pane next).
 
 ## Decisions to make (asked, to be answered)
@@ -206,7 +211,8 @@ writes are host-direct as root, so those are unaffected).
   writable; and **`pulseaudio -D` starts as uid 1000** (`PULSE_RUNNING_AS_NONROOT`) where it
   died as root — so the audio tap comes up. The only piece left is the *perceptual* browser
   check (open a display env's pane and hear the SFX), which is a manual gate.
-- [ ] **Follow-ups:** the sudo-password pane (second escalation surface); Phase 2.1
+- [x] **Sudo-password pane shipped** (second escalation surface) — see the escalation slice above.
+- [ ] **Follow-ups:** Phase 2.1
   (in-container `git`/edit write parity); migrate existing root sandboxes (they rebuild
   non-root on next build via the recipe-hash).
 

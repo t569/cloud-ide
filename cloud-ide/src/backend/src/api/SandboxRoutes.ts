@@ -41,6 +41,9 @@ export function createSandboxRouter(
   router.get('/:sandboxId', controller.getSandboxStatus);
   router.get('/:sandboxId/network', controller.getSandboxNetwork);
   router.get('/:sandboxId/preview-token', controller.getPreviewToken);
+  // Owner-gated root password for `su`/`sudo` in a normal shell. POST: it applies the
+  // password to the live container (mutating), and gets CSRF like every other POST here.
+  router.post('/:sandboxId/sudo-access', controller.getSudoAccess);
   router.get('/:sandboxId/sessions', controller.listSessions);
   router.get('/:sandboxId/activity', controller.listActivity);
   router.get('/:sandboxId/logs', controller.streamLogs);

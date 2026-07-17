@@ -68,6 +68,19 @@ const ACTIVITY_ITEMS: ActivityBarItem[] = [
     ),
   },
   {
+    id: 'sandbox-access',
+    title: 'Sandbox access',
+    position: 'top',
+    icon: (
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <circle cx="7.5" cy="15.5" r="4.5" />
+        <path d="m10.5 12.5 6.5-6.5" />
+        <path d="m16 6 2 2" />
+        <path d="m18.5 3.5 2 2" />
+      </svg>
+    ),
+  },
+  {
     id: 'plugins',
     title: 'Plugins',
     position: 'top',

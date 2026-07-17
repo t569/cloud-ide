@@ -123,6 +123,18 @@ export function verifyPreviewToken(token: string | undefined, sandboxId: string)
   return sid === sandboxId && Number.isFinite(exp) && exp > Date.now();
 }
 
+/**
+ * The per-sandbox root password, revealed only through the owner-gated Sandbox-access
+ * route (SandboxController.getSudoAccess). Derived from the same HMAC secret as the
+ * identity/preview tokens, so there is NOTHING TO STORE: the route recomputes it to both
+ * apply it in the container (`chpasswd`) and show it. Bound to the sandboxId, so one
+ * sandbox's password never opens another. 20 base64url chars ≈ 120 bits — unguessable,
+ * and untrusted container code can't read /etc/shadow to recover it either.
+ */
+export function sandboxRootPassword(sandboxId: string): string {
+  return sign(`root-pw:${sandboxId}`).slice(0, 20);
+}
+
 // Augment Express's own Request, not the global namespace: a `declare global`
 // here leaks into every file's global scope and clobbers ambient test types.
 declare module 'express-serve-static-core' {

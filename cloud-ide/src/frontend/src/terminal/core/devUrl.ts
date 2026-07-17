@@ -62,6 +62,21 @@ export function toPreviewUrl(
 }
 
 /**
+ * True when the preview address bar was given a full EXTERNAL web URL to browse to
+ * directly (not a sandbox port). Requires an explicit `http(s)://` scheme — so a bare
+ * `github.com/x` is still treated as a path on the current sandbox port, not a jump to
+ * the internet. localhost (a sandbox port) and our own preview subdomains are NOT
+ * external. The target site's own frame policy decides whether it will actually render.
+ */
+export function isExternalWebUrl(input: string): boolean {
+  const s = input.trim();
+  if (!/^https?:\/\//i.test(s)) return false; // must be an explicit URL, not a path
+  if (isLocalDevUrl(s)) return false; // localhost = a sandbox port, proxy it
+  if (fromPreviewUrl(s)) return false; // our own preview subdomain
+  return true;
+}
+
+/**
  * Reverse of `toPreviewUrl`: turn a preview-subdomain URL back into the friendly
  * container-local form the user thinks in, dropping the internal `__cide_pt` token.
  *

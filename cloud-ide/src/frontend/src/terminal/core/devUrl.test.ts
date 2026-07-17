@@ -3,7 +3,14 @@
 // the HOST's port 3000 — the gateway — not at the dev server inside the container. The
 // gateway has no route there, so Express answered "Cannot GET /".
 import { describe, it, expect } from 'vitest';
-import { isLocalDevUrl, portOf, toPreviewUrl, fromPreviewUrl, prettyToLocalhostUrl } from './devUrl';
+import {
+  isLocalDevUrl,
+  portOf,
+  toPreviewUrl,
+  fromPreviewUrl,
+  prettyToLocalhostUrl,
+  isExternalWebUrl,
+} from './devUrl';
 
 describe('isLocalDevUrl', () => {
   it.each([
@@ -102,5 +109,24 @@ describe('prettyToLocalhostUrl', () => {
 
   it('returns null for empty input', () => {
     expect(prettyToLocalhostUrl('   ', 8000)).toBeNull();
+  });
+});
+
+describe('isExternalWebUrl', () => {
+  it.each([
+    'https://fastapi.tiangolo.com',
+    'http://example.com/docs',
+  ])('treats %s as external (browse directly)', (u) => {
+    expect(isExternalWebUrl(u)).toBe(true);
+  });
+
+  it.each([
+    'localhost:8000/docs', // no scheme + would-be path/port on the sandbox
+    'http://localhost:5173', // localhost = a sandbox port
+    'https://sbx-1-8080.localhost:3000/x', // our own preview subdomain
+    '/docs', // a bare path
+    'github.com/foo', // no explicit scheme ⇒ treated as a sandbox path, not the internet
+  ])('does NOT treat %s as external', (u) => {
+    expect(isExternalWebUrl(u)).toBe(false);
   });
 });

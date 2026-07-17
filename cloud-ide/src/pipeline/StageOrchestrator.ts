@@ -59,7 +59,7 @@ export class StageOrchestrator {
           inboundArtifacts: []
         }],
         globalEnv: config.env || {},
-        bootUpAsRoot: config.bootUpAsRoot ?? true
+        bootUpAsRoot: config.bootUpAsRoot ?? false
       };
     }
 
@@ -85,7 +85,13 @@ export class StageOrchestrator {
     return {
       stages: [builderStage, runtimeStage],
       globalEnv: config.env || {},
-      bootUpAsRoot: config.bootUpAsRoot ?? true  // resolve to true if undefined, defaulting to root for better compatibility with various base images and build steps
+      // Default NON-root (Phase 3, sandbox-privileges.md): least privilege for untrusted
+      // code, and the thing that lets pulseaudio/display audio run. Engages
+      // SecurityUserInjector + the assembler's `USER sandbox-user`. An env can still opt
+      // back into root with an explicit `bootUpAsRoot: true` (build steps needing root at
+      // RUNTIME, or an exotic base without useradd/adduser). The content tag tracks the
+      // generated Dockerfile, so this flip rebuilds existing envs correctly on next build.
+      bootUpAsRoot: config.bootUpAsRoot ?? false
     };
   }
 

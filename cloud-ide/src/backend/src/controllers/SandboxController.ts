@@ -222,7 +222,7 @@ export class SandboxController {
 
 
   /**
-   * @description Executes a shell command inside the container and streams 
+   * @description Executes a shell command inside the container and streams
    * the output in real-time.
    * * Architecture Highlights:
    * 1. **Wake-on-Demand**: Intercepts commands sent to PAUSED containers and

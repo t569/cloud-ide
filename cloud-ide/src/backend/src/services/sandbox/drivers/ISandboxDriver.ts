@@ -27,6 +27,11 @@ export interface PtyOptions {
   cwd?: string;
   env?: Record<string, string>;
   shell?: string; // defaults to the image's login shell
+  // Exec as this OS user. 'root' powers the escalation broker — an owner-gated root
+  // terminal in a non-root sandbox. Absent ⇒ the image's USER. The gateway only sets
+  // this after the SAME userOwnsSandbox check that guards every PTY, so a container's
+  // own processes can never request it (see docs/plans/sandbox-privileges.md).
+  user?: string;
 }
 
 /**

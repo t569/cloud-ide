@@ -182,11 +182,46 @@ export class FileSystemManager {
 
   /**
    * Writes content to a file, creating parent directories as needed.
+   *
+   * The gateway runs as ROOT, so without help a fresh file lands root-owned 0644 and any
+   * new dir root-owned 0755 — read-only to the non-root container user (bootUpAsRoot:false,
+   * uid 1000). That breaks the daily loop: the IDE saves `package.json`, then an in-container
+   * `npm install` / build / terminal editor can't rewrite it. WorktreeEngine.a+rwX only
+   * covers the INITIAL checkout; this covers everything the gateway creates afterward
+   * (Phase 2.1 — docs/plans/sandbox-privileges.md). We open the new file (0666) and any dirs
+   * this call created (0777) to the container user, keeping them root-OWNED — the same
+   * permissive single-tenant posture as the 0777 cache mount (cacheVolumes.ts) and a no-op
+   * for root sandboxes. In-container `git` is a SEPARATE, out-of-scope concern: the worktree's
+   * gitdir lives in the shared central-repo, which isn't (and mustn't be — cross-tenant)
+   * mounted in, so git stays a gateway broker, not a chmod problem.
    */
   public async writeFile(sandboxId: string, filePath: string, content: string): Promise<void> {
     const hostPath = await this.resolveHostPath(sandboxId, filePath);
-    await fs.mkdir(path.dirname(hostPath), { recursive: true });
+    const dir = path.dirname(hostPath);
+    // mkdir(recursive) returns the SHALLOWEST dir it created, or undefined if dir existed.
+    const firstCreated = await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(hostPath, content, 'utf-8');
+    await this.openToContainer(hostPath, dir, firstCreated);
+  }
+
+  /**
+   * chmod a just-written file world-writable, plus every directory this write newly created
+   * (the linear chain from `dir` up to `firstCreated`). chmod (unlike a create `mode:`) is
+   * NOT masked by the gateway umask, so this is exact. Best-effort: a perms failure must not
+   * fail the save itself.
+   */
+  private async openToContainer(hostPath: string, dir: string, firstCreated: string | undefined): Promise<void> {
+    try {
+      await fs.chmod(hostPath, 0o666);
+      if (firstCreated) {
+        for (let d = dir; ; d = path.dirname(d)) {
+          await fs.chmod(d, 0o777);
+          if (d === firstCreated) break; // firstCreated is an ancestor-or-self of dir → terminates
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[FileSystemManager] Could not open perms for ${hostPath}: ${e.message}`);
+    }
   }
 
   /**

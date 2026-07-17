@@ -36,11 +36,16 @@ export const IDETerminal = ({ sandboxId, editorEventBus, onPreview }: IDETermina
   const { palette } = useDesignSystem();
 
 
-  // 1. Boot up a new terminal tab
-  const addTab = () => {
+  // 1. Boot up a new terminal tab. `asRoot` opens an owner-gated root shell (the
+  //    escalation broker) — PTY only, since it rides the /pty bridge's `?root=1`.
+  const addTab = (asRoot = false) => {
+    if (asRoot && !ptyCapable.current) {
+      toast.error('A root terminal needs an interactive PTY driver; this sandbox is line-mode.');
+      return;
+    }
     setSessions(prev => {
       const newId = `term-${Date.now()}`;
-      const newTitle = `bash-${prev.length + 1}`;
+      const newTitle = asRoot ? `root-${prev.length + 1}` : `bash-${prev.length + 1}`;
 
       // Transport chosen by driver capability (see createTerminalTransport):
       // pty → interactive WS /pty bridge (real TTY: vim/top/colors); else line-mode
@@ -51,6 +56,7 @@ export const IDETerminal = ({ sandboxId, editorEventBus, onPreview }: IDETermina
         // Stable per-tab id: WebSocketTransport reconnects to this same URL, so the
         // backend re-binds to the running shell instead of spawning a fresh one.
         terminalId: newId,
+        root: asRoot,
       });
       transport.connect();
 
@@ -138,7 +144,8 @@ export const IDETerminal = ({ sandboxId, editorEventBus, onPreview }: IDETermina
   return (
     <TerminalTabs
       initialSessions={sessions}
-      onAddTab={addTab}
+      onAddTab={() => addTab(false)}
+      onAddRootTab={() => addTab(true)}
       onCloseTab={closeTab}
       onFileClick={handleContextFileClick}
       onLinkClick={handleLinkClick}

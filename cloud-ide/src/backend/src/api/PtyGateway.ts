@@ -254,11 +254,15 @@ export function attachPtyGateway(server: http.Server, deps: PtyGatewayDeps): voi
         }
         const cols = Number(url.searchParams.get('cols')) || 80;
         const rows = Number(url.searchParams.get('rows')) || 24;
+        // Escalation broker: `?root=1` opens the shell as root. Authorized purely by the
+        // userOwnsSandbox check above — the owner may have root in their OWN sandbox; the
+        // container's processes never reach this endpoint. See sandbox-privileges.md.
+        const user = url.searchParams.get('root') === '1' ? 'root' : undefined;
         // Stable per-tab id so a reconnect re-binds to the same shell. Absent ⇒ a
         // random key: still tracked, but never matched again (no reattach benefit).
         const termId = url.searchParams.get('termId') || randomUUID();
         wss.handleUpgrade(req, socket, head, (ws) => {
-          void startSession(registry, ws, sandboxManager, sandboxId, termId, { cols, rows });
+          void startSession(registry, ws, sandboxManager, sandboxId, termId, { cols, rows, user });
         });
       })
       .catch(() => socket.destroy());
@@ -271,13 +275,13 @@ async function startSession(
   sandboxManager: SandboxManager,
   sandboxId: string,
   termId: string,
-  size: { cols: number; rows: number },
+  size: { cols: number; rows: number; user?: string },
 ): Promise<void> {
   if (!sandboxManager.capabilities().pty) {
     ws.close(1011, 'Interactive PTY not supported by the active sandbox driver');
     return;
   }
-  const key = `${sandboxId} ${termId}`;
+  const key = `${sandboxId} ${termId}${size.user ? ` ${size.user}` : ''}`; // root terminal keyed apart
   try {
     await registry.attach(key, ws, () => sandboxManager.openTerminalSession(sandboxId, size));
   } catch (err: any) {

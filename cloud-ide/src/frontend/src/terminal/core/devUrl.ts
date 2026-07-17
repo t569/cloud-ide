@@ -60,3 +60,58 @@ export function toPreviewUrl(
   const sep = path.includes('?') ? '&' : '?';
   return `${scheme}://${sandboxId}-${port}.${host}${path}${sep}__cide_pt=${encodeURIComponent(token)}`;
 }
+
+/**
+ * Reverse of `toPreviewUrl`: turn a preview-subdomain URL back into the friendly
+ * container-local form the user thinks in, dropping the internal `__cide_pt` token.
+ *
+ *   http://<id>-8000.localhost:3000/docs?x=1&__cide_pt=…  ->  { port: 8000, path: '/docs?x=1',
+ *                                                               pretty: 'localhost:8000/docs?x=1' }
+ *
+ * The port is the trailing `-<digits>` of the first hostname label (the id may itself
+ * contain hyphens), matching the ingress's own grammar (`previewHost.ts`). null when the
+ * URL isn't a preview subdomain.
+ */
+export function fromPreviewUrl(
+  previewUrl: string,
+): { port: number; path: string; pretty: string } | null {
+  let u: URL;
+  try {
+    u = new URL(previewUrl);
+  } catch {
+    return null;
+  }
+  const label = u.hostname.split('.')[0]; // <id>-<port>
+  const match = /^[a-zA-Z0-9-]+-(\d{2,5})$/.exec(label);
+  if (!match) return null;
+  const port = Number(match[1]);
+  u.searchParams.delete('__cide_pt'); // never surface the token
+  const query = u.search && u.search !== '?' ? u.search : '';
+  const path = `${u.pathname}${query}${u.hash}` || '/';
+  return { port, path, pretty: `localhost:${port}${path}` };
+}
+
+/**
+ * Normalise whatever the user typed in the preview address bar into a container-local
+ * `http://localhost:<port><path>` URL that `toPreviewUrl` can rewrite. Accepts the pretty
+ * forms people actually type:
+ *   `localhost:8000/docs` · `http://localhost:8000/docs` · `127.0.0.1:8000` · `:8000/docs`
+ *   `8000/docs` (bare port) · `/docs` or `docs` (keep the current port).
+ * `currentPort` is used when the input carries no port of its own. Empty input => null.
+ */
+export function prettyToLocalhostUrl(input: string, currentPort: number): string | null {
+  let s = input.trim();
+  if (!s) return null;
+  s = s.replace(/^https?:\/\//i, ''); // drop any scheme
+  s = s.replace(/^(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?=[:/]|$)/i, ''); // drop the host name if present
+
+  let port = currentPort;
+  let rest = s;
+  const pm = /^:?(\d{2,5})(\/.*|$)/.exec(s); // ":8000/path" | "8000/path" | ":8000" | "8000"
+  if (pm) {
+    port = Number(pm[1]);
+    rest = pm[2] ?? '';
+  }
+  const path = !rest ? '/' : rest.startsWith('/') ? rest : `/${rest}`;
+  return `http://localhost:${port}${path}`;
+}

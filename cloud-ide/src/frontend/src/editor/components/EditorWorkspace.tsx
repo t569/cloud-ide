@@ -378,7 +378,7 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
               ) : (
                 previewUrl && (
                   <div className="w-1/2 min-w-0 shrink-0">
-                    <PreviewPane url={previewUrl} onClose={() => setPreviewUrl(null)} />
+                    <PreviewPane sandboxId={sandboxId} url={previewUrl} onClose={() => setPreviewUrl(null)} />
                   </div>
                 )
               )}

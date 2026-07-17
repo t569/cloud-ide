@@ -201,9 +201,14 @@ writes are host-direct as root, so those are unaffected).
   `BuildService.ts:188`), and non-root changes the Dockerfile (adds `useradd`/`USER`), so the
   content hash changes → existing envs rebuild correctly on next build. No epoch bump / rebuild
   storm.
-- [ ] **Full E2E (the payoff):** a fresh display env → boots RUNNING, execd works, editor
-  reads+writes files, glxgears renders, **audio plays** (pulseaudio now runs as `sandbox-user`).
-  This is the F3 close-out from the display gate.
+- [x] **F3 payoff proven at the daemon level.** Verified live: an env with no `bootUpAsRoot`
+  boots as `sandbox-user`; the root terminal (`-u 0`) escalates to `root`; the worktree is
+  writable; and **`pulseaudio -D` starts as uid 1000** (`PULSE_RUNNING_AS_NONROOT`) where it
+  died as root — so the audio tap comes up. The only piece left is the *perceptual* browser
+  check (open a display env's pane and hear the SFX), which is a manual gate.
+- [ ] **Follow-ups:** the sudo-password pane (second escalation surface); Phase 2.1
+  (in-container `git`/edit write parity); migrate existing root sandboxes (they rebuild
+  non-root on next build via the recipe-hash).
 
 ### Phase 4 — Security hardening + default flip
 - [ ] userns-remap / cap-drop review (pair with the egress `NET_ADMIN` drop).

@@ -243,3 +243,42 @@ only visible tree nodes; the VFS flat map is fine, the DOM isn't), **Monaco mode
 disposal** on tab close, and **route-level code-splitting** (env-manager vs editor vs display).
 If we want a standing optimisation ledger for the whole editor, that's its own doc — don't
 graft it onto this one.
+
+---
+
+# E2E gate — findings (first live run)
+
+The slice-5 gate was run headless end-to-end. It found a launch-blocking bug (now fixed),
+proved the video/GL path, and surfaced the audio gap and its real cause.
+
+## Fixed
+- **Cache-mount allow-list (blocked ALL launches).** The package-cache mount
+  (`data/caches/<owner>`) wasn't in the daemon's `allowed_host_paths` — every boot 400'd
+  with `VOLUME::HOST_PATH_NOT_ALLOWED`. Fixed in `boot.js` (adds the caches root). Commit
+  `83c5bb2`.
+- **F2 — Xvnc idempotency guard.** `startDisplay` guarded on `pgrep -x Xvnc`, but TigerVNC
+  runs as `Xtigervnc`, so it never matched and every call spawned a doomed second server.
+  Now guards on the RFB port (name-agnostic). Commit `7c62775` (kept).
+
+## Proven
+- Display env builds; sandbox boots `RUNNING`; **Xvnc serves RFB on :5901**; **software GL
+  works — glxgears rendered ~200 FPS via llvmpipe** (the raylib-critical path); Scale-to-Zero
+  pauses a viewer-less sandbox (correct — a real editor session stays "viewed").
+
+## F3 — audio is broken because sandboxes run as root (deferred to env 2.0)
+Audio never starts: the container runs as **root** and `pulseaudio` refuses to run as root
+("Daemon startup failed"). Root cause is deeper than audio — the **drop-root feature is dead
+and half-built**:
+- `StageOrchestrator` defaults `bootUpAsRoot ?? true`, so `SecurityUserInjector` + the
+  assembler's `USER sandbox-user` line never fire → every sandbox runs untrusted code as root.
+- Even when forced on, the build fails: `SecurityUserInjector` does `chown /workspace`, but
+  `/workspace` doesn't exist at build time (it's the runtime worktree bind-mount).
+- And worktree host dirs are `0755 root` → a non-root container gets a **read-only**
+  workspace, so it needs `0777`/uid-mapping like the cache mount.
+
+**Proper fix = a non-root-sandbox workstream** (fix drop-root machinery, make worktrees
+non-root-writable, validate execd runs non-root). It's both an audio fix and a real security
+fix (untrusted code currently runs as root). Attempted as a quick fix, reverted (`28c579b`) —
+belongs in **env 2.0**. Interim audio-only option if wanted sooner: run pulseaudio as the
+non-root `pulse` user from the root container (contained to `startAudio` + a `PULSE_SERVER`
+env), but the socket/permission plumbing needs its own careful pass.

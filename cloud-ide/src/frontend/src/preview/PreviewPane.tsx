@@ -47,6 +47,30 @@ export const PreviewPane = ({ sandboxId, url, onClose }: PreviewPaneProps) => {
   const [exposedHost, setExposedHost] = useState(() => hostOf(url));
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  // Bookmarks: user-curated shortcuts (a `localhost:8000/docs` or an external URL),
+  // persisted per-browser — general, not per-sandbox. Surfaced as the address bar's
+  // native dropdown (datalist); the star toggles the CURRENT address in/out.
+  const [bookmarks, setBookmarks] = useState<string[]>(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem('cide.preview.bookmarks') || '[]');
+      return Array.isArray(raw) ? raw.filter((b) => typeof b === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  const isBookmarked = bookmarks.includes(pretty);
+  const toggleBookmark = () => {
+    setBookmarks((prev) => {
+      const next = prev.includes(pretty) ? prev.filter((b) => b !== pretty) : [...prev, pretty];
+      try {
+        localStorage.setItem('cide.preview.bookmarks', JSON.stringify(next));
+      } catch {
+        /* storage full / disabled — bookmarks are best-effort */
+      }
+      return next;
+    });
+  };
+
   // A new server (a different sniffed port) or a reopen replaces what's on screen.
   useEffect(() => {
     const p = fromPreviewUrl(url);
@@ -114,9 +138,26 @@ export const PreviewPane = ({ sandboxId, url, onClose }: PreviewPaneProps) => {
           onChange={(e) => setPretty(e.target.value)}
           placeholder="localhost:8000/docs"
           spellCheck={false}
+          list="preview-bookmarks"
           title={exposedHost ? `Exposed at ${exposedHost}` : undefined}
           className="flex-1 rounded border border-gray-600 bg-[#1e1e1e] px-2 py-1 text-xs text-gray-200 focus:outline-none"
         />
+        {/* Saved shortcuts appear as the address bar's native dropdown. */}
+        <datalist id="preview-bookmarks">
+          {bookmarks.map((b) => (
+            <option key={b} value={b} />
+          ))}
+        </datalist>
+        <button
+          type="button"
+          onClick={toggleBookmark}
+          title={isBookmarked ? 'Remove bookmark' : 'Bookmark this address'}
+          aria-label={isBookmarked ? 'Remove bookmark' : 'Bookmark this address'}
+          aria-pressed={isBookmarked}
+          className={`px-1 ${isBookmarked ? 'text-amber-400' : 'text-gray-500 hover:text-white'}`}
+        >
+          {isBookmarked ? '★' : '☆'}
+        </button>
         <button
           type="button"
           onClick={onClose}

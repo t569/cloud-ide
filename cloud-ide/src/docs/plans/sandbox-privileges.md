@@ -80,16 +80,27 @@ privilege). Phase 0 exists to pin these down before committing.
 
 ## Phases / slices
 
-### Phase 0 — Verify the unknowns (cheap, ships nothing)
-The whole approach hinges on three facts we don't yet have. Nail them with throwaway probes
-before writing feature code:
-- [ ] **Does the daemon honor the image `USER`?** Build a trivial image with `USER 1000`,
-  boot it through our API, `docker inspect` the container's user. If the daemon forces root,
-  the whole non-root-via-image-USER approach is dead and we pivot to userns/daemon config.
-- [ ] **Does execd work non-root?** With a non-root image, confirm `POST /exec` and the PTY
-  path still function (execd binds 44772 > 1024, so it *should*).
-- [ ] **Does the app write `/workspace` non-root with 0777?** Mount a 0777 worktree, run a
-  non-root container, write a file, confirm the gateway/git still reconcile it.
+### Phase 0 — Verify the unknowns (cheap, ships nothing) — ✅ DONE, all GREEN
+Ran throwaway probes: hand-built a minimal non-root image
+(`FROM debian; RUN useradd sandbox-user; USER sandbox-user`) and booted it via the raw
+`POST /v1/sandboxes {imageTag}` verb.
+- [x] **Daemon honors the image `USER`.** `container_ops.py:403` builds `create_container`
+  with **no `user=`** (only forces `entrypoint=[BOOTSTRAP_PATH]`), and live: the booted
+  container's `Config.User` = `sandbox-user`, exec runs as `sandbox-user`, state RUNNING.
+  The non-root-via-image-USER approach is **viable** — no userns/daemon pivot needed.
+- [x] **execd works non-root.** Gateway `POST /exec` on the non-root sandbox streamed
+  `stdout: EXECD_OK` + `execution_complete`. bootstrap.sh + execd run fine as `sandbox-user`.
+- [x] **Workspace writability confirms Option A.** Default worktree (`0755 root`) → non-root
+  write is **Permission denied**. After `chmod 777` → **write succeeds**. So 0777 worktrees
+  (mirroring the cache mount) unblock non-root, as planned.
+
+**uid mapping observed (informs Phase 2):** a file the container's `sandbox-user` (uid 1000)
+creates shows on the host as owner `karlsefni` (host uid 1000) — i.e. container uid 1000 ==
+host uid 1000, while the gateway/git run as **root**. Consequences: root git can read/write
+everything (fine); the *container* can only write git-created (root-owned) files if they're
+group/world-writable. So Phase 2 is 0777 on the worktree dir **plus** a write-mode/umask
+story for git-checked-out files the user edits *inside* the container (the editor's own
+writes are host-direct as root, so those are unaffected).
 
 ### Phase 1 — Fix the drop-root machinery (make non-root *buildable*)
 - [ ] Single `bootUpAsRoot` default (kill the orchestrator-vs-naming split).

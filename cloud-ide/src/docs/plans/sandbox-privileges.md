@@ -131,6 +131,12 @@ and only once userns lands.
   live container as root: `chpasswd` for `su -`, plus a `Defaults rootpw` + sudoers drop-in where
   `sudo`/`sandbox-user` exist. Password fed on stdin (never argv); deterministic, so it survives
   container swaps. Container code can't compute it (no secret) or read it (`/etc/shadow`).
+  **Verified live** against the real non-root env image + a sudo-capable image: `chpasswd`
+  turns root's `/etc/shadow` field from `*` into a `$y$` (yescrypt) hash; the sudoers drop-in
+  is written where `sudo`+`sandbox-user` exist and correctly **skipped** where `sudo` is absent
+  (no warning); `sudo -S` as `sandbox-user` with the root password returns `uid=0` (live PAM
+  auth against that hash — `Defaults rootpw`), a wrong password is rejected; and non-root `cat
+  /etc/shadow` is denied. Password fed on stdin throughout (never argv).
 - Decision: **both** the gateway broker and the sudo pane (broker shipped here; pane next).
 
 ## Decisions to make (asked, to be answered)
@@ -211,7 +217,7 @@ writes are host-direct as root, so those are unaffected).
   writable; and **`pulseaudio -D` starts as uid 1000** (`PULSE_RUNNING_AS_NONROOT`) where it
   died as root — so the audio tap comes up. The only piece left is the *perceptual* browser
   check (open a display env's pane and hear the SFX), which is a manual gate.
-- [x] **Sudo-password pane shipped** (second escalation surface) — see the escalation slice above.
+- [x] **Sudo-password pane shipped + verified live** (second escalation surface) — see the escalation slice above.
 - [ ] **Follow-ups:** Phase 2.1
   (in-container `git`/edit write parity); migrate existing root sandboxes (they rebuild
   non-root on next build via the recipe-hash).

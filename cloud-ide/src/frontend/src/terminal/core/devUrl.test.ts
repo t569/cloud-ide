@@ -3,7 +3,7 @@
 // the HOST's port 3000 — the gateway — not at the dev server inside the container. The
 // gateway has no route there, so Express answered "Cannot GET /".
 import { describe, it, expect } from 'vitest';
-import { isLocalDevUrl, portOf, toPreviewUrl } from './devUrl';
+import { isLocalDevUrl, portOf, toPreviewUrl, fromPreviewUrl, prettyToLocalhostUrl } from './devUrl';
 
 describe('isLocalDevUrl', () => {
   it.each([
@@ -61,5 +61,46 @@ describe('toPreviewUrl', () => {
     expect(toPreviewUrl('http://localhost:5173/', 'sbx', 'https://ide.example.com', 'T')).toBe(
       'https://sbx-5173.ide.example.com/?__cide_pt=T',
     );
+  });
+});
+
+describe('fromPreviewUrl', () => {
+  it('recovers the pretty container-local form and drops the token', () => {
+    expect(fromPreviewUrl('http://sbx-1-8080.localhost:3000/docs?theme=dark&__cide_pt=TOK')).toEqual({
+      port: 8080,
+      path: '/docs?theme=dark',
+      pretty: 'localhost:8080/docs?theme=dark',
+    });
+  });
+
+  it('reads the port as the trailing -<digits> even when the id has hyphens', () => {
+    expect(fromPreviewUrl('http://e72f-4917-3000.localhost:3000/?__cide_pt=T')?.port).toBe(3000);
+  });
+
+  it('is the inverse of toPreviewUrl (round-trip)', () => {
+    const actual = toPreviewUrl('http://localhost:5173/x?a=1', 'sbx-9', 'http://localhost:3000', 'T')!;
+    expect(fromPreviewUrl(actual)?.pretty).toBe('localhost:5173/x?a=1');
+  });
+
+  it('returns null for a non-preview host', () => {
+    expect(fromPreviewUrl('http://localhost:3000/api')).toBeNull();
+  });
+});
+
+describe('prettyToLocalhostUrl', () => {
+  it.each([
+    ['localhost:8000/docs', 5173, 'http://localhost:8000/docs'],
+    ['http://localhost:8000/docs', 5173, 'http://localhost:8000/docs'],
+    ['127.0.0.1:8000', 5173, 'http://localhost:8000/'],
+    [':8000/docs', 5173, 'http://localhost:8000/docs'],
+    ['8000/docs', 5173, 'http://localhost:8000/docs'], // bare port
+    ['/openapi.json', 8000, 'http://localhost:8000/openapi.json'], // path only ⇒ keep current port
+    ['docs', 8000, 'http://localhost:8000/docs'], // bare path
+  ])('normalises %s (current %i) → %s', (input, current, expected) => {
+    expect(prettyToLocalhostUrl(input, current)).toBe(expected);
+  });
+
+  it('returns null for empty input', () => {
+    expect(prettyToLocalhostUrl('   ', 8000)).toBeNull();
   });
 });

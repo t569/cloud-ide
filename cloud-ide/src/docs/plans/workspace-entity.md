@@ -205,7 +205,16 @@ sudo mount -t overlay overlay -o lowerdir="$L",upperdir="$U",workdir="$Wk" "$M"
 # Teardown: sudo umount "$M";  ephemeral -> rm -rf "$U";  save -> commit "$U" delta into refs/workspaces/<wid>.
 ```
 
-Acceptance criteria (all must pass, else Phase 3 stays deferred):
+**Spike run 2026-07-18 (WSL kernel 6.18.33.2, /tmp ext-family) — CORE MECHANICS PASS.**
+A pure-overlay test (no Docker) validated: overlayfs supported; two sandboxes mounted on ONE
+read-only lower; **isolation** (A's write invisible to B, lower untouched); **thin upper**
+(upper held only the changed files, base not copied — CoW confirmed); **round-trip** (a saved
+upper delta re-materialised into a fresh overlay); **clean teardown** (0 leaked mounts). The
+FS is ext-family (no reflink) → overlay is the correct CoW choice, as designed. STILL TO
+CONFIRM before Phase 3 ships: (a) Docker bind-mount of the overlay *merged* dir into the
+container, and (b) non-root container-uid writes to the upper layer (privileges Phase 2.1).
+
+Acceptance criteria (remaining, gate Phase 3):
 1. **Memory win** — two sandboxes share one `$L`; the base is resident ONCE in the page cache
    (`/proc/meminfo` before/after, or compare container RSS).
 2. **Isolation** — writes in A's `$U` are invisible in B's merged view.

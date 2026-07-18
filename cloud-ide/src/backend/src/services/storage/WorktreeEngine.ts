@@ -208,7 +208,15 @@ export class WorktreeEngine {
 
     /** argv, no shell. `auth` (when given) prepends scoped credential config. */
     private git(cwd: string, args: string[], auth?: GitAuth): Promise<{ stdout: string; stderr: string }> {
-        return execFileAsync('git', [...this.authArgs(auth), ...args], { cwd, maxBuffer: 64 * 1024 * 1024 });
+        return execFileAsync('git', [...this.authArgs(auth), ...args], {
+            cwd,
+            maxBuffer: 64 * 1024 * 1024,
+            // Never fall back to an interactive prompt: a push/pull/clone with missing or
+            // wrong credentials must FAIL FAST, not hang the request waiting on a terminal
+            // that will never answer (GIT_TERMINAL_PROMPT), and skip any configured GUI
+            // credential helper for the same reason (core.askPass + GIT_ASKPASS empty).
+            env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', GCM_INTERACTIVE: 'never' },
+        });
     }
 
     /**

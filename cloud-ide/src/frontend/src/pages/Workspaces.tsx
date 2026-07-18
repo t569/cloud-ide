@@ -3,8 +3,9 @@
 // cloned from a git URL), launch it INTO a fresh sandbox on a chosen environment, or delete
 // it. A workspace outlives the containers it's injected into — that's the whole point.
 import React, { useEffect, useState } from 'react';
-import { VscRepo, VscAdd, VscTrash, VscRocket, VscServerProcess, VscClose, VscPulse, VscRefresh } from 'react-icons/vsc';
+import { VscRepo, VscAdd, VscTrash, VscRocket, VscServerProcess, VscClose, VscPulse, VscRefresh, VscGithub } from 'react-icons/vsc';
 import { listWorkspaces, createWorkspace, deleteWorkspace, type Workspace } from '../api/workspaces';
+import { getGitCredential, setGitCredential, clearGitCredential, type GitCredentialState } from '../api/git';
 import { listEnvironments, type SavedEnvironment } from '../env-manager/services/api/environmentApi';
 import { launchEnvironment } from './launch';
 import { navigate } from './router';
@@ -56,6 +57,7 @@ export default function Workspaces() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <GitHubConnect />
           <button
             onClick={() => setCreating(true)}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-[#5ec8d8]/40 bg-[#5ec8d8]/10 text-[#5ec8d8] hover:border-[#5ec8d8]"
@@ -198,8 +200,8 @@ function NewWorkspaceDialog({ onClose, onCreated }: { onClose: () => void; onCre
       )}
 
       <p className="mt-3 text-[11.5px] leading-snug text-gray-500">
-        A blank workspace starts empty; a git one clones the repo when first launched. Private repos
-        use the token saved in the editor's Source Control pane.
+        A blank workspace starts empty; a git one clones the repo when first launched. For a private
+        repo, connect a token first via <span className="text-gray-300">Connect GitHub</span> in the header.
       </p>
       {error && <p className="mt-3 text-[12px] text-[#f87171]">{error}</p>}
 
@@ -254,6 +256,100 @@ function LaunchWorkspaceDialog({ workspace, onClose }: { workspace: Workspace; o
       {error && <p className="mt-3 text-[12px] text-[#f87171]">{error}</p>}
       <DialogButtons onClose={onClose} onConfirm={submit} busy={false} confirmLabel="Launch" confirmDisabled={!envs || envs.length === 0} />
     </Modal>
+  );
+}
+
+// Account-level GitHub connection (user-scoped PAT). Needed to clone/launch PRIVATE
+// workspaces — the credential is resolved server-side at launch time. Same encrypted
+// per-user store the editor's Source Control pane uses; surfaced here so you can connect
+// BEFORE launching a private repo, without opening a sandbox first.
+function GitHubConnect() {
+  const [cred, setCred] = useState<GitCredentialState | null>(null);
+  const [open, setOpen] = useState(false);
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = () => getGitCredential().then(setCred).catch(() => setCred({ configured: false, host: null }));
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    if (!token.trim()) return;
+    setBusy(true);
+    try {
+      await setGitCredential(token.trim());
+      await load();
+      setToken('');
+      setOpen(false);
+      toast.success('GitHub connected — private repos can now be cloned.');
+    } catch (e) {
+      toast.error((e as Error).message, { title: 'Could not save token' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disconnect = async () => {
+    try {
+      await clearGitCredential();
+      await load();
+      toast.success('GitHub disconnected.');
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        title="Connect a GitHub token for private repos"
+        className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border ${
+          cred?.configured
+            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+            : 'border-gray-800 text-gray-400 hover:border-gray-600'
+        }`}
+      >
+        <VscGithub /> {cred?.configured ? `GitHub: ${cred.host}` : 'Connect GitHub'}
+      </button>
+      {open && (
+        <Modal title="Connect GitHub" onClose={() => setOpen(false)}>
+          {cred?.configured ? (
+            <>
+              <p className="text-[12.5px] text-gray-400">
+                Connected to <span className="text-gray-200">{cred.host}</span>. Private workspaces
+                clone with this token.
+              </p>
+              <div className="flex gap-2 mt-5">
+                <button onClick={() => setOpen(false)} className="flex-1 text-[13px] py-2 rounded-lg border border-gray-700 bg-[#1a1a1f] hover:border-gray-500">
+                  Close
+                </button>
+                <button onClick={disconnect} className="flex-1 text-[13px] font-semibold py-2 rounded-lg border border-[#f87171]/40 bg-[#f87171]/10 text-[#f87171] hover:border-[#f87171]">
+                  Disconnect
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <label className="block text-[12px] text-gray-500 mb-1.5">Personal access token</label>
+              <input
+                type="password"
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && save()}
+                placeholder="ghp_…"
+                autoFocus
+                className="w-full rounded-lg border border-gray-800 bg-[#0d0d0f] px-3 py-2 text-[13px] font-mono text-gray-200 outline-none focus:border-[#5ec8d8]/60 placeholder:text-gray-600"
+              />
+              <p className="mt-3 text-[11.5px] leading-snug text-gray-500">
+                Needed to clone/launch private repos and to push. Stored encrypted server-side; it
+                never comes back to the browser. A classic token with <code>repo</code> scope works.
+              </p>
+              <DialogButtons onClose={() => setOpen(false)} onConfirm={save} busy={busy} confirmLabel="Connect" confirmDisabled={!token.trim()} />
+            </>
+          )}
+        </Modal>
+      )}
+    </>
   );
 }
 

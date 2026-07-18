@@ -161,5 +161,22 @@ describe('WorktreeEngine — the branch outlives the checkout', () => {
       expect(await fs.readFile(path.join(wt, 'hello.txt'), 'utf-8')).toBe('from remote');
       expect((await engine.log('sbx-clone', 1))[0].subject).toBe('seed');
     }, 30_000);
+
+    it('threads auth without breaking a local clone (host-scoped, inert off github)', async () => {
+      // A local-path remote isn't a URL and uses no http transport, so the scoped
+      // Authorization header is a harmless no-op — the clone must still succeed. Proves
+      // authForUrl's non-URL guard and that credential threading never breaks a clone.
+      const remote = path.join(root, 'remote2.git');
+      const seed = path.join(root, 'seed2');
+      await git(root, 'init', '--bare', remote);
+      await git(root, 'clone', remote, seed);
+      await fs.writeFile(path.join(seed, 'x.txt'), 'ok');
+      await git(seed, 'add', '.');
+      await git(seed, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 's');
+      await git(seed, 'push', 'origin', 'HEAD');
+
+      const wt = await engine.cloneInto('sbx-auth', remote, { token: 'ghp_x' });
+      expect(await fs.readFile(path.join(wt, 'x.txt'), 'utf-8')).toBe('ok');
+    }, 30_000);
   });
 });

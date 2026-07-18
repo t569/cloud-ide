@@ -73,6 +73,17 @@ export function signUserId(userId: string): string {
 }
 
 /**
+ * A domain-separated symmetric key derived from AUTH_SECRET (HKDF-SHA256). Same trust
+ * property as the identity HMAC above: in production AUTH_SECRET comes from the env, so
+ * a leak of the data dir alone cannot re-derive this key — which is the point of
+ * encrypting stored secrets (e.g. git PATs) with it. `info` namespaces one purpose from
+ * another so two independent keys never collide.
+ */
+export function deriveKey(info: string, length = 32): Buffer {
+  return Buffer.from(crypto.hkdfSync('sha256', AUTH_SECRET, Buffer.alloc(0), info, length));
+}
+
+/**
  * Recovers the user id from a signed cookie, or undefined if the signature does
  * not verify. Fails closed: a tampered cookie is *no* identity, never a valid one.
  */

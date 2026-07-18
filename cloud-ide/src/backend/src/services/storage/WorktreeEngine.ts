@@ -23,6 +23,13 @@ export interface GitLogEntry {
   date: string;
 }
 
+export interface GitAuth {
+  /** GitHub PAT (or app token). Sent as the HTTP Basic password. */
+  token: string;
+  /** Remote host to scope the credential to. Defaults to 'github.com'. */
+  host?: string;
+}
+
 export class WorktreeEngine {
     constructor(private baseRepoPath: string,
                 private worktreesRoot: string
@@ -199,26 +206,38 @@ export class WorktreeEngine {
     // methods above interpolate into a shell string; do NOT copy that here.
     // See docs/plans/git-integration.md.
 
-    /** argv, no shell. Rejects with git's stderr on non-zero exit. */
-    private git(cwd: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
-        return execFileAsync('git', args, { cwd, maxBuffer: 64 * 1024 * 1024 });
+    /** argv, no shell. `auth` (when given) prepends scoped credential config. */
+    private git(cwd: string, args: string[], auth?: GitAuth): Promise<{ stdout: string; stderr: string }> {
+        return execFileAsync('git', [...this.authArgs(auth), ...args], { cwd, maxBuffer: 64 * 1024 * 1024 });
     }
 
     /**
-     * Credential args for network ops (clone/fetch/push). The PAT is passed as an
-     * Authorization header via command-scoped `-c http.extraHeader` — it never lands
-     * in the remote URL or in .git/config, so it is not exposed to the container that
-     * mounts the checkout. GitHub accepts a PAT as the Basic password with any user.
+     * Credential config for network ops. The PAT rides as an Authorization header via
+     * command-scoped `-c http.<host>.extraHeader` — it never lands in the remote URL or
+     * in .git/config, so it is NOT exposed to the container that mounts the checkout.
+     * GitHub accepts a PAT as the Basic password with any username.
      *
-     * ponytail: covers EXPLICIT network ops only. A blobless clone's IMPLICIT lazy
-     * blob fetch (triggered inside `git diff`/checkout) can't take these -c args, so
-     * PRIVATE-repo lazy fetch needs a persistent host-side credential living OUTSIDE
-     * the mounted worktree — its own slice. Public repos and all local ops work now.
+     * SCOPED to the remote host (not a bare `http.extraHeader`) so the token is never
+     * sent to a third-party host on a redirect or submodule. git exports these `-c`
+     * values in GIT_CONFIG_PARAMETERS, so a blobless clone's IMPLICIT lazy blob fetch
+     * (spawned inside diff/checkout) inherits them too — private-repo lazy fetch is
+     * seamless without persisting anything to disk.
      */
-    private authArgs(token?: string): string[] {
-        if (!token) return [];
-        const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
-        return ['-c', `http.extraHeader=AUTHORIZATION: basic ${basic}`];
+    private authArgs(auth?: GitAuth): string[] {
+        if (!auth?.token) return [];
+        const basic = Buffer.from(`x-access-token:${auth.token}`).toString('base64');
+        const host = auth.host ?? 'github.com';
+        return ['-c', `http.https://${host}/.extraHeader=AUTHORIZATION: basic ${basic}`];
+    }
+
+    /** Fill in `host` from the clone URL when the caller didn't specify one. */
+    private authForUrl(url: string, auth?: GitAuth): GitAuth | undefined {
+        if (!auth?.token || auth.host) return auth;
+        try {
+            return { token: auth.token, host: new URL(url).hostname };
+        } catch {
+            return auth; // non-URL remote (local path): host default is harmless here
+        }
     }
 
     /**
@@ -226,13 +245,12 @@ export class WorktreeEngine {
      * graph + trees, not blobs) with git's native lazy blob fetch. Fails if the path
      * is already a non-empty checkout (use createWorktree's reuse path for that).
      */
-    public async cloneInto(sandboxId: string, url: string, token?: string): Promise<string> {
+    public async cloneInto(sandboxId: string, url: string, auth?: GitAuth): Promise<string> {
         const targetPath = path.join(this.worktreesRoot, sandboxId);
         await fs.mkdir(this.worktreesRoot, { recursive: true });
         await this.git(this.worktreesRoot, [
-            ...this.authArgs(token),
             'clone', '--filter=blob:none', '--', url, targetPath,
-        ]);
+        ], this.authForUrl(url, auth));
         await this.makeContainerWritable(targetPath);
         return targetPath;
     }
@@ -304,10 +322,16 @@ export class WorktreeEngine {
         return stdout;
     }
 
-    /** Push the current branch to its upstream (or `origin HEAD` on first push). */
-    public async push(sandboxId: string, token?: string): Promise<void> {
+    /** Push the current branch to `origin HEAD`. `auth` needed for private remotes. */
+    public async push(sandboxId: string, auth?: GitAuth): Promise<void> {
         const cwd = path.join(this.worktreesRoot, sandboxId);
-        await this.git(cwd, [...this.authArgs(token), 'push', 'origin', 'HEAD']);
+        await this.git(cwd, ['push', 'origin', 'HEAD'], auth);
+    }
+
+    /** Pull the current branch from origin (fast-forward + lazy-fetch new blobs). */
+    public async pull(sandboxId: string, auth?: GitAuth): Promise<void> {
+        const cwd = path.join(this.worktreesRoot, sandboxId);
+        await this.git(cwd, ['pull', '--ff-only'], auth);
     }
 }
 

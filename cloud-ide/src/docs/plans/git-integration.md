@@ -66,8 +66,16 @@ You "upgrade" browse → clone the moment you want to write. Same PAT throughout
 - **`WorktreeEngine` (extend):** `cloneInto(id, url, pat)` → `git clone --filter=blob:none`
   into the worktree path, next to `createWorktree`. Plus thin real-git wrappers:
   `status / add / commit / push / branch / diff / log`, all `cwd` = the worktree.
-- **PAT storage:** server-side. Git `credential.helper` (or `GIT_ASKPASS`) so the host git
-  authenticates lazy fetches + push without the token ever reaching the browser.
+- **PAT storage:** server-side, per-user, **encrypted at rest** (`GitCredentialStore`,
+  AES-256-GCM, key HKDF-derived from `AUTH_SECRET` — env-only in prod, so a data-dir leak
+  alone can't decrypt). The token never reaches the browser.
+- **Credential delivery:** the PAT rides as a **host-scoped** `-c http.<host>.extraHeader`
+  Authorization header — never in the remote URL or `.git/config` (so not exposed to the
+  container that mounts the checkout). git exports `-c` values in `GIT_CONFIG_PARAMETERS`,
+  so a blobless clone's **implicit lazy blob fetch inherits it** — private-repo lazy fetch
+  is seamless with nothing persisted to disk. (Verified: `GIT_CONFIG_PARAMETERS`
+  propagation to git subprocesses.) This resolves the earlier "implicit fetch can't take
+  `-c` args" concern.
 - **`GitHubBrowse` (new, backend):** `getTree(owner,repo)` + `getContent(owner,repo,path)`
   via native `fetch`. The salvaged core of the old `github.ts`, server-side. Optional mode.
 - **`GitRoutes`:** REST surface over the above (one choke point, like existing routes).

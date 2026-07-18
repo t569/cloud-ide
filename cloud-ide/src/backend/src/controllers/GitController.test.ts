@@ -30,6 +30,7 @@ describe('GitController', () => {
   let dir: string;
   let store: GitCredentialStore;
   let engine: any;
+  let github: any;
   let ctrl: GitController;
 
   beforeEach(async () => {
@@ -40,7 +41,11 @@ describe('GitController', () => {
       commit: jest.fn(async () => undefined),
       push: jest.fn(async () => undefined),
     };
-    ctrl = new GitController(repo, engine, store);
+    github = {
+      getTree: jest.fn(async () => ({ sha: 'x', truncated: false, entries: [] })),
+      getContent: jest.fn(async () => 'file body'),
+    };
+    ctrl = new GitController(repo, engine, store, github);
   });
 
   afterEach(async () => { await fs.rm(dir, { recursive: true, force: true }).catch(() => {}); });
@@ -92,5 +97,20 @@ describe('GitController', () => {
   it('pushes without auth when the user has no stored PAT (public-repo path)', async () => {
     await ctrl.push({ params: { sandboxId: 'has-wt' }, userId: 'nobody' } as any, fakeRes() as any);
     expect(engine.push).toHaveBeenCalledWith('wt-1', undefined);
+  });
+
+  it('browse rejects a non-slug owner/repo before hitting GitHub', async () => {
+    const res = fakeRes();
+    await ctrl.browseTree({ params: { owner: '../etc', repo: 'x' }, query: {}, userId: 'u1' } as any, res as any);
+    expect(res.statusCode).toBe(400);
+    expect(github.getTree).not.toHaveBeenCalled();
+  });
+
+  it('browse threads the stored PAT and returns the tree', async () => {
+    await ctrl.setCredential({ userId: 'u1', body: { token: 'ghp_secret' } } as any, fakeRes() as any);
+    const res = fakeRes();
+    await ctrl.browseTree({ params: { owner: 'octocat', repo: 'Hello-World' }, query: {}, userId: 'u1' } as any, res as any);
+    expect(github.getTree).toHaveBeenCalledWith('octocat', 'Hello-World', { branch: undefined, token: 'ghp_secret' });
+    expect(res.body).toEqual({ sha: 'x', truncated: false, entries: [] });
   });
 });

@@ -15,12 +15,17 @@ import { Request, Response } from 'express';
 import { ISandboxRepository } from '../database/interfaces';
 import { WorktreeEngine, GitAuth } from '../services/storage/WorktreeEngine';
 import { GitCredentialStore } from '../services/git/GitCredentialStore';
+import { GitHubBrowse, GitHubError } from '../services/git/GitHubBrowse';
+
+/** GitHub owner/repo slug — no slashes or query chars, so it can't escape the API URL. */
+const SLUG = /^[A-Za-z0-9_.-]{1,100}$/;
 
 export class GitController {
   constructor(
     private sandboxRepo: ISandboxRepository,
     private worktrees: WorktreeEngine,
     private credentials: GitCredentialStore,
+    private github: GitHubBrowse,
   ) {}
 
   /** sandboxId → worktree dir name, or null if the sandbox has no worktree yet. */
@@ -138,5 +143,51 @@ export class GitController {
   public clearCredential = async (req: Request, res: Response): Promise<void> => {
     if (req.userId) await this.credentials.clear(req.userId);
     res.status(204).end();
+  };
+
+  // ── Read-only GitHub browse (no clone needed) ──────────────────────────────
+  // User-scoped: uses the caller's stored PAT so private repos + the authenticated
+  // rate limit work. A GitHubError mirrors GitHub's own status (404 stays 404).
+
+  private async browseToken(userId: string | undefined): Promise<string | undefined> {
+    return (await this.authFor(userId))?.token;
+  }
+
+  private mapGitHubError(res: Response, err: any): void {
+    const status = err instanceof GitHubError ? err.status : 502;
+    res.status(status).json({ error: (err.message || 'GitHub request failed').toString() });
+  }
+
+  /** GET /api/v1/git/browse/:owner/:repo/tree?branch= — recursive repo tree. */
+  public browseTree = async (req: Request, res: Response): Promise<void> => {
+    const { owner, repo } = req.params;
+    if (typeof owner !== 'string' || typeof repo !== 'string' || !SLUG.test(owner) || !SLUG.test(repo)) {
+      res.status(400).json({ error: 'Invalid owner or repo.' });
+      return;
+    }
+    const branch = typeof req.query.branch === 'string' ? req.query.branch : undefined;
+    try {
+      res.json(await this.github.getTree(owner, repo, { branch, token: await this.browseToken(req.userId) }));
+    } catch (err) {
+      this.mapGitHubError(res, err);
+    }
+  };
+
+  /** GET /api/v1/git/browse/:owner/:repo/content?path=&ref= — one file's UTF-8 content. */
+  public browseContent = async (req: Request, res: Response): Promise<void> => {
+    const { owner, repo } = req.params;
+    const filePath = req.query.path;
+    if (typeof owner !== 'string' || typeof repo !== 'string' || !SLUG.test(owner) || !SLUG.test(repo)
+        || typeof filePath !== 'string' || !filePath) {
+      res.status(400).json({ error: 'owner, repo and path are required.' });
+      return;
+    }
+    const ref = typeof req.query.ref === 'string' ? req.query.ref : undefined;
+    try {
+      const content = await this.github.getContent(owner, repo, filePath, { ref, token: await this.browseToken(req.userId) });
+      res.json({ content });
+    } catch (err) {
+      this.mapGitHubError(res, err);
+    }
   };
 }

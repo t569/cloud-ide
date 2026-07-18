@@ -76,8 +76,12 @@ You "upgrade" browse → clone the moment you want to write. Same PAT throughout
   is seamless with nothing persisted to disk. (Verified: `GIT_CONFIG_PARAMETERS`
   propagation to git subprocesses.) This resolves the earlier "implicit fetch can't take
   `-c` args" concern.
-- **`GitHubBrowse` (new, backend):** `getTree(owner,repo)` + `getContent(owner,repo,path)`
-  via native `fetch`. The salvaged core of the old `github.ts`, server-side. Optional mode.
+- **`GitHubBrowse` (DONE, backend):** `getTree(owner,repo)` + `getContent(owner,repo,path)`
+  via native `fetch` (no octokit — two GETs don't need it). The salvaged core of the old
+  `github.ts`, server-side. Trees endpoint takes a branch name directly (one meta call for
+  the default branch, one for the recursive tree). Caller's stored PAT authenticates
+  private repos; SSRF-bounded (fixed host, per-segment URL-encoding, slug-validated
+  owner/repo). Mounted user-scoped at `/api/v1/git/browse/:owner/:repo/{tree,content}`.
 - **`GitRoutes` (DONE):** `GitController` + REST surface. Sandbox-scoped ops
   (`status`/`log`/`branch`/`diff`/`stage`/`commit`/`push`/`pull`) mount inside
   `createSandboxRouter` under its structural `/:sandboxId` ownership guard; user-scoped

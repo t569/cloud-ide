@@ -32,6 +32,7 @@ import { createSandboxRouter } from './api/SandboxRoutes';
 import { attachUser, deriveKey } from './api/middleware/auth';
 import { WorktreeEngine } from './services/storage/WorktreeEngine';
 import { GitCredentialStore } from './services/git/GitCredentialStore';
+import { GitHubBrowse } from './services/git/GitHubBrowse';
 import { CENTRAL_REPO_PATH, WORKTREES_ROOT } from './services/sandbox/SandboxManager';
 
 
@@ -149,6 +150,7 @@ const gitController = new GitController(
   sandboxRepo,
   new WorktreeEngine(CENTRAL_REPO_PATH, WORKTREES_ROOT),
   new GitCredentialStore(deriveKey('git-pat-encryption-v1')),
+  new GitHubBrowse(),
 );
 
 // Mount Control Plane (HTTP API Routes)
@@ -164,6 +166,11 @@ app.use('/api/v1/sandboxes', createSandboxRouter(sandboxController, sandboxRepo,
 app.get('/api/v1/git/credential', gitController.getCredential);
 app.put('/api/v1/git/credential', gitController.setCredential);
 app.delete('/api/v1/git/credential', gitController.clearCredential);
+
+// Read-only GitHub browse (no clone): peek at a repo tree + file content, using the
+// caller's stored PAT for private repos. User-scoped, like the credential routes.
+app.get('/api/v1/git/browse/:owner/:repo/tree', gitController.browseTree);
+app.get('/api/v1/git/browse/:owner/:repo/content', gitController.browseContent);
 
 // God-mode: force-destroy skips the dirty-worktree pre-flight and deletes the
 // user's worktree with it. Gated behind a static ADMIN_TOKEN header, and DISABLED

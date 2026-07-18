@@ -12,6 +12,7 @@ import { useLocation } from './router';
 import { getSession } from './sessionStore';
 import Environments from './Environments';
 import Sandboxes from './Sandboxes';
+import Workspaces from './Workspaces';
 import Health from './Health';
 import IDEWorkspace from './IDEWorkspace';
 
@@ -31,6 +32,7 @@ export default function AppShell() {
   }
 
   if (path === '/sandboxes') return <Sandboxes />;
+  if (path === '/workspaces') return <Workspaces />;
   if (path === '/health') return <Health />;
 
   // Default: the environment manager.

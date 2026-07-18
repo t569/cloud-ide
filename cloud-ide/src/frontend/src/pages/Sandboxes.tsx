@@ -3,7 +3,7 @@
 // or delete it. Opening still routes through the shared launch flow, so a PAUSED
 // sandbox is resumed by POST /v1/sessions rather than by anything special here.
 import React, { useEffect, useRef, useState } from 'react';
-import { VscPulse, VscRefresh, VscServerProcess, VscRocket, VscClose, VscDebugPause, VscPlay, VscTrash, VscRootFolderOpened, VscCloudUpload, VscRepoClone } from 'react-icons/vsc';
+import { VscPulse, VscRefresh, VscServerProcess, VscRocket, VscClose, VscDebugPause, VscPlay, VscTrash, VscRootFolderOpened, VscCloudUpload, VscRepoClone, VscRepo } from 'react-icons/vsc';
 import {
   listSandboxes,
   deleteSandbox,
@@ -95,6 +95,12 @@ export default function Sandboxes() {
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-gray-800 hover:border-gray-600"
           >
             <VscRefresh className={isLoading ? 'animate-spin' : ''} /> Refresh
+          </button>
+          <button
+            onClick={() => navigate('/workspaces')}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-gray-800 hover:border-gray-600"
+          >
+            <VscRepo /> Workspaces
           </button>
           <button
             onClick={() => navigate('/environments')}

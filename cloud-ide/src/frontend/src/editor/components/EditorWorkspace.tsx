@@ -17,6 +17,7 @@ import { LanguagePicker } from './LanguagePicker';
 import { CommandPalette } from './CommandPalette';
 import { IDETerminal } from './IDETerminal';
 import { NetworkPanel } from './NetworkPanel';
+import { SourceControlPanel } from './SourceControlPanel';
 import { ComingSoon } from './ComingSoon';
 import { PreviewPane } from '../../preview/PreviewPane';
 // Lazy (optimization store O2): @novnc/novnc + the audio-worklet glue parse only when
@@ -294,6 +295,9 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
                   activeFilePath={workspaceState.activeFilePath}
                   eventBus={eventBus}
                 />
+              )}
+              {layout.activeSidebarPanel === 'source-control' && (
+                <SourceControlPanel sandboxId={sandboxId} eventBus={eventBus} />
               )}
               {layout.activeSidebarPanel === 'network' && (
                 <NetworkPanel sandboxId={sandboxId} eventBus={eventBus} />

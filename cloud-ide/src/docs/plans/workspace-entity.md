@@ -182,8 +182,11 @@ a fresh sandbox, state restored.
      in models.ts; `IWorkspaceRepository` + `JsonWorkspaceRepository` (atomic + serialized,
      owner-scoped, 5 tests); additive optional `SandboxRecord.workspaceId`. Purely additive — no
      consumer wired yet.
-   - **1b NEXT**: `WorkspaceManager` (create/list/delete over the repo + WorktreeEngine for the
-     ref), then wire it into `provision` behind the `IMaterialiser` seam (Phase 2).
+   - **1b DONE**: `WorkspaceManager` — the entity lifecycle (create/list/get/delete) over the
+     repo, minting id/ref/timestamps/defaults and validating the source (git-url needs a
+     sourceUrl). Repo-only by design: durable-ref materialisation and injection are the
+     `IMaterialiser` seam (Phase 2) and sources (Phase 5), kept out so this stays pure. 4 tests.
+     Not wired into `provision` yet, and no routes yet — that's Phase 2 + the routes slice.
 2. **Materialiser seam.** `IMaterialiser` with the git-blobless-checkout implementation first
    (portable, no FS risk) — reproduces current mounting, proves the seam.
 3. **overlayfs materialiser** (GATED on Spike 3a below). lower/upper split + save-from-upper + boot

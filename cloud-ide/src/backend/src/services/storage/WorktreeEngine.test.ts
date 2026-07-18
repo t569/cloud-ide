@@ -95,4 +95,71 @@ describe('WorktreeEngine — the branch outlives the checkout', () => {
     await fs.writeFile(path.join(wt, 'new.txt'), 'unsaved');
     expect(await engine.isDirty('sbx-d')).toBe(true);
   }, 30_000);
+
+  describe('git operations (real git in the worktree)', () => {
+    it('parses status: untracked, added, modified — rename-safe', async () => {
+      const wt = await engine.createWorktree('sbx-s');
+      await fs.writeFile(path.join(wt, 'tracked.txt'), 'v1');
+      await engine.stage('sbx-s');
+      await engine.commit('sbx-s', 'seed');
+
+      await fs.writeFile(path.join(wt, 'tracked.txt'), 'v2'); // modify
+      await fs.writeFile(path.join(wt, 'fresh.txt'), 'new');  // untracked
+
+      const status = await engine.status('sbx-s');
+      const byPath = Object.fromEntries(status.map((e) => [e.path, e.status]));
+      expect(byPath['tracked.txt']).toBe(' M');
+      expect(byPath['fresh.txt']).toBe('??');
+      expect(status).toHaveLength(2); // exactly these — parser didn't misalign
+    }, 30_000);
+
+    it('commits a message containing shell metacharacters verbatim (argv, no shell)', async () => {
+      const wt = await engine.createWorktree('sbx-inj');
+      await fs.writeFile(path.join(wt, 'f.txt'), 'x');
+      await engine.stage('sbx-inj');
+
+      // If this were interpolated into a shell string, the injected command would run
+      // and/or the subject would be mangled. argv passes it as one literal argument.
+      const nasty = 'fix: "$(touch pwned)"; rm -rf / && echo `whoami`';
+      await engine.commit('sbx-inj', nasty);
+
+      const log = await engine.log('sbx-inj', 1);
+      expect(log[0].subject).toBe(nasty);
+      await expect(fs.access(path.join(wt, 'pwned'))).rejects.toThrow(); // no side effect
+    }, 30_000);
+
+    it('logs structured entries and diffs an unstaged change', async () => {
+      const wt = await engine.createWorktree('sbx-l');
+      await fs.writeFile(path.join(wt, 'a.txt'), 'one\n');
+      await engine.stage('sbx-l');
+      await engine.commit('sbx-l', 'first');
+
+      const log = await engine.log('sbx-l', 5);
+      expect(log[0].subject).toBe('first');
+      expect(log[0].hash).toMatch(/^[0-9a-f]{40}$/);
+      expect(log[0].date).toMatch(/^\d{4}-\d\d-\d\dT/);
+
+      await fs.writeFile(path.join(wt, 'a.txt'), 'two\n');
+      const diff = await engine.diff('sbx-l', 'a.txt');
+      expect(diff).toContain('-one');
+      expect(diff).toContain('+two');
+    }, 30_000);
+
+    it('cloneInto lands a working checkout from a remote', async () => {
+      // Build a tiny local bare repo to act as the remote.
+      const remote = path.join(root, 'remote.git');
+      const seed = path.join(root, 'seed');
+      await git(root, 'init', '--bare', remote);
+      await git(root, 'clone', remote, seed);
+      await fs.writeFile(path.join(seed, 'hello.txt'), 'from remote');
+      await git(seed, 'add', '.');
+      await git(seed, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'seed');
+      await git(seed, 'push', 'origin', 'HEAD');
+
+      const wt = await engine.cloneInto('sbx-clone', remote);
+
+      expect(await fs.readFile(path.join(wt, 'hello.txt'), 'utf-8')).toBe('from remote');
+      expect((await engine.log('sbx-clone', 1))[0].subject).toBe('seed');
+    }, 30_000);
+  });
 });

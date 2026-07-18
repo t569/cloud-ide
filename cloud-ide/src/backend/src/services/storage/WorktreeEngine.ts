@@ -1,12 +1,27 @@
 // backend/src/services/storage/WorktreeEngine.ts
 
-import {exec} from 'child_process';
+import {exec, execFile} from 'child_process';
 import { promisify } from 'node:util';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+
+export interface GitStatusEntry {
+  /** Two-char porcelain XY code (e.g. ' M', 'A ', '??', 'R '). */
+  status: string;
+  path: string;
+}
+
+export interface GitLogEntry {
+  hash: string;
+  subject: string;
+  author: string;
+  /** ISO-8601 author date. */
+  date: string;
+}
 
 export class WorktreeEngine {
     constructor(private baseRepoPath: string,
@@ -174,6 +189,125 @@ export class WorktreeEngine {
         // touch the branch.
         await execAsync('git worktree prune', { cwd: this.baseRepoPath }).catch(() => {});
         }
+    }
+
+    // ─── Git operations on a sandbox's worktree ──────────────────────────────
+    //
+    // These run REAL git in the worktree the editor and terminal already write to
+    // (one source of truth) via execFile — argv, NO shell — because they carry
+    // user input (repo URLs, commit messages, branch names). The older exec()
+    // methods above interpolate into a shell string; do NOT copy that here.
+    // See docs/plans/git-integration.md.
+
+    /** argv, no shell. Rejects with git's stderr on non-zero exit. */
+    private git(cwd: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+        return execFileAsync('git', args, { cwd, maxBuffer: 64 * 1024 * 1024 });
+    }
+
+    /**
+     * Credential args for network ops (clone/fetch/push). The PAT is passed as an
+     * Authorization header via command-scoped `-c http.extraHeader` — it never lands
+     * in the remote URL or in .git/config, so it is not exposed to the container that
+     * mounts the checkout. GitHub accepts a PAT as the Basic password with any user.
+     *
+     * ponytail: covers EXPLICIT network ops only. A blobless clone's IMPLICIT lazy
+     * blob fetch (triggered inside `git diff`/checkout) can't take these -c args, so
+     * PRIVATE-repo lazy fetch needs a persistent host-side credential living OUTSIDE
+     * the mounted worktree — its own slice. Public repos and all local ops work now.
+     */
+    private authArgs(token?: string): string[] {
+        if (!token) return [];
+        const basic = Buffer.from(`x-access-token:${token}`).toString('base64');
+        return ['-c', `http.extraHeader=AUTHORIZATION: basic ${basic}`];
+    }
+
+    /**
+     * Blobless partial clone into the sandbox's worktree path — lightweight (commit
+     * graph + trees, not blobs) with git's native lazy blob fetch. Fails if the path
+     * is already a non-empty checkout (use createWorktree's reuse path for that).
+     */
+    public async cloneInto(sandboxId: string, url: string, token?: string): Promise<string> {
+        const targetPath = path.join(this.worktreesRoot, sandboxId);
+        await fs.mkdir(this.worktreesRoot, { recursive: true });
+        await this.git(this.worktreesRoot, [
+            ...this.authArgs(token),
+            'clone', '--filter=blob:none', '--', url, targetPath,
+        ]);
+        await this.makeContainerWritable(targetPath);
+        return targetPath;
+    }
+
+    /** Parsed `git status` (NUL-delimited, rename-safe). Empty when clean. */
+    public async status(sandboxId: string): Promise<GitStatusEntry[]> {
+        const cwd = path.join(this.worktreesRoot, sandboxId);
+        const { stdout } = await this.git(cwd, ['status', '--porcelain=v1', '-z']);
+        const parts = stdout.split('\0');
+        const out: GitStatusEntry[] = [];
+        for (let i = 0; i < parts.length; i++) {
+            const entry = parts[i];
+            if (!entry) continue;
+            const status = entry.slice(0, 2);
+            out.push({ status, path: entry.slice(3) });
+            // A rename/copy (R*/C*) is followed by its source path as the next segment.
+            if (status[0] === 'R' || status[0] === 'C') i++;
+        }
+        return out;
+    }
+
+    /** Stage paths (or everything). Paths are argv, never a glob string. */
+    public async stage(sandboxId: string, paths: string[] = ['.']): Promise<void> {
+        const cwd = path.join(this.worktreesRoot, sandboxId);
+        await this.git(cwd, ['add', '--', ...paths]);
+    }
+
+    /** Commit staged changes. Identity is passed per-command; not persisted globally. */
+    public async commit(
+        sandboxId: string,
+        message: string,
+        author: { name: string; email: string } = { name: 'Cloud IDE', email: 'noreply@cloud-ide' },
+    ): Promise<void> {
+        const cwd = path.join(this.worktreesRoot, sandboxId);
+        await this.git(cwd, [
+            '-c', `user.name=${author.name}`,
+            '-c', `user.email=${author.email}`,
+            'commit', '-m', message,
+        ]);
+    }
+
+    /** Current branch name (e.g. `sbx-<id>` or a cloned repo's default branch). */
+    public async currentBranch(sandboxId: string): Promise<string> {
+        const cwd = path.join(this.worktreesRoot, sandboxId);
+        const { stdout } = await this.git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
+        return stdout.trim();
+    }
+
+    /** Recent commits, newest first. */
+    public async log(sandboxId: string, limit = 50): Promise<GitLogEntry[]> {
+        const cwd = path.join(this.worktreesRoot, sandboxId);
+        // NUL between fields, newline between records — neither can appear in a hash,
+        // author name is the only risk and %an can't contain NUL.
+        const { stdout } = await this.git(cwd, [
+            'log', `-n${limit}`, '--format=%H%x00%s%x00%an%x00%aI',
+        ]);
+        return stdout.split('\n').filter(Boolean).map((line) => {
+            const [hash, subject, author, date] = line.split('\0');
+            return { hash, subject, author, date };
+        });
+    }
+
+    /** Unified diff for the worktree, optionally scoped to one path. */
+    public async diff(sandboxId: string, filePath?: string): Promise<string> {
+        const cwd = path.join(this.worktreesRoot, sandboxId);
+        const args = ['diff'];
+        if (filePath) args.push('--', filePath);
+        const { stdout } = await this.git(cwd, args);
+        return stdout;
+    }
+
+    /** Push the current branch to its upstream (or `origin HEAD` on first push). */
+    public async push(sandboxId: string, token?: string): Promise<void> {
+        const cwd = path.join(this.worktreesRoot, sandboxId);
+        await this.git(cwd, [...this.authArgs(token), 'push', 'origin', 'HEAD']);
     }
 }
 

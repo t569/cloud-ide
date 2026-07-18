@@ -31,7 +31,10 @@ Two load-bearing examples of the seam philosophy:
   (`WorktreeEngine`, branch `sbx-<id>`). Git already *is* our content-addressed tree +
   write-ahead log, so we don't hand-roll a Merkle tree, a sync protocol, or crash recovery.
   Read [`ARCHITECTURE.md` → "git IS our Merkle tree + WAL"](./ARCHITECTURE.md) before you
-  propose one.
+  propose one. **Version control is the same seam, extended, not a second system:** clone,
+  commit, push, branch are real `git` in that worktree (host-side, PAT server-side) — never
+  a browser-REST parallel store. Lightweight via `--filter=blob:none` partial clone (lazy
+  blob fetch). See [`docs/plans/git-integration.md`](./docs/plans/git-integration.md).
 - **Provisioning = a strategy seam.** `SandboxManager` depends only on `ISandboxDriver`;
   `createSandboxDriver()` picks the implementation. Builds go through `IBuilder` +
   `BuilderRegistry`; the store behind `IBuildStore`. Swapping a provider, build backend, or

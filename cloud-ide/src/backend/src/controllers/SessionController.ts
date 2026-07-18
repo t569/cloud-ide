@@ -5,6 +5,7 @@ import { EventEmitter } from 'events';
 import { ISessionRepository, ISandboxRepository, IEnvironmentRepository } from '../database/interfaces';
 import { SandboxManager, specForEnvironment, WorkspaceSource } from '../services/sandbox/SandboxManager';
 import { GitCredentialStore } from '../services/git/GitCredentialStore';
+import { GitAuth } from '../services/storage/WorktreeEngine';
 import { SessionRecord } from '../database/models';
 import { config } from '../config/env';
 import { SID_COOKIE, SESSION_COOKIE_OPTIONS, userOwnsSandbox } from '../api/middleware/security';
@@ -38,8 +39,13 @@ export class SessionController {
   private async cloneSourceFor(repoUrl: unknown, userId: string): Promise<WorkspaceSource | null | undefined> {
     if (repoUrl === undefined) return undefined;
     if (typeof repoUrl !== 'string' || !/^https?:\/\//i.test(repoUrl)) return null;
+    return { kind: 'clone', url: repoUrl, auth: await this.authFor(userId) };
+  }
+
+  /** The caller's stored PAT as GitAuth, or undefined — for cloning a private workspace. */
+  private async authFor(userId: string): Promise<GitAuth | undefined> {
     const cred = await this.credentials.get(userId);
-    return { kind: 'clone', url: repoUrl, auth: cred ? { token: cred.token, host: cred.host } : undefined };
+    return cred ? { token: cred.token, host: cred.host } : undefined;
   }
 
   /**
@@ -61,7 +67,7 @@ export class SessionController {
    * even if you provisioned it. `fresh` is the other half — it's how you get N of them.
    */
   public startSession = async (req: Request, res: Response): Promise<void> => {
-    const { environmentId, sandboxId: requestedSandboxId, fresh, repoUrl } = req.body;
+    const { environmentId, sandboxId: requestedSandboxId, fresh, repoUrl, workspaceId } = req.body;
     // Identity comes from the seam, never the body — a caller that names its own
     // userId can claim any other user's warm sandboxes below.
     const userId = currentUser(req, res);
@@ -112,6 +118,10 @@ export class SessionController {
       res.status(400).json({ error: 'repoUrl must be an http(s) git URL.' });
       return;
     }
+    // Launch from a first-class WORKSPACE (workspace-entity.md): its id + the caller's PAT
+    // are threaded to provision, which materialises it into the new sandbox.
+    const wsId = typeof workspaceId === 'string' && workspaceId ? workspaceId : undefined;
+    const wsAuth = wsId ? await this.authFor(userId) : undefined;
 
     try {
       let targetSandboxId: string;
@@ -122,7 +132,7 @@ export class SessionController {
         // new object — a workspace is a worktree, and provision() already mints one.
         console.log(`[SessionController] Fresh workspace requested on ${environmentId}.`);
         targetSandboxId = (
-          await this.sandboxManager.provision(specForEnvironment(environment), userId, undefined, source)
+          await this.sandboxManager.provision(specForEnvironment(environment), userId, undefined, source, wsId, wsAuth)
         ).sandboxId;
       } else {
         // THE SMART ROUTER: do I already have a workspace on this env? Scoped to the
@@ -151,7 +161,7 @@ export class SessionController {
         } else {
           console.log(`[SessionController] No sandbox for this env. Cold-booting...`);
           targetSandboxId = (
-            await this.sandboxManager.provision(specForEnvironment(environment), userId, undefined, source)
+            await this.sandboxManager.provision(specForEnvironment(environment), userId, undefined, source, wsId, wsAuth)
           ).sandboxId;
         }
       }

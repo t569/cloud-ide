@@ -34,6 +34,8 @@ export const startSession = (target: {
   fresh?: boolean;
   /** Seed a NEW workspace by cloning this git URL (clone-on-create). http(s) only. */
   repoUrl?: string;
+  /** Launch from a first-class workspace (workspace-entity.md); materialised into the sandbox. */
+  workspaceId?: string;
 }) => apiClient.post<SessionResponse>('/v1/sessions', target);
 
 /** Current state of a sandbox (reconciled with the Rust engine). */

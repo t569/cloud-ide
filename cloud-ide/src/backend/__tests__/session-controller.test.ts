@@ -76,6 +76,8 @@ test("never adopts another user's sandbox; cold-boots with the stored tag + envV
     'user-1',
     undefined,   // existingWorktreeId
     undefined,   // clone source — no repoUrl in this test
+    undefined,   // workspaceId
+    undefined,   // workspace auth
   );
   expect(h.body().sandboxId).toBe('sbx-new');
 });

@@ -197,6 +197,12 @@ a fresh sandbox, state restored.
    WorktreeEngine backs SandboxManager + the materialiser). 32 workspace/sandbox tests; full
    suite 374 pass. NO route passes `workspaceId` yet — that's the routes slice; the overlay
    materialiser is Phase 3.
+   - **Routes DONE**: `WorkspaceController` + `createWorkspaceRouter` at `/api/v1/workspaces`
+     (list/create/get/delete, user-scoped, owner-gated per id; host-folder source 400s until
+     its mount-security model lands). `startSession` accepts `workspaceId` (+ resolves the
+     caller's PAT) and threads it → provision. The workspace path now has a real caller.
+     Frontend `startSession` type carries `workspaceId`; the `/workspaces` PAGE is Phase 6.
+     Full suite 378 pass.
 3. **overlayfs materialiser** (GATED on Spike 3a below). lower/upper split + save-from-upper + boot
    allow-list + teardown cleanup + capability detection + graceful fallback.
 4. **Save/persistence.** WIP-snapshot (uncommitted capture), auto-save-on-detach, persistence modes,

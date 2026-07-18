@@ -25,6 +25,8 @@ import { SandboxController } from './controllers/SandboxController';
 import { AdminController } from './controllers/AdminController';
 import { SessionController } from './controllers/SessionController';
 import { GitController } from './controllers/GitController';
+import { WorkspaceController } from './controllers/WorkspaceController';
+import { createWorkspaceRouter } from './api/WorkspaceRoutes';
 
 // Security middleware (CSRF + IDOR ownership) — SECURITY finding #2
 import { csrfProtection, requireAdmin, securityHeaders } from './api/middleware/security';
@@ -157,6 +159,7 @@ const gitCredentials = new GitCredentialStore(deriveKey('git-pat-encryption-v1')
 const sandboxController = new SandboxController(sandboxManager, sessionRepo, activityRepo);
 const adminController = new AdminController(sandboxManager);
 const sessionController = new SessionController(systemEvents, sessionRepo, sandboxRepo, sandboxManager, envRepo, gitCredentials);
+const workspaceController = new WorkspaceController(workspaces);
 
 // The engine is stateless (paths only), so a second instance for read/commit ops is free —
 // existing worktrees need no base-repo init.
@@ -180,6 +183,9 @@ app.use('/api/v1/sandboxes', createSandboxRouter(sandboxController, sandboxRepo,
 app.get('/api/v1/git/credential', gitController.getCredential);
 app.put('/api/v1/git/credential', gitController.setCredential);
 app.delete('/api/v1/git/credential', gitController.clearCredential);
+
+// Workspace management plane (workspace-entity.md) — user-scoped, owner-gated per :id.
+app.use('/api/v1/workspaces', createWorkspaceRouter(workspaceController));
 
 // Read-only GitHub browse (no clone): peek at a repo tree + file content, using the
 // caller's stored PAT for private repos. User-scoped, like the credential routes.

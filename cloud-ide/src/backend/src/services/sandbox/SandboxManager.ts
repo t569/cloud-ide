@@ -150,6 +150,8 @@ export class SandboxManager {
     // Launch from a first-class WORKSPACE (workspace-entity.md): its materialiser produces
     // the /workspace mount, and the id is stamped on the record. Absent = today's path.
     workspaceId?: string,
+    // The caller's PAT, for cloning a private git-url workspace at materialise time.
+    auth?: GitAuth,
   ): Promise<SandboxRecord> {
     // 0. Ensure the central bare repo exists (memoized — runs once per process;
     // a failure resets the memo so a transient error doesn't brick provisioning)
@@ -173,9 +175,10 @@ export class SandboxManager {
       if (!this.workspaces) {
         throw new Error('WorkspaceManager is required to launch from a workspace.');
       }
-      // ponytail: auth rides on the clone `source` for now; the routes slice that passes
-      // workspaceId will thread the owner's PAT here directly.
-      hostPath = await this.workspaces.materialise(workspaceId, worktreeId, { fresh, auth: source?.auth });
+      hostPath = await this.workspaces.materialise(workspaceId, worktreeId, {
+        fresh,
+        auth: auth ?? source?.auth,
+      });
     } else if (source?.kind === 'clone' && fresh) {
       hostPath = await this.worktreeEngine.cloneInto(worktreeId, source.url, source.auth);
     } else {

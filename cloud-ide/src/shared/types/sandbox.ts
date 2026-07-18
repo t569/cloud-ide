@@ -127,6 +127,13 @@ export interface SandboxRecord {
   userId?: string;
   environmentId: string;   // Maps to the base image (e.g., 'zkp-noir-env')
   worktreeId: string;      // The unique ID for the Git worktree (e.g., 'sbx-8f72a9b1')
+  /**
+   * The WORKSPACE injected into this sandbox (docs/plans/workspace-entity.md). Optional:
+   * today's sandboxes carry only a worktreeId — the degenerate "unnamed ephemeral
+   * workspace" welded 1:1 to this container. Set once a sandbox is launched from a
+   * first-class, reusable workspace. The worktreeId stays as the on-disk checkout id.
+   */
+  workspaceId?: string;
   state: SandboxState;     // PROVISIONING, RUNNING, PAUSED, etc.
   execdPort?: number;
   desiredVolumes: VolumeMount[];

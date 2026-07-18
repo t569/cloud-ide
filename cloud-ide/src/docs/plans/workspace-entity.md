@@ -178,6 +178,12 @@ a fresh sandbox, state restored.
 1. **Entity + repo.** `WorkspaceRecord`, `JsonWorkspaceRepository`, `WorkspaceManager` skeleton;
    `SandboxRecord.workspaceId`; degenerate "unnamed ephemeral workspace" = today's behaviour (no
    user-visible change yet — pure refactor behind the seam).
+   - **1a DONE** (branch `feat/workspace`): `WorkspaceRecord` + `WorkspaceSourceKind`/`Persistence`
+     in models.ts; `IWorkspaceRepository` + `JsonWorkspaceRepository` (atomic + serialized,
+     owner-scoped, 5 tests); additive optional `SandboxRecord.workspaceId`. Purely additive — no
+     consumer wired yet.
+   - **1b NEXT**: `WorkspaceManager` (create/list/delete over the repo + WorktreeEngine for the
+     ref), then wire it into `provision` behind the `IMaterialiser` seam (Phase 2).
 2. **Materialiser seam.** `IMaterialiser` with the git-blobless-checkout implementation first
    (portable, no FS risk) — reproduces current mounting, proves the seam.
 3. **overlayfs materialiser** (GATED on Spike 3a below). lower/upper split + save-from-upper + boot
@@ -186,8 +192,12 @@ a fresh sandbox, state restored.
    "Save as workspace" / "Discard".
 5. **Sources.** Wire `git-url` (cloneInto) and revive `LocalMountStrategy` (`host-folder`) as workspace
    sources; `blank` default.
-6. **Frontend.** Workspace picker/manager (like the env manager) + inject/detach/save UI, with the
-   frontend-design plugin.
+6. **Frontend** (UI shape DECIDED 2026-07-18): a **dedicated `/workspaces` page** — a sibling to
+   `/environments`, built like the env-manager — listing saved workspaces (name, source,
+   persistence, last-attached sandbox) with rename/save/delete/detach; **plus a workspace picker in
+   the launch flow** (the slot the "Clone repo" dialog occupies now, generalised — clone-a-repo
+   becomes one *source*). Chosen over folding into the Sandboxes page: the whole point is to show
+   workspace and compute as SEPARATE things. Built with the frontend-design plugin.
 
 ## Spike 3a — overlayfs-under-Docker (RUN ON THE LINUX/WSL HOST)
 

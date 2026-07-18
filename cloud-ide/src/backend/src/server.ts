@@ -34,6 +34,9 @@ import { WorktreeEngine } from './services/storage/WorktreeEngine';
 import { GitCredentialStore } from './services/git/GitCredentialStore';
 import { GitHubBrowse } from './services/git/GitHubBrowse';
 import { CENTRAL_REPO_PATH, WORKTREES_ROOT } from './services/sandbox/SandboxManager';
+import { WorkspaceManager } from './services/workspace/WorkspaceManager';
+import { GitCheckoutMaterialiser } from './services/workspace/GitCheckoutMaterialiser';
+import { JsonWorkspaceRepository } from './database/json/JsonWorkspaceRepository';
 
 
 // File Routers
@@ -114,6 +117,14 @@ const envRepo = new JsonEnvironmentRepository();
 const sessionRepo = new JsonSessionRepository();
 const sandboxRepo = new JsonSandboxRepository();
 const activityRepo = new JsonActivityRepository();
+const workspaceRepo = new JsonWorkspaceRepository();
+
+// Storage + workspace layer (workspace-entity.md). One shared, stateless WorktreeEngine
+// backs both SandboxManager and the workspace materialiser. The WorkspaceManager injects a
+// first-class workspace into a sandbox at provision time via the git-checkout materialiser
+// (the portable one; the overlay CoW path drops in behind IMaterialiser in Phase 3).
+const worktreeEngine = new WorktreeEngine(CENTRAL_REPO_PATH, WORKTREES_ROOT);
+const workspaces = new WorkspaceManager(workspaceRepo, new GitCheckoutMaterialiser(worktreeEngine));
 
 // Initialize Central Event Bus for Decoupled Mircoservices
 const systemEvents = new EventEmitter();
@@ -121,11 +132,10 @@ const systemEvents = new EventEmitter();
 // // Initialize the Kernel & Background Daemons
 const persistenceLayer = new PersistenceLayer(systemEvents, sessionRepo, sandboxRepo, activityRepo);
 const sandboxDriver = createSandboxDriver();
-// `undefined` for worktreeEngine keeps its default; activityRepo is the 4th arg so
-// provision/pause/resume/destroy land in the drawer's Activity log. envRepo is the 5th:
-// ensureRunning needs it to rebuild a boot spec when it recovers a dead container onto
-// its worktree — without it, recovery can't know which image to come back on.
-const sandboxManager = new SandboxManager(sandboxRepo, sandboxDriver, undefined, activityRepo, envRepo);
+// The shared worktreeEngine is the 3rd arg; activityRepo (4th) lands lifecycle in the
+// drawer's Activity log; envRepo (5th) lets ensureRunning rebuild a boot spec on recovery;
+// workspaces (6th) materialises a first-class workspace when a launch names one.
+const sandboxManager = new SandboxManager(sandboxRepo, sandboxDriver, worktreeEngine, activityRepo, envRepo, workspaces);
 
 // fsEventHub carries chokidar (Step 10c) change events out over SSE; the watchers'
 // per-sandbox SSE ref-count doubles as the "is anyone using this?" signal the
@@ -152,7 +162,7 @@ const sessionController = new SessionController(systemEvents, sessionRepo, sandb
 // existing worktrees need no base-repo init.
 const gitController = new GitController(
   sandboxRepo,
-  new WorktreeEngine(CENTRAL_REPO_PATH, WORKTREES_ROOT),
+  worktreeEngine, // the shared instance (stateless; same paths)
   gitCredentials,
   new GitHubBrowse(),
 );

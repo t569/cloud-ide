@@ -13,6 +13,8 @@
 import crypto from 'node:crypto';
 import { IWorkspaceRepository } from '../../database/interfaces/IWorkspaceRepository';
 import { WorkspaceRecord, WorkspaceSourceKind, WorkspacePersistence } from '../../database/models';
+import { IMaterialiser } from './IMaterialiser';
+import { GitAuth } from '../storage/WorktreeEngine';
 
 export interface CreateWorkspaceInput {
   name: string;
@@ -25,7 +27,12 @@ export interface CreateWorkspaceInput {
 }
 
 export class WorkspaceManager {
-  constructor(private repo: IWorkspaceRepository) {}
+  constructor(
+    private repo: IWorkspaceRepository,
+    /** How a workspace becomes a mounted /workspace. Injected so the fast (overlay) path
+     *  can replace the portable (git-checkout) one without touching this service. */
+    private materialiser: IMaterialiser,
+  ) {}
 
   /** Mint a new workspace record. The durable ref is materialised later (Phase 2/5). */
   public async create(input: CreateWorkspaceInput): Promise<WorkspaceRecord> {
@@ -57,6 +64,21 @@ export class WorkspaceManager {
 
   public get(id: string): Promise<WorkspaceRecord | null> {
     return this.repo.get(id);
+  }
+
+  /**
+   * Inject this workspace into a sandbox: produce the host path to mount at /workspace.
+   * `fresh` is false only when recovering onto an existing checkout (reuse, never
+   * re-clone). Delegates the how to the materialiser (git-checkout today, overlay later).
+   */
+  public async materialise(
+    workspaceId: string,
+    worktreeId: string,
+    opts: { fresh: boolean; auth?: GitAuth },
+  ): Promise<string> {
+    const workspace = await this.repo.get(workspaceId);
+    if (!workspace) throw new Error(`Workspace ${workspaceId} not found.`);
+    return this.materialiser.materialise({ workspace, worktreeId, fresh: opts.fresh, auth: opts.auth });
   }
 
   /**

@@ -187,8 +187,16 @@ a fresh sandbox, state restored.
      sourceUrl). Repo-only by design: durable-ref materialisation and injection are the
      `IMaterialiser` seam (Phase 2) and sources (Phase 5), kept out so this stays pure. 4 tests.
      Not wired into `provision` yet, and no routes yet — that's Phase 2 + the routes slice.
-2. **Materialiser seam.** `IMaterialiser` with the git-blobless-checkout implementation first
-   (portable, no FS risk) — reproduces current mounting, proves the seam.
+2. **Materialiser seam — DONE** (behavioural, additive). `IMaterialiser` (materialise/
+   dematerialise) + `GitCheckoutMaterialiser` (delegates to WorktreeEngine — clone a fresh
+   git-url workspace into its checkout, reuse on recovery, empty checkout for blank).
+   `WorkspaceManager.materialise(workspaceId, worktreeId, {fresh, auth})` runs it.
+   `provision()` gained an optional `workspaceId`: when present it materialises via the
+   WorkspaceManager and stamps `SandboxRecord.workspaceId`; when ABSENT the path is byte-for-
+   byte today's behaviour (clone-on-create / empty worktree). Wired in server.ts (one shared
+   WorktreeEngine backs SandboxManager + the materialiser). 32 workspace/sandbox tests; full
+   suite 374 pass. NO route passes `workspaceId` yet — that's the routes slice; the overlay
+   materialiser is Phase 3.
 3. **overlayfs materialiser** (GATED on Spike 3a below). lower/upper split + save-from-upper + boot
    allow-list + teardown cleanup + capability detection + graceful fallback.
 4. **Save/persistence.** WIP-snapshot (uncommitted capture), auto-save-on-detach, persistence modes,

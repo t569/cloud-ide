@@ -197,6 +197,32 @@ describe('SandboxManager', () => {
     expect(engine.createWorktree).toHaveBeenCalledWith('wt-existing');
   });
 
+  it('materialises a first-class workspace when a workspaceId is given (not the raw worktree)', async () => {
+    const rust = createRustMock();
+    const engine = createEngineMock();
+    rust.bootSandbox.mockResolvedValue({ sandboxId: 'sbx-1', state: 'RUNNING', execdPort: 44772 });
+    const workspaces = { materialise: jest.fn().mockResolvedValue('/host/worktrees/fixed-uuid') } as any;
+    const manager = new SandboxManager(createRepoMock(), rust, engine, undefined, undefined, workspaces);
+
+    const record = await manager.provision(
+      { imageTag: 'node:latest' } as SandboxSpec, OWNER, undefined, undefined, 'wsp-42',
+    );
+
+    expect(workspaces.materialise).toHaveBeenCalledWith('wsp-42', 'fixed-uuid', { fresh: true, auth: undefined });
+    expect(engine.createWorktree).not.toHaveBeenCalled(); // the workspace path, not the raw worktree
+    expect(engine.cloneInto).not.toHaveBeenCalled();
+    expect(record.workspaceId).toBe('wsp-42');
+  });
+
+  it('rejects a workspace launch when no WorkspaceManager is wired', async () => {
+    const rust = createRustMock();
+    rust.bootSandbox.mockResolvedValue({ sandboxId: 'sbx-1', state: 'RUNNING' });
+    const manager = new SandboxManager(createRepoMock(), rust, createEngineMock()); // no workspaces injected
+    await expect(
+      manager.provision({ imageTag: 'x' } as SandboxSpec, OWNER, undefined, undefined, 'wsp-1'),
+    ).rejects.toThrow(/WorkspaceManager/);
+  });
+
   it('rejects a volume name with nothing salvageable', async () => {
     const rust = createRustMock();
     rust.bootSandbox.mockResolvedValue({ sandboxId: 'sbx-1', state: 'RUNNING', execdPort: 44772 });

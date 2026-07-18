@@ -20,6 +20,7 @@ import { RustEngineClient } from './rustClient';
 import { ISandboxDriver, DriverCapabilities, ISandboxSession, PtyOptions } from './drivers/ISandboxDriver';
 import { captureSnapshot, ToolSnapshot } from '../promotion/toolSnapshot';
 import { WorktreeEngine, GitAuth } from '../storage/WorktreeEngine';
+import { WorkspaceManager } from '../workspace/WorkspaceManager';
 import { dataPath } from '../../config/paths';
 import { defaultNetworkPolicy } from './network/policy';
 import { egressEnforceable } from './network/egressCapability';
@@ -119,6 +120,10 @@ export class SandboxManager {
     // Needed to rebuild a sandbox's boot spec when `ensureRunning` has to recover it
     // onto its worktree. Optional only so the test sites that never recover can skip it.
     private envRepo?: IEnvironmentRepository,
+    // Injects a first-class workspace into a sandbox at provision time (workspace-entity.md).
+    // Optional: absent it, provision keeps today's per-sandbox worktree (the degenerate
+    // "unnamed ephemeral workspace"). Only consulted when a `workspaceId` is passed.
+    private workspaces?: WorkspaceManager,
   ) {}
 
 
@@ -142,6 +147,9 @@ export class SandboxManager {
     // Where a FRESH worktree's initial content comes from (clone-from-URL). Ignored when
     // recovering onto an existing worktree — its files are the source of truth.
     source?: WorkspaceSource,
+    // Launch from a first-class WORKSPACE (workspace-entity.md): its materialiser produces
+    // the /workspace mount, and the id is stamped on the record. Absent = today's path.
+    workspaceId?: string,
   ): Promise<SandboxRecord> {
     // 0. Ensure the central bare repo exists (memoized — runs once per process;
     // a failure resets the memo so a transient error doesn't brick provisioning)
@@ -154,13 +162,25 @@ export class SandboxManager {
     // 1. Generate a dedicated ID for the storage layer
     const worktreeId = existingWorktreeId ?? crypto.randomUUID();
 
-    // 2. Materialise the worktree. A clone source on a FRESH worktree populates it from
-    //    the remote (blobless, lazy); otherwise mint/reuse an empty one. Recovery
-    //    (existingWorktreeId) never clones — reuse is idempotent, files and all.
-    const hostPath =
-      source?.kind === 'clone' && !existingWorktreeId
-        ? await this.worktreeEngine.cloneInto(worktreeId, source.url, source.auth)
-        : await this.worktreeEngine.createWorktree(worktreeId);
+    // 2. Materialise the /workspace mount. Three paths, in priority order:
+    //    - a first-class WORKSPACE → its materialiser (git-checkout today, overlay later);
+    //    - a clone source on a FRESH worktree → blobless clone (today's clone-on-create);
+    //    - otherwise → mint/reuse an empty worktree.
+    //    Recovery (existingWorktreeId) never clones — reuse is idempotent, files and all.
+    const fresh = !existingWorktreeId;
+    let hostPath: string;
+    if (workspaceId) {
+      if (!this.workspaces) {
+        throw new Error('WorkspaceManager is required to launch from a workspace.');
+      }
+      // ponytail: auth rides on the clone `source` for now; the routes slice that passes
+      // workspaceId will thread the owner's PAT here directly.
+      hostPath = await this.workspaces.materialise(workspaceId, worktreeId, { fresh, auth: source?.auth });
+    } else if (source?.kind === 'clone' && fresh) {
+      hostPath = await this.worktreeEngine.cloneInto(worktreeId, source.url, source.auth);
+    } else {
+      hostPath = await this.worktreeEngine.createWorktree(worktreeId);
+    }
 
     // 3. Use your Provisioner Strategy to mutate the spec flawlessly
     const strategy = new WorktreeStrategy(hostPath);
@@ -197,6 +217,8 @@ export class SandboxManager {
       sandboxId: rustStatus.sandboxId,     // The OpenSandbox ID (e.g., sbx-1234)
       userId: ownerId,                     // Owner — the basis of every later access check
       worktreeId: worktreeId,              // The Host SSD folder ID (e.g., uuid)
+      workspaceId: workspaceId,            // The first-class workspace injected, if any
+
       // The env id, not the image tag: warm-sandbox reuse looks this up by env, and
       // a content-tagged rebuild changes the tag. Falls back to the tag for the raw
       // POST /v1/sandboxes verb, which is launched from no environment.

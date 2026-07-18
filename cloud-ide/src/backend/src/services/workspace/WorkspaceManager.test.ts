@@ -18,7 +18,11 @@ function memRepo(): IWorkspaceRepository {
 
 describe('WorkspaceManager', () => {
   let mgr: WorkspaceManager;
-  beforeEach(() => { mgr = new WorkspaceManager(memRepo()); });
+  let materialise: jest.Mock;
+  beforeEach(() => {
+    materialise = jest.fn(async () => '/host/worktrees/wt-x');
+    mgr = new WorkspaceManager(memRepo(), { materialise, dematerialise: jest.fn() });
+  });
 
   it('mints a blank workspace with an id, ref, and safe defaults', async () => {
     const w = await mgr.create({ name: '  My Space  ', ownerId: 'user-1' });
@@ -49,5 +53,17 @@ describe('WorkspaceManager', () => {
     expect((await mgr.list('user-1')).map((w) => w.id)).toEqual([mine.id]);
     await mgr.delete(mine.id);
     expect(await mgr.get(mine.id)).toBeNull();
+  });
+
+  it('materialise hands the workspace to the materialiser and returns its path', async () => {
+    const w = await mgr.create({ name: 'r', ownerId: 'u', source: 'git-url', sourceUrl: 'https://github.com/o/r' });
+    const auth = { token: 't', host: 'github.com' };
+    const host = await mgr.materialise(w.id, 'wt-x', { fresh: true, auth });
+    expect(host).toBe('/host/worktrees/wt-x');
+    expect(materialise).toHaveBeenCalledWith({ workspace: w, worktreeId: 'wt-x', fresh: true, auth });
+  });
+
+  it('materialise throws on an unknown workspace', async () => {
+    await expect(mgr.materialise('wsp-nope', 'wt-x', { fresh: true })).rejects.toThrow(/not found/);
   });
 });

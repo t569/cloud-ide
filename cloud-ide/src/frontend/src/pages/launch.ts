@@ -32,17 +32,17 @@ export function openWorkspace(sandboxId: string, opts: LaunchOptions = {}): Prom
  */
 export function launchEnvironment(
   environmentId: string,
-  opts: LaunchOptions & { fresh?: boolean } = {},
+  opts: LaunchOptions & { fresh?: boolean; repoUrl?: string } = {},
 ): Promise<void> {
   return launch(
-    { environmentId, fresh: opts.fresh },
+    { environmentId, fresh: opts.fresh, repoUrl: opts.repoUrl },
     opts.workspaceName || environmentId,
     opts,
   );
 }
 
 async function launch(
-  target: { sandboxId?: string; environmentId?: string; fresh?: boolean },
+  target: { sandboxId?: string; environmentId?: string; fresh?: boolean; repoUrl?: string },
   label: string,
   { envConfig, verb = 'Provisioning' }: LaunchOptions,
 ): Promise<void> {

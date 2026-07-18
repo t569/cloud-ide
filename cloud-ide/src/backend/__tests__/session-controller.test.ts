@@ -32,6 +32,7 @@ function harness(existing: SandboxRecord[]) {
     sandboxRepo as any,
     sandboxManager as any,
     { get: jest.fn().mockResolvedValue(ENV) } as any,
+    { get: jest.fn().mockResolvedValue(null) } as any, // GitCredentialStore — no PAT in these tests
   );
   const res: any = { cookie: jest.fn(), status: jest.fn(() => res), json: jest.fn(() => res) };
   const run = () => controller.startSession({ body: { environmentId: ENV.id } } as any, res);
@@ -73,6 +74,8 @@ test("never adopts another user's sandbox; cold-boots with the stored tag + envV
   expect(h.sandboxManager.provision).toHaveBeenCalledWith(
     expect.objectContaining({ imageTag: ENV.imageName, environmentId: ENV.id, envVars: ENV.builderConfig.env }),
     'user-1',
+    undefined,   // existingWorktreeId
+    undefined,   // clone source — no repoUrl in this test
   );
   expect(h.body().sandboxId).toBe('sbx-new');
 });
@@ -99,6 +102,7 @@ test('an unbuilt environment is rejected, not booted', async () => {
     { getSandboxesByEnvId: jest.fn() } as any,
     { provision: jest.fn() } as any,
     { get: jest.fn().mockResolvedValue({ ...ENV, imageName: '' }) } as any,
+    { get: jest.fn().mockResolvedValue(null) } as any, // GitCredentialStore
   );
   const res: any = { cookie: jest.fn(), status: jest.fn(() => res), json: jest.fn(() => res) };
   await controller.startSession({ body: { environmentId: ENV.id } } as any, res);

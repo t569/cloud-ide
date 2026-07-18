@@ -3,7 +3,7 @@
 // or delete it. Opening still routes through the shared launch flow, so a PAUSED
 // sandbox is resumed by POST /v1/sessions rather than by anything special here.
 import React, { useEffect, useRef, useState } from 'react';
-import { VscPulse, VscRefresh, VscServerProcess, VscRocket, VscClose, VscDebugPause, VscPlay, VscTrash, VscRootFolderOpened, VscCloudUpload } from 'react-icons/vsc';
+import { VscPulse, VscRefresh, VscServerProcess, VscRocket, VscClose, VscDebugPause, VscPlay, VscTrash, VscRootFolderOpened, VscCloudUpload, VscRepoClone } from 'react-icons/vsc';
 import {
   listSandboxes,
   deleteSandbox,
@@ -23,6 +23,7 @@ import { openWorkspace } from './launch';
 import { navigate } from './router';
 import { ApiError } from '../lib/apiClient';
 import { PromoteSandbox } from './PromoteSandbox';
+import { CloneRepoDialog } from './CloneRepoDialog';
 
 // Matches the env-manager's badge palette: emerald live, amber transitional, red dead.
 const STATE_STYLE: Record<SandboxState, { color: string; label: string }> = {
@@ -48,6 +49,7 @@ export default function Sandboxes() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setLoading] = useState(true);
   const [selected, setSelected] = useState<SandboxSummary | null>(null);
+  const [cloning, setCloning] = useState(false);
 
   // `followId` re-points the drawer at a sandbox whose id CHANGED under it: recovering a
   // dead container boots a replacement onto the same workspace, which mints a new id.
@@ -82,6 +84,12 @@ export default function Sandboxes() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setCloning(true)}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-[#5ec8d8]/40 bg-[#5ec8d8]/10 text-[#5ec8d8] hover:border-[#5ec8d8]"
+          >
+            <VscRepoClone /> Clone repo
+          </button>
           <button
             onClick={() => refresh()} // not `onClick={refresh}` — that hands it a MouseEvent as followId
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-gray-800 hover:border-gray-600"
@@ -136,6 +144,8 @@ export default function Sandboxes() {
       {selected && (
         <SandboxDrawer sbx={selected} onClose={() => setSelected(null)} onChanged={refresh} />
       )}
+
+      {cloning && <CloneRepoDialog onClose={() => setCloning(false)} />}
     </div>
   );
 }

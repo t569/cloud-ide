@@ -1,8 +1,11 @@
 # Git Integration — plan
 
-Status: approved (decisions taken 2026-07-18). Branch: `feat/git` (pushed to origin; no PR yet —
-opens once the frontend lands). **Backend COMPLETE** (engine + credentials + GitRoutes + GitHubBrowse,
-all tested). Remaining: revive `LocalMountStrategy` + clone-on-create, then the frontend pane.
+Status: approved (decisions taken 2026-07-18). Branch: `feat/git` (pushed to origin).
+**COMPLETE & MERGEABLE**: engine + credentials + GitRoutes + GitHubBrowse (all tested), the
+frontend Source Control pane, clone-on-create, and the scratch-island deletion. Host-folder
+source is DEFERRED to [workspace-entity.md](./workspace-entity.md) — the boot allow-list only
+permits mounts under worktrees/caches, so arbitrary host-folder mounts need a mount-security
+model that feature owns; `LocalMountStrategy` is kept, unwired, for it to revive.
 Related: [sandbox-privileges.md](./sandbox-privileges.md) (non-root uid debt this deliberately sidesteps),
 [workspace-entity.md](./workspace-entity.md) (git becomes one workspace *source* under that entity).
 
@@ -95,12 +98,21 @@ You "upgrade" browse → clone the moment you want to write. Same PAT throughout
 - **`LocalMountStrategy`:** revived through the existing `WorkspaceProvisioner` seam for the
   host-folder source.
 
-## Deleted (dead scratch, unreachable from `main.tsx → AppShell`)
+## Deleted (dead scratch, unreachable from `main.tsx → AppShell`) — DONE
 
 - `frontend/src/github.ts`, `github.js` — REST logic salvaged into backend `GitHubBrowse`.
 - `frontend/src/IconTest.tsx`, `FileExplorerTest.tsx`, `App.tsx` — scratch harnesses.
 - `octokit` from `frontend/package.json` (only the island used it).
-- `backend/src/workspace/WorkspaceManager.ts` — empty stub (done, commit 78b34b0).
+- `backend/src/workspace/WorkspaceManager.ts` — empty stub (commit 78b34b0).
+
+## Clone-on-create — DONE
+
+`SandboxManager.provision(spec, owner, existingWorktreeId?, source?)` gained a `WorkspaceSource`
+(`{ kind: 'clone', url, auth }`): a FRESH worktree is `cloneInto`'d from the URL instead of minted
+empty; recovery (existingWorktreeId) never clones. `POST /v1/sessions` accepts `repoUrl`, resolves
+the caller's PAT, and **rejects non-http(s) URLs** at the boundary (git's `ext::`/`file::` transports
+run commands on the host). Frontend: a "Clone repo" dialog on the Sandboxes page (repo URL + built-env
+picker) → `launchEnvironment(env, { fresh, repoUrl })`.
 
 `GitStrategy` (clone *inside* the container post-boot) stays dead: the clone belongs on the
 host so it is mounted + durable, not inside an ephemeral container.

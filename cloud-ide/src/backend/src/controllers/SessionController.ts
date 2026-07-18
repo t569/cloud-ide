@@ -3,7 +3,8 @@
 import { Request, Response } from 'express';
 import { EventEmitter } from 'events';
 import { ISessionRepository, ISandboxRepository, IEnvironmentRepository } from '../database/interfaces';
-import { SandboxManager, specForEnvironment } from '../services/sandbox/SandboxManager';
+import { SandboxManager, specForEnvironment, WorkspaceSource } from '../services/sandbox/SandboxManager';
+import { GitCredentialStore } from '../services/git/GitCredentialStore';
 import { SessionRecord } from '../database/models';
 import { config } from '../config/env';
 import { SID_COOKIE, SESSION_COOKIE_OPTIONS, userOwnsSandbox } from '../api/middleware/security';
@@ -23,8 +24,23 @@ export class SessionController {
     private sessionRepo: ISessionRepository,
     private sandboxRepo: ISandboxRepository,
     private sandboxManager: SandboxManager,
-    private envRepo: IEnvironmentRepository
+    private envRepo: IEnvironmentRepository,
+    // Resolves the caller's stored PAT so a clone-on-create can reach private repos.
+    private credentials: GitCredentialStore,
   ) {}
+
+  /**
+   * Build a clone source from a request's `repoUrl`, or undefined when absent.
+   * https(s)-ONLY at this trust boundary: git's `ext::`/`file::` transports can execute
+   * commands on the host (the clone runs host-side as the gateway), so anything else is
+   * rejected. Returns null to signal "reject the request" (bad URL); the caller 400s.
+   */
+  private async cloneSourceFor(repoUrl: unknown, userId: string): Promise<WorkspaceSource | null | undefined> {
+    if (repoUrl === undefined) return undefined;
+    if (typeof repoUrl !== 'string' || !/^https?:\/\//i.test(repoUrl)) return null;
+    const cred = await this.credentials.get(userId);
+    return { kind: 'clone', url: repoUrl, auth: cred ? { token: cred.token, host: cred.host } : undefined };
+  }
 
   /**
    * @route POST /api/v1/sessions
@@ -45,7 +61,7 @@ export class SessionController {
    * even if you provisioned it. `fresh` is the other half — it's how you get N of them.
    */
   public startSession = async (req: Request, res: Response): Promise<void> => {
-    const { environmentId, sandboxId: requestedSandboxId, fresh } = req.body;
+    const { environmentId, sandboxId: requestedSandboxId, fresh, repoUrl } = req.body;
     // Identity comes from the seam, never the body — a caller that names its own
     // userId can claim any other user's warm sandboxes below.
     const userId = currentUser(req, res);
@@ -89,6 +105,14 @@ export class SessionController {
       return;
     }
 
+    // clone-on-create: a NEW workspace may be seeded from a git URL. Resolved once here
+    // (validated + PAT attached); ignored when an existing workspace is reused below.
+    const source = await this.cloneSourceFor(repoUrl, userId);
+    if (source === null) {
+      res.status(400).json({ error: 'repoUrl must be an http(s) git URL.' });
+      return;
+    }
+
     try {
       let targetSandboxId: string;
 
@@ -98,7 +122,7 @@ export class SessionController {
         // new object — a workspace is a worktree, and provision() already mints one.
         console.log(`[SessionController] Fresh workspace requested on ${environmentId}.`);
         targetSandboxId = (
-          await this.sandboxManager.provision(specForEnvironment(environment), userId)
+          await this.sandboxManager.provision(specForEnvironment(environment), userId, undefined, source)
         ).sandboxId;
       } else {
         // THE SMART ROUTER: do I already have a workspace on this env? Scoped to the
@@ -127,7 +151,7 @@ export class SessionController {
         } else {
           console.log(`[SessionController] No sandbox for this env. Cold-booting...`);
           targetSandboxId = (
-            await this.sandboxManager.provision(specForEnvironment(environment), userId)
+            await this.sandboxManager.provision(specForEnvironment(environment), userId, undefined, source)
           ).sandboxId;
         }
       }

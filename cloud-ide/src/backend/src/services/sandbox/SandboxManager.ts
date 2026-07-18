@@ -19,7 +19,7 @@ import { cacheVolumeFor, CACHE_ENV } from './cacheVolumes';
 import { RustEngineClient } from './rustClient';
 import { ISandboxDriver, DriverCapabilities, ISandboxSession, PtyOptions } from './drivers/ISandboxDriver';
 import { captureSnapshot, ToolSnapshot } from '../promotion/toolSnapshot';
-import { WorktreeEngine } from '../storage/WorktreeEngine';
+import { WorktreeEngine, GitAuth } from '../storage/WorktreeEngine';
 import { dataPath } from '../../config/paths';
 import { defaultNetworkPolicy } from './network/policy';
 import { egressEnforceable } from './network/egressCapability';
@@ -34,6 +34,15 @@ const USER_VOLUME_ROOT = `${DEFAULT_WORKSPACE_MOUNT_PATH}/mounts`;
 // storage — see paths.ts. Exported because the health probe inspects these same paths.
 export const CENTRAL_REPO_PATH = dataPath('central-repo.git');
 export const WORKTREES_ROOT = dataPath('worktrees');
+
+/**
+ * Where a NEW workspace's initial content comes from. Omitted = an empty worktree
+ * (today's default). `clone` materialises the worktree from a git URL via a blobless
+ * partial clone (git-integration.md). Only honoured on a fresh worktree — a recover onto
+ * an existing worktreeId reuses its files untouched. Host-folder sources are deferred to
+ * the workspace-entity feature (they need a mount-security model the boot allow-list gates).
+ */
+export type WorkspaceSource = { kind: 'clone'; url: string; auth?: GitAuth };
 
 export interface VolumeMutationResult {
   sandbox: SandboxRecord;
@@ -130,6 +139,9 @@ export class SandboxManager {
     // a container disposable: `recover` below boots a replacement onto the same host
     // directory, so a dead container costs the user nothing. Omit for a cold boot.
     existingWorktreeId?: string,
+    // Where a FRESH worktree's initial content comes from (clone-from-URL). Ignored when
+    // recovering onto an existing worktree — its files are the source of truth.
+    source?: WorkspaceSource,
   ): Promise<SandboxRecord> {
     // 0. Ensure the central bare repo exists (memoized — runs once per process;
     // a failure resets the memo so a transient error doesn't brick provisioning)
@@ -142,9 +154,13 @@ export class SandboxManager {
     // 1. Generate a dedicated ID for the storage layer
     const worktreeId = existingWorktreeId ?? crypto.randomUUID();
 
-    // 2. Request the host path from the Engine (idempotent: an existing worktree is
-    //    reused as-is, files and all — it does NOT get re-created empty)
-    const hostPath = await this.worktreeEngine.createWorktree(worktreeId);
+    // 2. Materialise the worktree. A clone source on a FRESH worktree populates it from
+    //    the remote (blobless, lazy); otherwise mint/reuse an empty one. Recovery
+    //    (existingWorktreeId) never clones — reuse is idempotent, files and all.
+    const hostPath =
+      source?.kind === 'clone' && !existingWorktreeId
+        ? await this.worktreeEngine.cloneInto(worktreeId, source.url, source.auth)
+        : await this.worktreeEngine.createWorktree(worktreeId);
 
     // 3. Use your Provisioner Strategy to mutate the spec flawlessly
     const strategy = new WorktreeStrategy(hostPath);

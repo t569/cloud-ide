@@ -137,19 +137,23 @@ const workspaceWatchers = new WorkspaceWatchers(sandboxManager, fsEventHub);
 // containers to save compute. Must run alongside the Wake-on-Demand Gateway logic.
 const idleSweeper = new IdleSweeper(sandboxRepo, sandboxManager, workspaceWatchers);
 
+// Version control: real git on the worktree + an encrypted per-user PAT store. The PAT
+// key is HKDF-derived from AUTH_SECRET here (the composition root) so the store stays free
+// of auth coupling. Shared by the git routes AND SessionController (clone-on-create resolves
+// the caller's PAT to reach private repos). See git-integration.md.
+const gitCredentials = new GitCredentialStore(deriveKey('git-pat-encryption-v1'));
+
 // Initialize Controllers
 const sandboxController = new SandboxController(sandboxManager, sessionRepo, activityRepo);
 const adminController = new AdminController(sandboxManager);
-const sessionController = new SessionController(systemEvents, sessionRepo, sandboxRepo, sandboxManager, envRepo);
+const sessionController = new SessionController(systemEvents, sessionRepo, sandboxRepo, sandboxManager, envRepo, gitCredentials);
 
-// Version control: real git on the worktree + an encrypted per-user PAT store. The engine
-// is stateless (paths only), so a second instance for read/commit ops is free — existing
-// worktrees need no base-repo init. The PAT key is HKDF-derived from AUTH_SECRET here (the
-// composition root) so the store itself stays free of auth coupling. See git-integration.md.
+// The engine is stateless (paths only), so a second instance for read/commit ops is free —
+// existing worktrees need no base-repo init.
 const gitController = new GitController(
   sandboxRepo,
   new WorktreeEngine(CENTRAL_REPO_PATH, WORKTREES_ROOT),
-  new GitCredentialStore(deriveKey('git-pat-encryption-v1')),
+  gitCredentials,
   new GitHubBrowse(),
 );
 

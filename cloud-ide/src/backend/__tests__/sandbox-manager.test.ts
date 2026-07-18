@@ -41,6 +41,7 @@ function createEngineMock(): jest.Mocked<WorktreeEngine> {
   return {
     initializeBaseRepo: jest.fn().mockResolvedValue(undefined),
     createWorktree: jest.fn().mockResolvedValue('/host/worktrees/fixed-uuid'),
+    cloneInto: jest.fn().mockResolvedValue('/host/worktrees/fixed-uuid'),
     removeWorktree: jest.fn().mockResolvedValue(undefined),
     isDirty: jest.fn().mockResolvedValue(false),
     getWorktreePath: jest.fn((id: string) => `/host/worktrees/${id}`),
@@ -158,6 +159,42 @@ describe('SandboxManager', () => {
     expect(userVolume.name).toBe(expected);
     expect(userVolume.name).toMatch(/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/);
     expect(userVolume.name.length).toBeLessThanOrEqual(63);
+  });
+
+  it('clone-on-create: a fresh worktree is cloned from the source, not minted empty', async () => {
+    const rust = createRustMock();
+    const engine = createEngineMock();
+    rust.bootSandbox.mockResolvedValue({ sandboxId: 'sbx-1', state: 'RUNNING', execdPort: 44772 });
+    const manager = new SandboxManager(createRepoMock(), rust, engine);
+
+    await manager.provision({ imageTag: 'node:latest' } as SandboxSpec, OWNER, undefined, {
+      kind: 'clone',
+      url: 'https://github.com/octocat/Hello-World.git',
+      auth: { token: 'ghp_x', host: 'github.com' },
+    });
+
+    expect(engine.cloneInto).toHaveBeenCalledWith(
+      'fixed-uuid',
+      'https://github.com/octocat/Hello-World.git',
+      { token: 'ghp_x', host: 'github.com' },
+    );
+    expect(engine.createWorktree).not.toHaveBeenCalled();
+  });
+
+  it('recovery ignores a clone source — an existing worktree is reused, never re-cloned', async () => {
+    const rust = createRustMock();
+    const engine = createEngineMock();
+    rust.bootSandbox.mockResolvedValue({ sandboxId: 'sbx-1', state: 'RUNNING', execdPort: 44772 });
+    const manager = new SandboxManager(createRepoMock(), rust, engine);
+
+    // existingWorktreeId present (the recover path) → clone must NOT fire, reuse wins.
+    await manager.provision({ imageTag: 'node:latest' } as SandboxSpec, OWNER, 'wt-existing', {
+      kind: 'clone',
+      url: 'https://github.com/octocat/Hello-World.git',
+    });
+
+    expect(engine.cloneInto).not.toHaveBeenCalled();
+    expect(engine.createWorktree).toHaveBeenCalledWith('wt-existing');
   });
 
   it('rejects a volume name with nothing salvageable', async () => {

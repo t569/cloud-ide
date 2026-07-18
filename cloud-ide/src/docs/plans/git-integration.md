@@ -1,7 +1,10 @@
 # Git Integration — plan
 
-Status: approved (decisions taken 2026-07-18). Branch: `feat/git`.
-Related: [sandbox-privileges.md](./sandbox-privileges.md) (non-root uid debt this deliberately sidesteps).
+Status: approved (decisions taken 2026-07-18). Branch: `feat/git` (pushed to origin; no PR yet —
+opens once the frontend lands). **Backend COMPLETE** (engine + credentials + GitRoutes + GitHubBrowse,
+all tested). Remaining: revive `LocalMountStrategy` + clone-on-create, then the frontend pane.
+Related: [sandbox-privileges.md](./sandbox-privileges.md) (non-root uid debt this deliberately sidesteps),
+[workspace-entity.md](./workspace-entity.md) (git becomes one workspace *source* under that entity).
 
 ## Goal
 

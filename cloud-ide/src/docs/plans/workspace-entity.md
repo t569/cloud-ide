@@ -109,6 +109,40 @@ Per the CLAUDE.md mandate ("a feature is a new adapter, not a core edit"), the w
 
 This keeps the entire `feat/git` surface intact and unmoved.
 
+## Decision 5 — Concurrency: fork-per-sandbox, reconcile at save (worktrees ARE the mitigation)
+
+The risk: two sandboxes inject the same workspace W at once. It splits into two separate problems.
+
+**Runtime isolation** — never share a writable layer. Each sandbox gets its own writable surface
+(overlayfs `upperdir`, or its own worktree). No two containers write the same bytes; no corruption.
+This falls out of Decision 2 for free.
+
+**Save reconciliation** — two divergent states both want to become durable W. That is a *merge*, and
+git is the right tool. Surface divergence the way the existing live-tree sync does — **409 + explicit
+reconcile**, never a silent clobber (ARCHITECTURE.md → "git IS our Merkle tree + WAL").
+
+**Worktrees mitigate this — with one caveat.** Git REFUSES two worktrees on the *same* branch. So we
+never check out W's ref directly; each sandbox gets a worktree on a **branch forked from W**:
+`git worktree add -b sbx-<id> <path> refs/workspaces/<W>`. N sandboxes = N worktrees = N branches, all
+sharing the object store (near-zero marginal cost — the whole reason we picked git). This is what
+`WorktreeEngine.createWorktree` already does; the workspace ref simply becomes the fork point instead
+of an empty branch.
+
+- **overlayfs materialiser:** the shared `lowerdir` is a *static, read-only* materialisation of W, so
+  git's same-branch restriction never even applies — N sandboxes share one lower, each its own upper.
+  Cleanest concurrency story; the git fork only appears at save time.
+- **git-checkout materialiser (fallback):** the per-sandbox forked worktree above, live.
+
+**Save (both paths):** the sandbox's state (upper delta, or forked branch tip) becomes a commit;
+persisting to W is a **fast-forward when W hasn't moved**, and a **merge / "save as a branch of W"**
+when it has (concurrent divergent saves). Concurrent workspace edits are just branches — merging them
+is git's day job.
+
+→ v1 default: **fork-per-sandbox, fast-forward save, explicit merge on divergence.** A stricter
+**exclusive attach** (one live persistent sandbox per workspace) is a per-workspace option for users
+who want zero merge surprises. Directly answers "two worktrees on one workspace": don't — fork one
+worktree per sandbox off the workspace ref, and let save-time merge reconcile.
+
 ## Proposed architecture
 
 ```
@@ -146,8 +180,8 @@ a fresh sandbox, state restored.
    user-visible change yet — pure refactor behind the seam).
 2. **Materialiser seam.** `IMaterialiser` with the git-blobless-checkout implementation first
    (portable, no FS risk) — reproduces current mounting, proves the seam.
-3. **overlayfs materialiser.** lower/upper split + save-from-upper + boot allow-list + teardown
-   cleanup + capability detection + graceful fallback.
+3. **overlayfs materialiser** (GATED on Spike 3a below). lower/upper split + save-from-upper + boot
+   allow-list + teardown cleanup + capability detection + graceful fallback.
 4. **Save/persistence.** WIP-snapshot (uncommitted capture), auto-save-on-detach, persistence modes,
    "Save as workspace" / "Discard".
 5. **Sources.** Wire `git-url` (cloneInto) and revive `LocalMountStrategy` (`host-folder`) as workspace
@@ -155,11 +189,49 @@ a fresh sandbox, state restored.
 6. **Frontend.** Workspace picker/manager (like the env manager) + inject/detach/save UI, with the
    frontend-design plugin.
 
+## Spike 3a — overlayfs-under-Docker (RUN ON THE LINUX/WSL HOST)
+
+Cannot run from the Windows canonical clone (no Linux kernel / Docker there). Execute on the WSL
+run-host. This gates Phase 3.
+
+```sh
+# Durable base, materialised ONCE per workspace — read-only lower.
+L=$CIDE_DATA_DIR/workspaces/<wid>/base
+# Per-sandbox ephemeral layers. upper+work MUST share a filesystem (ext4 is fine).
+U=$CIDE_DATA_DIR/sbx/<sid>/upper; Wk=$CIDE_DATA_DIR/sbx/<sid>/work; M=$CIDE_DATA_DIR/sbx/<sid>/merged
+mkdir -p "$U" "$Wk" "$M"
+sudo mount -t overlay overlay -o lowerdir="$L",upperdir="$U",workdir="$Wk" "$M"
+# Then bind-mount $M into the container at /workspace (the WorktreeStrategy mount path).
+# Teardown: sudo umount "$M";  ephemeral -> rm -rf "$U";  save -> commit "$U" delta into refs/workspaces/<wid>.
+```
+
+Acceptance criteria (all must pass, else Phase 3 stays deferred):
+1. **Memory win** — two sandboxes share one `$L`; the base is resident ONCE in the page cache
+   (`/proc/meminfo` before/after, or compare container RSS).
+2. **Isolation** — writes in A's `$U` are invisible in B's merged view.
+3. **Speed win** — inject latency ~constant regardless of base size (contrast: git checkout scales).
+4. **No leaks** — N create/destroy cycles leave zero overlay mounts (`mount | grep overlay` empty) and
+   zero orphan workdirs.
+5. **Round-trip** — a saved `$U` delta re-materialises correctly into a fresh overlay.
+6. **Non-root writes** — the non-root container user can write `$U` (same a+rwX / 0777 stance as the
+   worktree and cache mounts; privileges Phase 2.1 territory).
+
+Risks to confirm during the spike:
+- Docker bind of an overlay *merged* dir (binding a mountpoint — should work; verify mount propagation).
+- WSL2 kernel overlay support (present) alongside Docker's own overlay storage driver — ours is a bind,
+  not the container rootfs, so the historical nested-overlay restriction shouldn't apply. Confirm.
+- Boot allow-list (`opensandbox/boot.js`) must accept `$M`.
+
+**If 3a fails:** ship Phases 1–2 + 4–6 on the git-blobless-checkout materialiser (fork-per-sandbox
+worktrees, Decision 5), and keep overlay as a later optimisation. The design degrades cleanly because
+the materialiser is a seam.
+
 ## Open questions (before build)
 
-- overlayfs-under-Docker mount mechanics + teardown races on our WSL/ext4 host — spike in Phase 3.
 - WIP-snapshot vs. leaving uncommitted state in the upper layer only (do we *need* a git shadow ref if
   the upper layer already persists when saved?) — the ref buys portability + history; the upper alone
   buys speed. Likely: upper for live, WIP-commit only on "save to durable ref".
 - Multi-node: refs + objects replicate via git; overlay upper layers are node-local (a detached,
   saved workspace is portable; a live ephemeral one is not). Acceptable — matches the egress/idle model.
+- Concurrency is answered by Decision 5 (fork-per-sandbox + merge-at-save); the remaining call is
+  whether v1 ships the exclusive-attach option or defers it.

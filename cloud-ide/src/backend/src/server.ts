@@ -24,11 +24,15 @@ assertSecureProductionConfig();
 import { SandboxController } from './controllers/SandboxController';
 import { AdminController } from './controllers/AdminController';
 import { SessionController } from './controllers/SessionController';
+import { GitController } from './controllers/GitController';
 
 // Security middleware (CSRF + IDOR ownership) — SECURITY finding #2
 import { csrfProtection, requireAdmin, securityHeaders } from './api/middleware/security';
 import { createSandboxRouter } from './api/SandboxRoutes';
-import { attachUser } from './api/middleware/auth';
+import { attachUser, deriveKey } from './api/middleware/auth';
+import { WorktreeEngine } from './services/storage/WorktreeEngine';
+import { GitCredentialStore } from './services/git/GitCredentialStore';
+import { CENTRAL_REPO_PATH, WORKTREES_ROOT } from './services/sandbox/SandboxManager';
 
 
 // File Routers
@@ -137,12 +141,29 @@ const sandboxController = new SandboxController(sandboxManager, sessionRepo, act
 const adminController = new AdminController(sandboxManager);
 const sessionController = new SessionController(systemEvents, sessionRepo, sandboxRepo, sandboxManager, envRepo);
 
+// Version control: real git on the worktree + an encrypted per-user PAT store. The engine
+// is stateless (paths only), so a second instance for read/commit ops is free — existing
+// worktrees need no base-repo init. The PAT key is HKDF-derived from AUTH_SECRET here (the
+// composition root) so the store itself stays free of auth coupling. See git-integration.md.
+const gitController = new GitController(
+  sandboxRepo,
+  new WorktreeEngine(CENTRAL_REPO_PATH, WORKTREES_ROOT),
+  new GitCredentialStore(deriveKey('git-pat-encryption-v1')),
+);
+
 // Mount Control Plane (HTTP API Routes)
 //
 // The IDOR guard lives INSIDE each router (`router.use('/:sandboxId', ...)`), not on
 // individual routes here — so a route added later is owner-gated by construction
 // rather than by memory. See api/SandboxRoutes.ts.
-app.use('/api/v1/sandboxes', createSandboxRouter(sandboxController, sandboxRepo));
+app.use('/api/v1/sandboxes', createSandboxRouter(sandboxController, sandboxRepo, gitController));
+
+// Per-user GitHub PAT (git-integration.md). USER-scoped, not sandbox-scoped — a token
+// belongs to a person — so it keys off req.userId (attachUser above) and needs no
+// ownership guard. The PAT is stored encrypted and never returned by GET.
+app.get('/api/v1/git/credential', gitController.getCredential);
+app.put('/api/v1/git/credential', gitController.setCredential);
+app.delete('/api/v1/git/credential', gitController.clearCredential);
 
 // God-mode: force-destroy skips the dirty-worktree pre-flight and deletes the
 // user's worktree with it. Gated behind a static ADMIN_TOKEN header, and DISABLED

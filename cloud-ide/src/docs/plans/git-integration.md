@@ -78,7 +78,13 @@ You "upgrade" browse → clone the moment you want to write. Same PAT throughout
   `-c` args" concern.
 - **`GitHubBrowse` (new, backend):** `getTree(owner,repo)` + `getContent(owner,repo,path)`
   via native `fetch`. The salvaged core of the old `github.ts`, server-side. Optional mode.
-- **`GitRoutes`:** REST surface over the above (one choke point, like existing routes).
+- **`GitRoutes` (DONE):** `GitController` + REST surface. Sandbox-scoped ops
+  (`status`/`log`/`branch`/`diff`/`stage`/`commit`/`push`/`pull`) mount inside
+  `createSandboxRouter` under its structural `/:sandboxId` ownership guard; user-scoped
+  `GET/PUT/DELETE /api/v1/git/credential` mount in server.ts (keyed by `req.userId`, no
+  sandbox guard). Each op resolves `sandboxId → record.worktreeId` before touching the
+  engine (the worktree dir is named by worktreeId). git failures map to 400 with stderr;
+  no-worktree → 409.
 - **`LocalMountStrategy`:** revived through the existing `WorkspaceProvisioner` seam for the
   host-folder source.
 

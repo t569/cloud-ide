@@ -15,12 +15,14 @@
 // on its own path behind requireAdmin.
 import { Router } from 'express';
 import { SandboxController } from '../controllers/SandboxController';
+import { GitController } from '../controllers/GitController';
 import { ISandboxRepository } from '../database/interfaces';
 import { requireSandboxOwnership } from './middleware/security';
 
 export function createSandboxRouter(
   controller: SandboxController,
   sandboxRepo: ISandboxRepository,
+  git: GitController,
 ): Router {
   const router = Router();
 
@@ -56,6 +58,17 @@ export function createSandboxRouter(
   router.delete('/:sandboxId', controller.destroySandbox);
   router.post('/:sandboxId/volumes', controller.attachVolume);
   router.delete('/:sandboxId/volumes/:volumeName', controller.detachVolume);
+
+  // Version control on the sandbox's worktree — real git, host-side (git-integration.md).
+  // Owner-gated by the guard above, like every route in this block.
+  router.get('/:sandboxId/git/status', git.status);
+  router.get('/:sandboxId/git/log', git.log);
+  router.get('/:sandboxId/git/branch', git.branch);
+  router.get('/:sandboxId/git/diff', git.diff);
+  router.post('/:sandboxId/git/stage', git.stage);
+  router.post('/:sandboxId/git/commit', git.commit);
+  router.post('/:sandboxId/git/push', git.push);
+  router.post('/:sandboxId/git/pull', git.pull);
 
   return router;
 }

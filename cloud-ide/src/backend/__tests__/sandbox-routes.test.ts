@@ -40,7 +40,8 @@ beforeAll(async () => {
     req.userId = ALICE;
     next();
   });
-  app.use('/api/v1/sandboxes', createSandboxRouter(CONTROLLER, REPO));
+  // Same Proxy stands in for the git controller — every handler just echoes its name.
+  app.use('/api/v1/sandboxes', createSandboxRouter(CONTROLLER, REPO, CONTROLLER));
 
   await new Promise<void>((resolve) => {
     server = app.listen(0, () => resolve());
@@ -73,6 +74,10 @@ describe('every sandbox-scoped route is owner-gated by the router, not by memory
     ['DELETE', ''],
     ['POST', '/volumes'],
     ['DELETE', '/volumes/some-volume'],
+    // Git routes are nested two segments deep — the case this test's thesis is about.
+    ['GET', '/git/status'],
+    ['POST', '/git/commit'],
+    ['POST', '/git/push'],
   ];
 
   it.each(routes)("%s /:sandboxId%s → 200 for the owner", async (method, suffix) => {

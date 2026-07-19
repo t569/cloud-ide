@@ -4,7 +4,7 @@ import { Request, Response } from 'express';
 import { EventEmitter } from 'events';
 import { ISessionRepository, ISandboxRepository, IEnvironmentRepository } from '../database/interfaces';
 import { SandboxManager, specForEnvironment, WorkspaceSource } from '../services/sandbox/SandboxManager';
-import { GitCredentialStore } from '../services/git/GitCredentialStore';
+import { GitCredentialStore, workspaceCredentialKey } from '../services/git/GitCredentialStore';
 import { GitAuth } from '../services/storage/WorktreeEngine';
 import { SessionRecord } from '../database/models';
 import { config } from '../config/env';
@@ -50,7 +50,7 @@ export class SessionController {
    */
   private async authFor(userId: string, workspaceId?: string): Promise<GitAuth | undefined> {
     if (workspaceId) {
-      const ws = await this.credentials.get(`ws:${workspaceId}`);
+      const ws = await this.credentials.get(workspaceCredentialKey(workspaceId));
       if (ws) return { token: ws.token, host: ws.host };
     }
     const cred = await this.credentials.get(userId);

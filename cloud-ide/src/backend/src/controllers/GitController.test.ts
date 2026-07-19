@@ -7,7 +7,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { GitController } from './GitController';
-import { GitCredentialStore } from '../services/git/GitCredentialStore';
+import { GitCredentialStore, workspaceCredentialKey } from '../services/git/GitCredentialStore';
 
 function fakeRes() {
   return {
@@ -22,6 +22,7 @@ function fakeRes() {
 const repo = {
   get: async (id: string) =>
     id === 'has-wt' ? { sandboxId: id, worktreeId: 'wt-1' }
+    : id === 'has-ws' ? { sandboxId: id, worktreeId: 'wt-2', workspaceId: 'wsp-9' }
     : id === 'no-wt' ? { sandboxId: id }
     : null,
 } as any;
@@ -97,6 +98,22 @@ describe('GitController', () => {
   it('pushes without auth when the user has no stored PAT (public-repo path)', async () => {
     await ctrl.push({ params: { sandboxId: 'has-wt' }, userId: 'nobody' } as any, fakeRes() as any);
     expect(engine.push).toHaveBeenCalledWith('wt-1', undefined);
+  });
+
+  it('push prefers the sandbox WORKSPACE token over the account token', async () => {
+    // Account token for the user…
+    await ctrl.setCredential({ userId: 'u1', body: { token: 'ghp_account', host: 'github.com' } } as any, fakeRes() as any);
+    // …and a token on the workspace this sandbox was injected from.
+    await store.set(workspaceCredentialKey('wsp-9'), { token: 'ghp_workspace', host: 'github.com' });
+
+    await ctrl.push({ params: { sandboxId: 'has-ws' }, userId: 'u1' } as any, fakeRes() as any);
+    expect(engine.push).toHaveBeenCalledWith('wt-2', { token: 'ghp_workspace', host: 'github.com' });
+  });
+
+  it('push falls back to the account token when the workspace has none', async () => {
+    await ctrl.setCredential({ userId: 'u1', body: { token: 'ghp_account', host: 'github.com' } } as any, fakeRes() as any);
+    await ctrl.push({ params: { sandboxId: 'has-ws' }, userId: 'u1' } as any, fakeRes() as any);
+    expect(engine.push).toHaveBeenCalledWith('wt-2', { token: 'ghp_account', host: 'github.com' });
   });
 
   it('browse rejects a non-slug owner/repo before hitting GitHub', async () => {

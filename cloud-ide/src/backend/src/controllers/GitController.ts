@@ -14,7 +14,7 @@
 import { Request, Response } from 'express';
 import { ISandboxRepository } from '../database/interfaces';
 import { WorktreeEngine, GitAuth } from '../services/storage/WorktreeEngine';
-import { GitCredentialStore } from '../services/git/GitCredentialStore';
+import { GitCredentialStore, workspaceCredentialKey } from '../services/git/GitCredentialStore';
 import { GitHubBrowse, GitHubError } from '../services/git/GitHubBrowse';
 
 /** GitHub owner/repo slug — no slashes or query chars, so it can't escape the API URL. */
@@ -39,6 +39,21 @@ export class GitController {
     if (!userId) return undefined;
     const cred = await this.credentials.get(userId);
     return cred ? { token: cred.token, host: cred.host } : undefined;
+  }
+
+  /**
+   * Auth for a SANDBOX's push/pull, with the same precedence a launch clone uses
+   * (SessionController.authFor): if the sandbox was injected from a workspace that has
+   * its own token, that token wins; otherwise fall back to the caller's account token.
+   * Without this, a repo cloned with a workspace token could still fail to push.
+   */
+  private async authForSandbox(sandboxId: string | undefined, userId: string | undefined): Promise<GitAuth | undefined> {
+    const record = sandboxId ? await this.sandboxRepo.get(sandboxId) : null;
+    if (record?.workspaceId) {
+      const ws = await this.credentials.get(workspaceCredentialKey(record.workspaceId));
+      if (ws) return { token: ws.token, host: ws.host };
+    }
+    return this.authFor(userId);
   }
 
   /**
@@ -109,11 +124,15 @@ export class GitController {
     return this.withWorktree(req, res, (wt) => this.worktrees.commit(wt, message, author));
   };
 
-  public push = (req: Request, res: Response) =>
-    this.withWorktree(req, res, async (wt) => this.worktrees.push(wt, await this.authFor(req.userId)));
+  public push = (req: Request, res: Response) => {
+    const sandboxId = typeof req.params.sandboxId === 'string' ? req.params.sandboxId : undefined;
+    return this.withWorktree(req, res, async (wt) => this.worktrees.push(wt, await this.authForSandbox(sandboxId, req.userId)));
+  };
 
-  public pull = (req: Request, res: Response) =>
-    this.withWorktree(req, res, async (wt) => this.worktrees.pull(wt, await this.authFor(req.userId)));
+  public pull = (req: Request, res: Response) => {
+    const sandboxId = typeof req.params.sandboxId === 'string' ? req.params.sandboxId : undefined;
+    return this.withWorktree(req, res, async (wt) => this.worktrees.pull(wt, await this.authForSandbox(sandboxId, req.userId)));
+  };
 
   // ── User-scoped credential ops (keyed by req.userId) ───────────────────────
 

@@ -23,6 +23,14 @@ export interface GitCredential {
   token: string;
 }
 
+/**
+ * Store key for a WORKSPACE-scoped token. Workspace tokens share this store with the
+ * user tokens (which key on the bare userId) under a `ws:` namespace. Defined here — the
+ * store owns its keyspace — so every reader (launch, push/pull, the workspace routes)
+ * resolves the same key and they can't silently drift apart.
+ */
+export const workspaceCredentialKey = (workspaceId: string): string => `ws:${workspaceId}`;
+
 interface StoredRecord {
   host: string;
   iv: string;

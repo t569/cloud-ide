@@ -5,17 +5,14 @@
 // route keys off req.userId and owner-gates by it (404, never 403, so ids stay opaque).
 import { Request, Response } from 'express';
 import { WorkspaceManager } from '../services/workspace/WorkspaceManager';
-import { GitCredentialStore } from '../services/git/GitCredentialStore';
+import { GitCredentialStore, workspaceCredentialKey as wsKey } from '../services/git/GitCredentialStore';
 import { WorkspaceRecord } from '../database/models';
 
 const SOURCES = new Set(['blank', 'git-url', 'host-folder']);
 const PERSISTENCE = new Set(['persistent', 'ephemeral']);
-
-// Workspace-scoped PATs share the user credential store under a namespaced key, so they
-// reuse its AES-256-GCM encryption + atomic writes with no second file to wire.
-// ponytail: `ws:` namespace assumes no userId literally equals `ws:<workspaceId>` (ids are
-// opaque tokens, not user-chosen) — split into a second store instance if that ever breaks.
-const wsKey = (workspaceId: string) => `ws:${workspaceId}`;
+// Workspace tokens share the user credential store under a `ws:` namespace (wsKey) — same
+// AES-256-GCM + atomic writes, no second file. ponytail: assumes no userId literally equals
+// `ws:<workspaceId>` (ids are opaque) — split into a second store instance if that breaks.
 
 export class WorkspaceController {
   constructor(private workspaces: WorkspaceManager, private credentials: GitCredentialStore) {}

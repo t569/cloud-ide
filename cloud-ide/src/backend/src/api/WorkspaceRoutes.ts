@@ -12,5 +12,7 @@ export function createWorkspaceRouter(controller: WorkspaceController): Router {
   router.post('/', controller.create);
   router.get('/:id', controller.get);
   router.delete('/:id', controller.remove);
+  router.put('/:id/credential', controller.setCredential);
+  router.delete('/:id/credential', controller.clearCredential);
   return router;
 }

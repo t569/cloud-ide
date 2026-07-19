@@ -159,7 +159,7 @@ const gitCredentials = new GitCredentialStore(deriveKey('git-pat-encryption-v1')
 const sandboxController = new SandboxController(sandboxManager, sessionRepo, activityRepo);
 const adminController = new AdminController(sandboxManager);
 const sessionController = new SessionController(systemEvents, sessionRepo, sandboxRepo, sandboxManager, envRepo, gitCredentials);
-const workspaceController = new WorkspaceController(workspaces);
+const workspaceController = new WorkspaceController(workspaces, gitCredentials);
 
 // The engine is stateless (paths only), so a second instance for read/commit ops is free —
 // existing worktrees need no base-repo init.

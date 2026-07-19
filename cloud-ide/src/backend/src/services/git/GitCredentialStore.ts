@@ -101,4 +101,14 @@ export class GitCredentialStore {
       await writeJsonAtomic(this.filePath, db);
     });
   }
+
+  /**
+   * key → host for every stored record, WITHOUT decrypting the tokens — for status UIs
+   * (e.g. "which workspaces have a token") that need existence + host, never the secret.
+   * One file read for the whole set, so a list of N workspaces costs one read, not N.
+   */
+  public async hosts(): Promise<Record<string, string>> {
+    const db = await this.read();
+    return Object.fromEntries(Object.entries(db).map(([k, r]) => [k, r.host]));
+  }
 }

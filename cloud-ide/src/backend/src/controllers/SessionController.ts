@@ -42,8 +42,17 @@ export class SessionController {
     return { kind: 'clone', url: repoUrl, auth: await this.authFor(userId) };
   }
 
-  /** The caller's stored PAT as GitAuth, or undefined — for cloning a private workspace. */
-  private async authFor(userId: string): Promise<GitAuth | undefined> {
+  /**
+   * The PAT to clone a private workspace, as GitAuth (or undefined for the public path).
+   * Precedence mirrors git's own config resolution — most-specific wins: a workspace's own
+   * token (key `ws:<id>`) beats the caller's account token, which is the fallback. So an
+   * existing account token keeps working for every workspace that hasn't set its own.
+   */
+  private async authFor(userId: string, workspaceId?: string): Promise<GitAuth | undefined> {
+    if (workspaceId) {
+      const ws = await this.credentials.get(`ws:${workspaceId}`);
+      if (ws) return { token: ws.token, host: ws.host };
+    }
     const cred = await this.credentials.get(userId);
     return cred ? { token: cred.token, host: cred.host } : undefined;
   }
@@ -121,7 +130,7 @@ export class SessionController {
     // Launch from a first-class WORKSPACE (workspace-entity.md): its id + the caller's PAT
     // are threaded to provision, which materialises it into the new sandbox.
     const wsId = typeof workspaceId === 'string' && workspaceId ? workspaceId : undefined;
-    const wsAuth = wsId ? await this.authFor(userId) : undefined;
+    const wsAuth = wsId ? await this.authFor(userId, wsId) : undefined;
 
     try {
       let targetSandboxId: string;

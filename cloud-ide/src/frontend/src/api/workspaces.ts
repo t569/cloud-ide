@@ -13,6 +13,9 @@ export interface Workspace {
   createdAt: number;
   updatedAt: number;
   lastAttachedSandboxId?: string;
+  /** Repo-specific PAT set on this workspace (overrides the account token at launch). */
+  hasCredential?: boolean;
+  credentialHost?: string | null;
 }
 
 export interface CreateWorkspaceInput {
@@ -29,3 +32,11 @@ export const createWorkspace = (input: CreateWorkspaceInput) =>
 
 export const deleteWorkspace = (id: string) =>
   apiClient.delete<void>(`/v1/workspaces/${encodeURIComponent(id)}`);
+
+// Repo-specific PAT: overrides the account token when THIS workspace launches. Stored
+// encrypted server-side; never returned to the browser (list only reports has/host).
+export const setWorkspaceCredential = (id: string, token: string, host?: string) =>
+  apiClient.put<void>(`/v1/workspaces/${encodeURIComponent(id)}/credential`, host ? { token, host } : { token });
+
+export const clearWorkspaceCredential = (id: string) =>
+  apiClient.delete<void>(`/v1/workspaces/${encodeURIComponent(id)}/credential`);

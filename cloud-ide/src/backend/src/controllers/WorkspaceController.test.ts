@@ -30,10 +30,23 @@ function fakeMgr() {
   } as any;
 }
 
+// In-memory stand-in for GitCredentialStore — keys are `ws:<id>`; hosts() skips decryption.
+function fakeCreds() {
+  const db = new Map<string, { host: string; token: string }>();
+  return {
+    _db: db,
+    set: jest.fn(async (k: string, c: any) => { db.set(k, c); }),
+    get: jest.fn(async (k: string) => db.get(k) ?? null),
+    clear: jest.fn(async (k: string) => { db.delete(k); }),
+    hosts: jest.fn(async () => Object.fromEntries([...db].map(([k, v]) => [k, v.host]))),
+  } as any;
+}
+
 describe('WorkspaceController', () => {
   let mgr: any;
+  let creds: any;
   let ctrl: WorkspaceController;
-  beforeEach(() => { mgr = fakeMgr(); ctrl = new WorkspaceController(mgr); });
+  beforeEach(() => { mgr = fakeMgr(); creds = fakeCreds(); ctrl = new WorkspaceController(mgr, creds); });
 
   it('creates a workspace attributed to the caller', async () => {
     const res = fakeRes();
@@ -72,5 +85,33 @@ describe('WorkspaceController', () => {
     await ctrl.remove({ userId: 'user-1', params: { id: 'wsp-theirs' } } as any, del as any);
     expect(del.statusCode).toBe(404);
     expect(mgr.delete).not.toHaveBeenCalled();
+  });
+
+  it('owner-gates the credential routes and stores under a ws: key', async () => {
+    const nope = fakeRes();
+    await ctrl.setCredential({ userId: 'user-1', params: { id: 'wsp-theirs' }, body: { token: 'ghp_x' } } as any, nope as any);
+    expect(nope.statusCode).toBe(404);
+    expect(creds.set).not.toHaveBeenCalled();
+
+    const ok = fakeRes();
+    await ctrl.setCredential({ userId: 'user-1', params: { id: 'wsp-mine' }, body: { token: 'ghp_x' } } as any, ok as any);
+    expect(ok.statusCode).toBe(204);
+    expect(creds._db.get('ws:wsp-mine')).toEqual({ host: 'github.com', token: 'ghp_x' });
+  });
+
+  it('list tags each workspace with its token status (no decryption)', async () => {
+    await creds.set('ws:wsp-a', { host: 'github.com', token: 'ghp_x' });
+    const res = fakeRes();
+    await ctrl.list({ userId: 'user-1' } as any, res as any);
+    expect(res.body[0]).toMatchObject({ id: 'wsp-a', hasCredential: true, credentialHost: 'github.com' });
+    expect(creds.get).not.toHaveBeenCalled(); // used hosts(), never decrypted
+  });
+
+  it('deleting a workspace also clears its token (no strays)', async () => {
+    await creds.set('ws:wsp-mine', { host: 'github.com', token: 'ghp_x' });
+    const res = fakeRes();
+    await ctrl.remove({ userId: 'user-1', params: { id: 'wsp-mine' } } as any, res as any);
+    expect(res.statusCode).toBe(204);
+    expect(creds._db.has('ws:wsp-mine')).toBe(false);
   });
 });

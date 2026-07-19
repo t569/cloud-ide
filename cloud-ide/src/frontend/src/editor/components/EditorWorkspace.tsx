@@ -1,13 +1,15 @@
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
-import { WorkspaceSession, FileNode } from '../types/editor';
+import { WorkspaceSession, FileNode, GitState } from '../types/editor';
 import { LocalStorageManager } from '../utils/LocalStoragemanager';
 import { isExternal } from '../core/VFSController';
 import { toast, dialog } from '../../notifications';
 import { pauseSandbox, restartSandbox, waitForRunning } from '../../api/sandbox';
+import { getGitBranch, getGitStatus } from '../../api/git';
 import { navigate } from '../../pages/router';
 
 import { EditorTabs } from './EditorTabs';
 import { StatusBar } from './StatusBar';
+import { CommitHistory } from './CommitHistory';
 import { TopNavBar } from './TopNavBar';
 import { ActivityBar } from './ActivityBar';
 import { FileExplorer } from './FileExplorer';
@@ -72,6 +74,19 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
   useEffect(() => {
     dispatch({ type: 'SET_WORKSPACE_NAME', payload: { name: session.workspaceName || sandboxId } });
   }, [session.workspaceName, sandboxId, dispatch]);
+
+  // Real git read-out for the status bar (replaces the old mock). A non-git worktree throws
+  // → null hides the widget, like VS Code. ponytail: one-shot per sandbox — a fresh commit
+  // won't refresh the '*' until reopened; the Source Control pane is the live surface.
+  const [gitState, setGitState] = useState<GitState | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([getGitBranch(sandboxId), getGitStatus(sandboxId)])
+      .then(([{ branch }, { entries }]) => { if (!cancelled) setGitState({ branch, hasChanges: entries.length > 0 }); })
+      .catch(() => { if (!cancelled) setGitState(null); });
+    return () => { cancelled = true; };
+  }, [sandboxId]);
 
   // ---- Open-tab persistence: survive a page reload --------------------------
   // A refresh rebuilds this component from scratch, so the reducer starts with
@@ -420,18 +435,23 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
             </>
           )}
 
-          {/* ZONE 6: STATUS BAR. ponytail: cursor/formatting/git are still mock —
-              real wiring is a separate feature (see REFACTOR.md deferred list). */}
+          {/* ZONE 6: STATUS BAR. git is now real (branch + dirty flag); cursor/formatting
+              are still mock — real wiring is a separate feature (see REFACTOR.md). */}
           <StatusBar
             settings={settings}
             cursor={{ line: 5, column: 36 }}
             formatting={{ eol: 'LF', encoding: 'UTF8', indentMode: 'spaces', indentSize: 2 }}
-            git={{ branch: 'main', hasChanges: false }}
+            git={gitState}
             language={activeLanguage}
             lsp={lspStatus}
             onLspClick={handleLspClick}
             onLanguageClick={() => setLanguagePickerOpen(true)}
+            onBranchClick={() => setHistoryOpen(true)}
           />
+
+          {historyOpen && gitState && (
+            <CommitHistory sandboxId={sandboxId} branch={gitState.branch} onClose={() => setHistoryOpen(false)} />
+          )}
 
           {languagePickerOpen && activeFile && (
             <LanguagePicker

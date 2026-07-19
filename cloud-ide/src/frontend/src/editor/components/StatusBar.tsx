@@ -46,6 +46,8 @@ interface StatusBarProps {
   onLspClick?: () => void;
   /** Click the language read-out: opens the language-mode picker. */
   onLanguageClick?: () => void;
+  /** Click the branch read-out: opens the commit-history panel. */
+  onBranchClick?: () => void;
 }
 
 // These read-outs are placeholders until cursor/format/git are wired to Monaco, so a
@@ -62,6 +64,7 @@ export const StatusBar = ({
   lsp,
   onLspClick,
   onLanguageClick,
+  onBranchClick,
 }: StatusBarProps) => (
   <div
     className="flex h-6 items-center justify-between border-t border-ide-border bg-ide-panel text-[11px] select-none"
@@ -70,7 +73,7 @@ export const StatusBar = ({
     {/* LEFT: source control (its conventional home). */}
     <div className="flex h-full items-center">
       {git && (
-        <StatusBarItem onClick={soon('Source control')} title="Source control" className="gap-1.5">
+        <StatusBarItem onClick={onBranchClick ?? soon('Commit history')} title="View commit history" className="gap-1.5">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
             <path
               fillRule="evenodd"

@@ -136,6 +136,32 @@ function NewWorkspaceDialog({ onClose, onCreated }: { onClose: () => void; onCre
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Same account-level git credential the header uses, surfaced inline so you can connect a
+  // token for a private repo right here — not a per-workspace credential (server resolves it
+  // from the one user-scoped store at launch).
+  const [cred, setCred] = useState<GitCredentialState | null>(null);
+  const [ghToken, setGhToken] = useState('');
+  const [connecting, setConnecting] = useState(false);
+
+  useEffect(() => {
+    getGitCredential().then(setCred).catch(() => setCred({ configured: false, host: null }));
+  }, []);
+
+  const connect = async () => {
+    if (!ghToken.trim()) return;
+    setConnecting(true);
+    try {
+      await setGitCredential(ghToken.trim());
+      setCred(await getGitCredential());
+      setGhToken('');
+      toast.success('GitHub connected — private repos can now be cloned.');
+    } catch (e) {
+      toast.error((e as Error).message, { title: 'Could not save token' });
+    } finally {
+      setConnecting(false);
+    }
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -190,18 +216,47 @@ function NewWorkspaceDialog({ onClose, onCreated }: { onClose: () => void; onCre
       </div>
 
       {source === 'git-url' && (
-        <input
-          value={sourceUrl}
-          onChange={(e) => { setSourceUrl(e.target.value); setError(null); }}
-          onKeyDown={(e) => e.key === 'Enter' && submit()}
-          placeholder="https://github.com/owner/repo"
-          className="w-full mt-3 rounded-lg border border-gray-800 bg-[#0d0d0f] px-3 py-2 text-[13px] font-mono text-gray-200 outline-none focus:border-[#5ec8d8]/60 placeholder:text-gray-600"
-        />
+        <>
+          <input
+            value={sourceUrl}
+            onChange={(e) => { setSourceUrl(e.target.value); setError(null); }}
+            onKeyDown={(e) => e.key === 'Enter' && submit()}
+            placeholder="https://github.com/owner/repo"
+            className="w-full mt-3 rounded-lg border border-gray-800 bg-[#0d0d0f] px-3 py-2 text-[13px] font-mono text-gray-200 outline-none focus:border-[#5ec8d8]/60 placeholder:text-gray-600"
+          />
+          {cred?.configured ? (
+            <p className="mt-2 text-[11.5px] text-emerald-400 flex items-center gap-1.5">
+              <VscGithub /> GitHub connected ({cred.host}) — a private repo will clone with this token.
+            </p>
+          ) : (
+            <div className="mt-2">
+              <p className="text-[11.5px] text-gray-500 mb-1.5">
+                Private repo? Add a GitHub token (optional — stored encrypted, account-level, reused for all workspaces).
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={ghToken}
+                  onChange={(e) => setGhToken(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && connect()}
+                  placeholder="ghp_…"
+                  className="flex-1 rounded-lg border border-gray-800 bg-[#0d0d0f] px-3 py-2 text-[13px] font-mono text-gray-200 outline-none focus:border-[#5ec8d8]/60 placeholder:text-gray-600"
+                />
+                <button
+                  onClick={connect}
+                  disabled={!ghToken.trim() || connecting}
+                  className="px-3 text-[12.5px] font-semibold rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:border-emerald-500 disabled:opacity-40"
+                >
+                  {connecting ? '…' : 'Connect'}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <p className="mt-3 text-[11.5px] leading-snug text-gray-500">
-        A blank workspace starts empty; a git one clones the repo when first launched. For a private
-        repo, connect a token first via <span className="text-gray-300">Connect GitHub</span> in the header.
+        A blank workspace starts empty; a git one clones the repo when first launched.
       </p>
       {error && <p className="mt-3 text-[12px] text-[#f87171]">{error}</p>}
 

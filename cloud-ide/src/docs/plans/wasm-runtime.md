@@ -193,13 +193,58 @@ So the WASM tier's honest promise is **"edit and run curated-language projects, 
 shell"** — not "build arbitrary environments". The env-manager redesign should say exactly
 that rather than imply parity.
 
+### Can the terminal architecture port to Wasmer? Yes — and most of it does not move
+
+Probed directly, and the answer is structural: **the PTY already comes from the host, not
+from Docker.** `DockerPtyDriver`'s own comment says it — "node-pty gives docker a real host
+PTY so `-t` succeeds". Docker is not the terminal; node-pty is, and Docker merely inherits
+it. Wasmer would inherit it the same way.
+
+| Layer | Port cost |
+|---|---|
+| xterm.js frontend | **none** |
+| Terminal transport factory (capability negotiation) | **none** |
+| WS `/pty` bridge | **none** |
+| `ISandboxSession` (`onData`/`onExit`/`write`/`resize`/`close`) | **none** — already runtime-neutral, pure bytes + resize |
+| node-pty → `ISandboxSession` adapter | **none** — wraps `IPty` generically |
+| The driver's **argv** | ← the only real change |
+
+```
+pty.spawn('docker', ['exec', '-it', container, shell])
+pty.spawn('wasmer', ['run', 'wasmer/bash', '--volume', `${worktree}:/workspace`, '--', '-i'])
+```
+
+Since that is the sole difference, the lazy shape is not a second driver but generalising
+`DockerPtyDriver` into a host-PTY driver parameterised by an argv builder.
+
+**Verified by probe:**
+
+- Interactive bash with a real prompt (`bash-dist#`), driven by writing lines to stdin and
+  reading stdout — exactly the `ISandboxSession` contract.
+- Workspace mounted, read **and written**, with the host seeing the new file immediately.
+- **Warm start 0.10s** (cold 4.7s, which is wasmer compiling bash; it caches per package,
+  so pre-warm the cache at deploy rather than per sandbox).
+
+**Not yet verified — the remaining risk, and it is exactly what `resize()` and Ctrl-C need:**
+
+- SIGWINCH / resize propagation into the guest.
+- Ctrl-C → SIGINT delivery.
+- Line editing (arrows, history) through a genuine PTY — the probe drove it over pipes.
+
+⚠️ Syntax trap: `--volume` takes **HOST:GUEST** (Docker order); the deprecated `--mapdir`
+takes **GUEST:HOST**. Getting it backwards fails, and under `-i` with stderr suppressed it
+fails *silently*.
+
 ### Recommendation
 
-**Do not adopt WASIX yet.** It costs the runtime (Wasmer, not `node:wasi`/wasmtime), a
-recompile of everything against a non-standard extension, and lock-in — and what it buys is
-a terminal, not the thing that would make the tier broadly useful. Phase 2 (the WASM
-`IBuilder` and a curated module set) is worth more per unit of effort, and does not
-foreclose WASIX later: a `WasmerDriver` is another `ISandboxDriver`, exactly like this one.
+**Still: phase 2 before WASIX** — but on a corrected basis. The port cost is far lower than
+first assumed (one argv, not a rewrite), so the case against is no longer "expensive". It is
+that WASIX buys a **terminal** while the tier's real gap is the **package ecosystem**, which
+no runtime fixes. A great shell that cannot `npm install` is still a curated-runtime tier.
+
+So: build phase 2 (the WASM `IBuilder` and a curated module set) first, because it addresses
+the actual gap. Take WASIX the moment the terminal becomes the blocking complaint in real
+use — it is a cheap, well-understood change whenever you want it, and it forecloses nothing.
 
 Revisit when either the terminal becomes the blocking complaint in real use, or a Node
 build for WASIX appears.

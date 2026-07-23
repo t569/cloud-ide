@@ -140,6 +140,70 @@ Falsifiable, and each one kills the idea if it fails:
 4. **PTY** — only if `pty: false` proves intolerable, and only via WASIX, accepting the
    runtime commitment.
 
+## WASIX spike — RESULT (2026-07-23)
+
+Run against **wasmer 7.2.1 in WSL** (kernel 6.18), before committing to WASIX. The question
+was: does WASIX give us the process model, and does it get us `npm install`?
+
+**Works — the process model is real:**
+
+| Probe | Result |
+|---|---|
+| `wasmer/bash` runs | ✅ |
+| Command substitution `$(…)` — needs **fork** | ✅ `got:nested` |
+| Pipeline `echo … \| tr` — needs **fork + exec of another binary** | ✅ `one two three` |
+| `&&` chaining, `cd`, `>` redirection | ✅ |
+| `wasmer/python` | ✅ `print(6*7)` → 42 |
+| `wasmer/coreutils` | ✅ |
+| **Host directory mount** (`--volume`, was `--mapdir`) | ✅ guest wrote `output.txt`; **the host sees it** |
+
+That last row matters: the preopen/mount storage model survives a move to Wasmer, so
+worktrees keep working exactly as they do on `node:wasi`.
+
+**Does NOT work — and this is the decisive finding:**
+
+| Probe | Result |
+|---|---|
+| `wasmer/node` | ❌ **not in the registry at all** |
+| `deno` | ❌ nothing |
+| `pip` inside `wasmer/python` | ❌ `No module named pip` |
+
+**There is no package manager on WASIX.** No Node means no `npm install`; no pip means no
+Python installs either.
+
+⚠️ **A stale package nearly produced the wrong conclusion.** `sharrattj/bash` (1.0.18)
+crashes on wasmer 7.2.1 with `RuntimeError: indirect call type mismatch` — which looks
+exactly like "fork is unsupported". The current `wasmer/bash` (1.0.25) works fine. Always
+check package recency against the runtime before concluding a capability is missing.
+
+### What this changes
+
+An earlier note in this plan claimed a shell and custom installs were the same requirement,
+both blocked by `fork`/`exec`. **That was half right.** fork/exec is necessary but not
+sufficient: the blocker for environments is the **package ecosystem**, and no runtime
+choice fixes that. Concretely:
+
+- **WASIX buys a terminal** — a real shell, real pipelines, and therefore a credible route
+  to `pty: true`. (Interactive TTY itself is still unproven: the spike ran `bash -c`, not an
+  attached terminal.)
+- **WASIX does not buy an env builder.** "Custom install environments" is not reachable on
+  WASM under any runtime today. That capability belongs to the Docker tier, full stop.
+
+So the WASM tier's honest promise is **"edit and run curated-language projects, with a
+shell"** — not "build arbitrary environments". The env-manager redesign should say exactly
+that rather than imply parity.
+
+### Recommendation
+
+**Do not adopt WASIX yet.** It costs the runtime (Wasmer, not `node:wasi`/wasmtime), a
+recompile of everything against a non-standard extension, and lock-in — and what it buys is
+a terminal, not the thing that would make the tier broadly useful. Phase 2 (the WASM
+`IBuilder` and a curated module set) is worth more per unit of effort, and does not
+foreclose WASIX later: a `WasmerDriver` is another `ISandboxDriver`, exactly like this one.
+
+Revisit when either the terminal becomes the blocking complaint in real use, or a Node
+build for WASIX appears.
+
 ## Explicitly out of scope
 
 - Replacing the Docker tier. It stays the full-fidelity option.

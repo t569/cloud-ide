@@ -9,8 +9,17 @@ import { ISandboxDriver } from './ISandboxDriver';
 import { RustEngineClient } from '../rustClient';
 import { AlibabaSdkDriver } from './AlibabaSdkDriver';
 import { DockerPtyDriver } from './DockerPtyDriver';
+import { WasmDriver } from './wasm/WasmDriver';
 
 export function createSandboxDriver(): ISandboxDriver {
+  // 'wasm' is the cheap DEPLOYMENT tier (docs/plans/wasm-runtime.md): no Docker daemon, no
+  // nftables, no kernel requirements — which is what makes hosting that forbids
+  // Docker-in-Docker viable at all. Returned standalone, not composed over the Rust engine:
+  // it replaces the runtime rather than adding to it, and there is no daemon to talk to.
+  if (config.SANDBOX_DRIVER === 'wasm') {
+    return new WasmDriver();
+  }
+
   const base = new RustEngineClient(); // OpenSandbox lifecycle + exec via the Rust kernel
   if (config.SANDBOX_DRIVER === 'alibaba') {
     return new AlibabaSdkDriver(base);

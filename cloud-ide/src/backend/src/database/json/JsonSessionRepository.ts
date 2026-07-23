@@ -4,7 +4,7 @@ import path from 'node:path';
 import { ISessionRepository } from '../interfaces/ISessionRepository';
 import { SessionRecord, SessionState } from '../models';
 import { DATA_DIR } from '../../config/paths';
-import { writeJsonAtomic } from '../atomicWrite';
+import { ensureJsonFile, writeJsonAtomic } from '../atomicWrite';
 
 /**
  * Sessions on disk. Same two rules as JsonSandboxRepository, and for the same reason:
@@ -29,15 +29,9 @@ export class JsonSessionRepository implements ISessionRepository {
 
   constructor(storageDirectory: string = DATA_DIR) {
     this.filePath = path.join(storageDirectory, 'sessions.json');
-    this.ready = this.initDb();
-  }
-
-  private async initDb(): Promise<void> {
-    try {
-      await fs.access(this.filePath);
-    } catch {
-      await writeJsonAtomic(this.filePath, {});
-    }
+    // ensureJsonFile never rejects — see its doc. A rejection here would be awaited by
+    // every read() below and poison the repository permanently.
+    this.ready = ensureJsonFile(this.filePath);
   }
 
   /** Runs `fn` after every mutation queued before it, and hands back its result. */

@@ -9,6 +9,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ActivityEvent, ActivityKind } from '../models';
+import { ensureJsonFile } from '../atomicWrite';
 import { DATA_DIR } from '../../config/paths';
 
 const MAX_PER_SANDBOX = 200; // ponytail: ring-buffer per sandbox; enough for a drawer, cheap to scan
@@ -20,16 +21,9 @@ export class JsonActivityRepository {
 
   constructor(storageDirectory: string = DATA_DIR) {
     this.filePath = path.join(storageDirectory, 'activity.json');
-    this.ready = this.initDb();
-  }
-
-  private async initDb(): Promise<void> {
-    try {
-      await fs.access(this.filePath);
-    } catch {
-      await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-      await fs.writeFile(this.filePath, JSON.stringify({}));
-    }
+    // Best-effort and never rejecting: `ready` is awaited by every read, so a transient
+    // failure here would poison this repository for the life of the process.
+    this.ready = ensureJsonFile(this.filePath);
   }
 
   private async read(): Promise<Record<string, ActivityEvent[]>> {

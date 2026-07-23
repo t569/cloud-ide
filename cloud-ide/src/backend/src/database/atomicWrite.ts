@@ -18,3 +18,30 @@ export async function writeJsonAtomic(filePath: string, data: unknown): Promise<
     throw err;
   }
 }
+
+/**
+ * Pre-create an empty JSON store if it doesn't exist. BEST EFFORT — it never rejects, and
+ * that is the entire point.
+ *
+ * Each JSON repository kicks this off in its constructor and stores the promise as
+ * `ready`, which every subsequent read awaits. So if this promise REJECTS, it does not
+ * fail once — it poisons the repository for the lifetime of the process, and every later
+ * read/write rejects with a stale error. In PersistenceLayer those reads run inside async
+ * EventEmitter listeners, where an unhandled rejection takes the gateway down: exactly the
+ * failure mode JsonSessionRepository's atomic writes were introduced to prevent.
+ *
+ * The failure is real, not theoretical: `rename` over a file another process holds open
+ * raises EPERM on Windows, and a concurrent writer opens that window. Reproduced at ~1 in
+ * 1600 constructions under parallel load.
+ *
+ * Swallowing is safe because a missing file is already a valid state — every reader here
+ * treats absent-or-empty as an empty database — so the pre-creation is an optimisation,
+ * not an invariant.
+ */
+export async function ensureJsonFile(filePath: string): Promise<void> {
+  try {
+    await fs.access(filePath);
+  } catch {
+    await writeJsonAtomic(filePath, {}).catch(() => {});
+  }
+}

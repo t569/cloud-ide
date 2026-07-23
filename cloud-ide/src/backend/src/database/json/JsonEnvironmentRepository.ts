@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { IEnvironmentRepository } from '../interfaces/IEnvironmentRepository';
 import { EnvironmentRecord } from '../models';
-import { writeJsonAtomic } from '../atomicWrite';
+import { ensureJsonFile, writeJsonAtomic } from '../atomicWrite';
 import { DATA_DIR } from '../../config/paths';
 
 export class JsonEnvironmentRepository implements IEnvironmentRepository {
@@ -10,16 +10,9 @@ export class JsonEnvironmentRepository implements IEnvironmentRepository {
 
   constructor(storageDirectory: string = DATA_DIR) {
     this.filePath = path.join(storageDirectory, 'environments.json');
-    this.initDb();
-  }
-
-  private async initDb(): Promise<void> {
-    try {
-      await fs.access(this.filePath);
-    } catch {
-      await fs.mkdir(path.dirname(this.filePath), { recursive: true });
-      await fs.writeFile(this.filePath, JSON.stringify({}));
-    }
+    // Deliberately unawaited, so it must never reject: this promise is dropped on the
+    // floor, and an unhandled rejection here is a process-level event.
+    void ensureJsonFile(this.filePath);
   }
 
   private async read(): Promise<Record<string, EnvironmentRecord>> {

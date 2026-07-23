@@ -8,16 +8,18 @@
 // when multi-branch visualization is actually needed.
 import React, { useEffect, useState } from 'react';
 import { VscClose, VscGitCommit } from 'react-icons/vsc';
-import { getGitLog, type GitLogEntry } from '../../api/git';
+import { type GitLogEntry } from '../../api/git';
+import { type GitPort } from '../../vfs/GitPort';
 import { timeAgo } from '../../env-manager/utils/timeAgo';
 
 interface CommitHistoryProps {
-  sandboxId: string;
+  /** Where history comes from — a backend worktree or the browser's own repo. */
+  git: GitPort;
   branch: string | null;
   onClose: () => void;
 }
 
-export const CommitHistory = ({ sandboxId, branch, onClose }: CommitHistoryProps) => {
+export const CommitHistory = ({ git, branch, onClose }: CommitHistoryProps) => {
   const [commits, setCommits] = useState<GitLogEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [limit, setLimit] = useState(50);
@@ -26,12 +28,12 @@ export const CommitHistory = ({ sandboxId, branch, onClose }: CommitHistoryProps
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    getGitLog(sandboxId, limit)
-      .then((r) => { if (!cancelled) { setCommits(r.commits); setError(null); } })
+    git.log(limit)
+      .then((commits) => { if (!cancelled) { setCommits(commits); setError(null); } })
       .catch((e: Error) => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [sandboxId, limit]);
+  }, [git, limit]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();

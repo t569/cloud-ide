@@ -1,7 +1,12 @@
-// The "Source Control" sidebar pane: the sandbox worktree's git status, a commit box,
-// and push/pull — real git on the host worktree (git-integration.md), reached through
-// the owner-gated /v1/sandboxes/:id/git routes. A GitHub PAT (user-scoped) is what makes
-// push/pull work against private remotes; public repos need none.
+// The "Source Control" sidebar pane: git status, a commit box, and push/pull.
+//
+// Acts on a GitPort, not on a sandbox — so the same pane serves real git on the backend
+// worktree (git-integration.md) and isomorphic-git in the browser. Anything a tier cannot
+// do is expressed by the port rather than branched on here: `git.diff` being absent means
+// the file is offered for opening instead of showing a change.
+//
+// The credential box is the one deliberately backend-only part: the PAT is user-scoped and
+// stored server-side, which the browser tier will need its own answer for.
 //
 // Files are ticked individually and the commit is scoped with `-- <paths>`, which
 // disregards the index — so an unticked file can never ride along and there is nothing
@@ -13,24 +18,19 @@ import {
   VscChevronRight, VscChevronDown, VscGoToFile,
 } from 'react-icons/vsc';
 import {
-  getGitStatus,
-  getGitBranch,
-  getGitDiff,
-  gitStage,
-  gitCommit,
-  gitPush,
-  gitPull,
   getGitCredential,
   setGitCredential,
   clearGitCredential,
   type GitStatusEntry,
   type GitCredentialState,
 } from '../../api/git';
+import { type GitPort } from '../../vfs/GitPort';
 import { EditorEventBus } from '../core/EditorEventBus';
 import { toast } from '../../notifications';
 
 interface SourceControlPanelProps {
-  sandboxId: string;
+  /** The repository this pane acts on — backend worktree or browser-local. */
+  git: GitPort;
   eventBus: EditorEventBus;
 }
 
@@ -58,7 +58,7 @@ function decorate(status: string): { letter: string; label: string; tone: string
   }
 }
 
-export const SourceControlPanel = ({ sandboxId, eventBus }: SourceControlPanelProps) => {
+export const SourceControlPanel = ({ git, eventBus }: SourceControlPanelProps) => {
   const [branch, setBranch] = useState<string | null>(null);
   const [entries, setEntries] = useState<GitStatusEntry[]>([]);
   const [message, setMessage] = useState('');
@@ -84,7 +84,7 @@ export const SourceControlPanel = ({ sandboxId, eventBus }: SourceControlPanelPr
     setBusy('refresh');
     setError(null);
     try {
-      const [{ entries }, { branch }] = await Promise.all([getGitStatus(sandboxId), getGitBranch(sandboxId)]);
+      const [entries, branch] = await Promise.all([git.status(), git.branch()]);
       setEntries(entries);
       const known = knownPaths.current; // captured before the overwrite below
       setSelected((prev) => new Set(
@@ -98,7 +98,7 @@ export const SourceControlPanel = ({ sandboxId, eventBus }: SourceControlPanelPr
     } finally {
       setBusy(null);
     }
-  }, [sandboxId]);
+  }, [git]);
 
   useEffect(() => {
     refresh();
@@ -119,14 +119,15 @@ export const SourceControlPanel = ({ sandboxId, eventBus }: SourceControlPanelPr
       return;
     }
     // An untracked file isn't in HEAD, so it has no diff to fetch — the body offers to
-    // open it in the editor instead.
-    if (entry.status.startsWith('??')) {
+    // open it in the editor instead. Same for a tier whose git cannot produce a diff at
+    // all (GitPort.diff is optional): show the file, don't pretend to show a change.
+    if (entry.status.startsWith('??') || !git.diff) {
       setOpen({ path: entry.path, diff: '' });
       return;
     }
     setOpen({ path: entry.path, diff: null });
     try {
-      const { diff } = await getGitDiff(sandboxId, entry.path);
+      const diff = await git.diff(entry.path);
       // Ignore a response for a file the user has since collapsed or switched away from.
       setOpen((cur) => (cur?.path === entry.path ? { path: entry.path, diff } : cur));
     } catch (e) {
@@ -144,8 +145,8 @@ export const SourceControlPanel = ({ sandboxId, eventBus }: SourceControlPanelPr
     if (!msg || paths.length === 0) return;
     setBusy('commit');
     try {
-      await gitStage(sandboxId, paths);                   // untracked files must be added to be committable
-      await gitCommit(sandboxId, msg, undefined, paths);  // `-- paths`: nothing unticked rides along
+      await git.stage(paths);                    // untracked files must be added to be committable
+      await git.commit(msg, undefined, paths);   // scoped: nothing unticked rides along
       setMessage('');
       toast.success(`Committed ${paths.length} file${paths.length === 1 ? '' : 's'} to the workspace branch.`, { title: 'Commit' });
       await refresh();
@@ -246,7 +247,7 @@ export const SourceControlPanel = ({ sandboxId, eventBus }: SourceControlPanelPr
             {busy === 'commit' ? 'Committing…' : `Commit${selected.size ? ` ${selected.size}` : ''}`}
           </button>
           <button
-            onClick={run('push', () => gitPush(sandboxId), 'Push')}
+            onClick={run('push', () => git.push(), 'Push')}
             disabled={busy !== null}
             title="Push the current branch to origin"
             className="rounded border border-ide-border px-2 py-1 text-ide-muted transition-colors hover:bg-ide-hover hover:text-ide-text disabled:opacity-40"
@@ -254,7 +255,7 @@ export const SourceControlPanel = ({ sandboxId, eventBus }: SourceControlPanelPr
             <VscCloudUpload size={14} />
           </button>
           <button
-            onClick={run('pull', () => gitPull(sandboxId), 'Pull')}
+            onClick={run('pull', () => git.pull(), 'Pull')}
             disabled={busy !== null}
             title="Pull from origin (fast-forward)"
             className="rounded border border-ide-border px-2 py-1 text-ide-muted transition-colors hover:bg-ide-hover hover:text-ide-text disabled:opacity-40"

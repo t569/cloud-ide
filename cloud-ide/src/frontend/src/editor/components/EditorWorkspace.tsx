@@ -4,7 +4,8 @@ import { LocalStorageManager } from '../utils/LocalStoragemanager';
 import { isExternal } from '../core/VFSController';
 import { toast, dialog } from '../../notifications';
 import { pauseSandbox, restartSandbox, waitForRunning } from '../../api/sandbox';
-import { getGitBranch, getGitStatus } from '../../api/git';
+import { HttpGitPort } from '../../vfs/HttpGitPort';
+import type { GitPort } from '../../vfs/GitPort';
 import { navigate } from '../../pages/router';
 
 import { EditorTabs } from './EditorTabs';
@@ -80,13 +81,19 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
   // won't refresh the '*' until reopened; the Source Control pane is the live surface.
   const [gitState, setGitState] = useState<GitState | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+
+  // One port for the whole editor, so the status widget, the Source Control pane and the
+  // commit rail all read the same repository. Swapping this for a BrowserGitPort is what
+  // moves the editor onto the serverless tier — nothing below here changes.
+  const git = useMemo<GitPort>(() => new HttpGitPort(sandboxId), [sandboxId]);
+
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getGitBranch(sandboxId), getGitStatus(sandboxId)])
-      .then(([{ branch }, { entries }]) => { if (!cancelled) setGitState({ branch, hasChanges: entries.length > 0 }); })
+    Promise.all([git.branch(), git.status()])
+      .then(([branch, entries]) => { if (!cancelled) setGitState({ branch, hasChanges: entries.length > 0 }); })
       .catch(() => { if (!cancelled) setGitState(null); });
     return () => { cancelled = true; };
-  }, [sandboxId]);
+  }, [git]);
 
   // ---- Open-tab persistence: survive a page reload --------------------------
   // A refresh rebuilds this component from scratch, so the reducer starts with
@@ -312,7 +319,7 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
                 />
               )}
               {layout.activeSidebarPanel === 'source-control' && (
-                <SourceControlPanel sandboxId={sandboxId} eventBus={eventBus} />
+                <SourceControlPanel git={git} eventBus={eventBus} />
               )}
               {layout.activeSidebarPanel === 'network' && (
                 <NetworkPanel sandboxId={sandboxId} eventBus={eventBus} />
@@ -450,7 +457,7 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
           />
 
           {historyOpen && gitState && (
-            <CommitHistory sandboxId={sandboxId} branch={gitState.branch} onClose={() => setHistoryOpen(false)} />
+            <CommitHistory git={git} branch={gitState.branch} onClose={() => setHistoryOpen(false)} />
           )}
 
           {languagePickerOpen && activeFile && (

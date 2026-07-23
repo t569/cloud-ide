@@ -1,26 +1,19 @@
 // backend/src/services/provisioning/IProvisioningStrategy.ts
 
 
-// this defines an interface for when to inject volumes
-
-// e.g. localpath: before
-// github: after
-
-// TODO: lets talk security later
+// How a workspace's storage gets into a sandbox: the strategy injects its volume into the
+// spec BEFORE the container boots.
+//
+// There was a second hook here, executePostBoot, for strategies that had to run commands
+// inside a running container (the idea being local mounts inject before boot, a git clone
+// after). Nothing ever called it — the only implementation was a no-op, because a worktree
+// is bind-mounted already populated and a clone happens host-side. Deleted rather than
+// carried: an unused hook is not a seam, it is a second way to do something that only
+// happens one way.
 
 import { SandboxSpec } from '@cloud-ide/shared';
-import { OpenSandboxExecClient } from '../sandbox/drivers/opensandbox/execdriver';
 
 export interface IProvisioningStrategy {
-  /**
-   * Hook 1: Pre-Boot. 
-   * Allows the strategy to inject volumes or environment variables into the spec BEFORE the VM boots.
-   */
+  /** Inject volumes or env vars into the spec before the container boots. */
   mutateSpec(spec: SandboxSpec): SandboxSpec;
-
-  /**
-   * Hook 2: Post-Boot.
-   * Allows the strategy to run commands inside the container AFTER the VM is running.
-   */
-  executePostBoot(execClient: OpenSandboxExecClient): Promise<void>;
 }

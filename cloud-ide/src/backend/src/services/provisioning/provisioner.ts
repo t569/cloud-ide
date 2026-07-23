@@ -4,7 +4,6 @@
 
 import { SandboxSpec } from '@cloud-ide/shared';
 import { IProvisioningStrategy } from './IProvisioningStrategy';
-import { OpenSandboxExecClient } from '../sandbox/drivers/opensandbox/execdriver';
 
 
 // the general class we export and use
@@ -22,20 +21,5 @@ export class WorkspaceProvisioner {
   public prepareSpec(baseSpec: SandboxSpec): SandboxSpec {
     if (!this.strategy) return baseSpec;
     return this.strategy.mutateSpec(baseSpec);
-  }
-
-  /**
-   * Executes necessary commands inside the sandbox after it is running.
-   */
-  // ponytail: unwired — nothing calls runPostBoot (WorktreeStrategy's post-boot is a
-  // no-op because the worktree is bind-mounted, already populated, at boot).
-  // `execdBaseUrl` comes from SandboxManager.resolveEndpoint(id, 44772).
-  public async runPostBoot(execdBaseUrl: string): Promise<void> {
-    if (!this.strategy) return;
-
-    // Connect to the newly booted sandbox
-    const execClient = new OpenSandboxExecClient(execdBaseUrl);
-
-    await this.strategy.executePostBoot(execClient);
   }
 }

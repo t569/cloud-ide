@@ -2,7 +2,6 @@
 
 
 // provisioner strategies
-export { GitStrategy } from './strategies/git';
 
 
 // workspace provisioner

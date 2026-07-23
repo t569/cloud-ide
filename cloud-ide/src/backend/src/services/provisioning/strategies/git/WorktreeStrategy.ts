@@ -2,7 +2,6 @@
 
 import { IProvisioningStrategy } from '../../IProvisioningStrategy';
 import { SandboxSpec } from '@cloud-ide/shared/types/sandbox';
-import { OpenSandboxExecClient } from '../../../sandbox/drivers/opensandbox/execdriver';
 
 export class WorktreeStrategy implements IProvisioningStrategy {
   constructor(
@@ -24,12 +23,5 @@ export class WorktreeStrategy implements IProvisioningStrategy {
     });
 
     return modifiedSpec;
-  }
-
-  public async executePostBoot(execClient: OpenSandboxExecClient): Promise<void> {
-    // Because the files live on the host and were mounted at boot by Docker,
-    // we do NOT need to run `git clone` inside the container!
-    // The workspace is instantly ready with zero network overhead.
-    return Promise.resolve();
   }
 }

@@ -428,6 +428,84 @@ default. (CheerpX/WebVM does the same with an x86 JIT, but is proprietary.)
 | container2wasm | slow (emulated CPU) | anything, including native modules |
 | Docker | native | anything |
 
+## The build pipeline — Docker-like functionality, WASM artifacts
+
+A Docker image is *base OS + runtimes + installed packages*. The WASM equivalent is a
+**directory**, and it drops onto the seams that already exist (`IBuilder`,
+`BuilderRegistry`, `IBuildStore`) with no new architecture:
+
+```
+<buildStore>/<contentHash>/
+  modules/     python.wasm, edge.wasm, bash.wasm, coreutils.wasm   ← the "base image"
+  deps/
+    node_modules/                                                  ← host-resolved
+    pylibs/                                                        ← host-resolved
+  manifest.json                                                    ← runtimes + lockfile hashes
+```
+
+**Build (host-side, cached):** fetch the runtime modules → run `npm install` /
+`pip install --target` into `deps/` → write the manifest. **Launch:** mount the worktree at
+`/workspace`, mount `modules/` and `deps/` read-only, set `NODE_PATH`/`PYTHONPATH`. The
+cache key is `hash(runtime versions + lockfiles)`, giving Docker's "rebuild only when the
+definition changed" property for free.
+
+The environment definition becomes **declarative** rather than imperative — `runtimes: [node@24, python@3.12]`, `packages: {npm: [...], pip: [...]}` instead of `FROM`/`RUN`. That is
+not a limitation to apologise for; see the next paragraph for why arbitrary `RUN` is
+actively unsafe here.
+
+### ⚠️ Host-side installs execute untrusted code ON THE SERVER
+
+This is the one genuinely dangerous part of the host-resolution approach, and it has no
+equivalent in the Docker tier, where the build is isolated inside a container.
+
+`npm install` runs `postinstall` scripts **as the build user, on your host**, with your
+filesystem and network. In a multi-tenant deployment that is arbitrary remote code
+execution by anyone who can define an environment. Non-negotiable mitigations:
+
+- **`npm install --ignore-scripts` by default.** Most pure-JS packages need no lifecycle
+  script, and this is the difference between "resolve a dependency graph" and "run a
+  stranger's shell script".
+- **`pip install --only-binary=:all:`** already prevents execution — no `setup.py` runs when
+  only wheels are permitted. Keep it, and never relax it to allow sdists.
+- Treat the whole build as untrusted input: timeouts, disk quota, and no ambient
+  credentials in the build environment.
+
+The *right* long-term fix is to run the install inside the sandbox itself — blocked today
+only by the Edge.js `os.totalmem()` bug documented above. When that lands, in-guest
+installation removes this entire class of risk.
+
+## Hosting: what is actually free, and what it costs architecturally
+
+| Option | Free? | Fit |
+|---|---|---|
+| **Cloudflare Pages/Workers** | yes | ✅ frontend, and a git CORS proxy if ever needed |
+| **Cloudflare Durable Objects** | yes — 100k req/day, 5 GB SQLite | ❌ no filesystem; worktrees need one |
+| **Cloudflare Containers** | **no — Workers Paid $5/mo** | ❌ and explicitly not for persistent disks |
+| **Vercel Sandbox** | yes — 5 CPU-hours/mo, 10 concurrent, **45 min max session** | ⚠️ Firecracker microVMs, real isolation, but **ephemeral** |
+| **Oracle Cloud Always Free** | yes — persistent ARM VM, real disk | ✅ backend + worktrees + the WASM tier in-process |
+
+**The shape that works:** frontend on Cloudflare Pages (free); backend, worktrees and the
+WASM tier on one persistent free VM (the WASM tier costs no extra infrastructure — it runs
+*inside* the backend process); Vercel Sandbox as a burst "full fidelity" tier for
+environments that need native code.
+
+### The catch nobody mentions: remote sandboxes break the bind mount
+
+Every option above except the persistent VM is **ephemeral and elsewhere**. Today
+`provision()` returns a host path that is bind-mounted, which requires the sandbox to be on
+the same machine as the worktree. A Vercel Sandbox cannot mount your disk.
+
+The fix is already in the architecture: **git is the transport.** The worktree stays on the
+backend, the remote sandbox `cloneInto`s the `sbx-<id>` branch at boot, and commits push
+back — which is exactly the "git IS our Merkle tree + WAL" philosophy extended one hop.
+
+The open design question is *authority over the files*: today the editor writes through
+`/api/fs` to the host worktree and the bind mount makes it instantly visible. With a remote
+sandbox, edits are not visible until synced. Either the backend worktree stays
+authoritative and the diff is pushed before each run, or the sandbox becomes authoritative
+and `/api/fs` proxies to it. That decision should be made deliberately before any remote
+driver is written — it is a bigger change than the driver itself.
+
 ## Explicitly out of scope
 
 - Replacing the Docker tier. It stays the full-fidelity option.

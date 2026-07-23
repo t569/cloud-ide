@@ -7,7 +7,7 @@
 // disregards the index — so an unticked file can never ride along and there is nothing
 // to unstage. That is why this needs no `reset` endpoint. Clicking a file expands its
 // diff vs HEAD (staged + unstaged: what the commit would actually capture).
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   VscRefresh, VscCloudUpload, VscCloudDownload, VscGithub, VscClose,
   VscChevronRight, VscChevronDown, VscGoToFile,
@@ -65,9 +65,14 @@ export const SourceControlPanel = ({ sandboxId, eventBus }: SourceControlPanelPr
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<null | 'commit' | 'push' | 'pull' | 'refresh'>(null);
 
-  /** Paths ticked for the next commit. Everything is ticked by default (the common case
-   *  is "commit it all"); a refresh re-ticks, so the list never disagrees with status. */
+  /** Paths ticked for the next commit. A refresh KEEPS your ticks — otherwise every
+   *  partial commit would re-tick the files you just chose to leave behind, and staged
+   *  serial commits ("this file, then that one") would fight you. */
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  /** Paths seen in the last status, so a refresh can tell a file you UNTICKED from one
+   *  that has only just appeared — the latter is ticked, or a live edit would sit out a
+   *  commit while the header still read "All". */
+  const knownPaths = useRef<Set<string>>(new Set());
   /** The one expanded file and its diff — null diff means "still loading". */
   const [open, setOpen] = useState<{ path: string; diff: string | null } | null>(null);
 
@@ -81,7 +86,11 @@ export const SourceControlPanel = ({ sandboxId, eventBus }: SourceControlPanelPr
     try {
       const [{ entries }, { branch }] = await Promise.all([getGitStatus(sandboxId), getGitBranch(sandboxId)]);
       setEntries(entries);
-      setSelected(new Set(entries.map((e) => e.path)));
+      const known = knownPaths.current; // captured before the overwrite below
+      setSelected((prev) => new Set(
+        entries.filter((e) => !known.has(e.path) || prev.has(e.path)).map((e) => e.path),
+      ));
+      knownPaths.current = new Set(entries.map((e) => e.path));
       setOpen(null); // a stale diff outlives the file it described
       setBranch(branch);
     } catch (e) {

@@ -35,10 +35,19 @@ export interface OpfsDirHandle {
  * silently rewriting it would hide whatever produced it. Same rule as VFSController.safePath.
  */
 export function pathSegments(path: string): string[] {
+  const segments = safeSegments(path);
+  if (segments.length === 0) throw new Error(`Path has no segments: ${path}`);
+  return segments;
+}
+
+/**
+ * The same validation, but the ROOT (`/`) is allowed to resolve to zero segments — a
+ * filesystem needs to stat and read its own root, where a file operation does not.
+ */
+export function safeSegments(path: string): string[] {
   if (!path || path.includes('\0')) throw new Error(`Unsafe path: ${JSON.stringify(path)}`);
   const segments = path.split('/').filter((s) => s !== '' && s !== '.');
   if (segments.some((s) => s === '..')) throw new Error(`Unsafe path: ${path}`);
-  if (segments.length === 0) throw new Error(`Path has no segments: ${path}`);
   return segments;
 }
 

@@ -8,11 +8,12 @@ import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { FileNode } from '../types/editor';
 import { EditorEventBus } from '../core/EditorEventBus';
 import { VFSController } from '../core/VFSController';
+import type { WorkspaceTier } from '../core/tier';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { LanguageServiceRegistry, createLanguageTransports } from '../lsp';
 import { createLanguageRegistry } from '../languages';
 
-export function useWorkspaceBootstrap(sandboxId: string) {
+export function useWorkspaceBootstrap(sandboxId: string, tier?: WorkspaceTier) {
   const { dispatch } = useWorkspace();
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
 
@@ -61,16 +62,25 @@ export function useWorkspaceBootstrap(sandboxId: string) {
   // (Detach must know the writes landed before it pauses the sandbox).
   const vfsRef = useRef<VFSController | null>(null);
   useEffect(() => {
+    let live = true;
     const unsubTree = eventBus.on('VFS_TREE_UPDATED', (p) => setFileTree(p.tree));
-    const vfs = new VFSController(eventBus, dispatch, sandboxId, languages);
+    const vfs = new VFSController(eventBus, dispatch, sandboxId, languages, tier);
     vfsRef.current = vfs;
-    vfs.initWorkspace();
+
+    // The browser tier has to create its directory and repository before the first
+    // hydration; the server tier resolves immediately. Awaiting either way keeps one
+    // ordering rather than a branch, and `live` guards a unmount during that await.
+    (tier?.ensureReady() ?? Promise.resolve())
+      .then(() => { if (live) vfs.initWorkspace(); })
+      .catch((err) => console.error('[Bootstrap] Storage failed to initialise:', err));
+
     return () => {
+      live = false;
       unsubTree();
       vfsRef.current = null;
       vfs.destroy();
     };
-  }, [eventBus, dispatch, sandboxId, languages]);
+  }, [eventBus, dispatch, sandboxId, languages, tier]);
 
   const flush = useCallback(() => vfsRef.current?.flush() ?? Promise.resolve(), []);
 

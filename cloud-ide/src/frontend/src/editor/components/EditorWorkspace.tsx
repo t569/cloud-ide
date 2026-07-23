@@ -4,8 +4,7 @@ import { LocalStorageManager } from '../utils/LocalStoragemanager';
 import { isExternal } from '../core/VFSController';
 import { toast, dialog } from '../../notifications';
 import { pauseSandbox, restartSandbox, waitForRunning } from '../../api/sandbox';
-import { HttpGitPort } from '../../vfs/HttpGitPort';
-import type { GitPort } from '../../vfs/GitPort';
+import { createTier } from '../core/tier';
 import { navigate } from '../../pages/router';
 
 import { EditorTabs } from './EditorTabs';
@@ -54,8 +53,20 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
   const { state: workspaceState, dispatch } = useWorkspace();
   const { settings } = useDesignSystem();
 
+  // Which tier this session runs on — resolved ONCE and threaded into every engine, so
+  // nothing below branches on it. 'browser' means no server at all: OPFS + isomorphic-git.
+  const tier = useMemo(
+    () => createTier({
+      sandboxId,
+      tier: session.tier,
+      workspaceId: session.workspaceId,
+      corsProxy: session.corsProxy,
+    }),
+    [sandboxId, session.tier, session.workspaceId, session.corsProxy],
+  );
+
   // Non-visual engines: bus, VFS controller, LSP registry, live file tree.
-  const { eventBus, fileTree, langRegistry, languages, flush } = useWorkspaceBootstrap(sandboxId);
+  const { eventBus, fileTree, langRegistry, languages, flush } = useWorkspaceBootstrap(sandboxId, tier);
 
   // Layout + per-sandbox persistence + drag resizing.
   const { layout, toggleSidebar, setSidebarWidth, setBottomPanelHeight } =
@@ -83,9 +94,8 @@ const EditorWorkspaceInner = ({ session }: EditorWorkspaceProps) => {
   const [historyOpen, setHistoryOpen] = useState(false);
 
   // One port for the whole editor, so the status widget, the Source Control pane and the
-  // commit rail all read the same repository. Swapping this for a BrowserGitPort is what
-  // moves the editor onto the serverless tier — nothing below here changes.
-  const git = useMemo<GitPort>(() => new HttpGitPort(sandboxId), [sandboxId]);
+  // commit rail all read the same repository — whichever tier supplied it.
+  const git = tier.git;
 
   useEffect(() => {
     let cancelled = false;

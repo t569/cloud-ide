@@ -3,6 +3,7 @@ import { EditorEventBus } from './EditorEventBus';
 import { VirtualFileSystem } from '../../vfs/VirtualFileSystem';
 import { API_BASE_URL } from '../../config/env';
 import { LanguageRegistry } from '../languages';
+import type { WorkspaceTier } from './tier';
 import React from 'react';
 
 /** The container-visible workspace root — everything under it is editable; a path
@@ -58,10 +59,16 @@ export class VFSController {
     private eventBus: EditorEventBus,
     private dispatch: React.Dispatch<any>,
     private sandboxId: string,
-    private languages: LanguageRegistry
+    private languages: LanguageRegistry,
+    /**
+     * Where files live and whether anything else can change them. Omitted ⇒ the server
+     * tier, byte-for-byte the previous behaviour, which is what keeps every existing
+     * caller and test working.
+     */
+    private tier?: Pick<WorkspaceTier, 'files' | 'hasSandbox'>
   ) {
     // 1. Instantiate the VFS Engine
-    this.vfs = new VirtualFileSystem(sandboxId, (status) => {
+    this.vfs = new VirtualFileSystem(tier?.files ?? sandboxId, (status) => {
       this.dispatch({ type: 'SET_SYNC_STATUS', payload: { status } });
     });
 
@@ -86,6 +93,11 @@ export class VFSController {
    *    still skip it while local edits are unsynced to avoid clobbering them.
    */
   private connectFsEvents() {
+    // No sandbox ⇒ nothing else can touch the workspace, so there is no change stream to
+    // subscribe to. Opening an EventSource against a backend that isn't there would
+    // reconnect forever and log on every retry.
+    if (this.tier && !this.tier.hasSandbox) return;
+
     const url = `${API_BASE_URL}/fs/${encodeURIComponent(this.sandboxId)}/events`;
     const source = new EventSource(url, { withCredentials: true });
     this.fsEvents = source;

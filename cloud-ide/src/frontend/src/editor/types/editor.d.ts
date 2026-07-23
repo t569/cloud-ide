@@ -237,6 +237,16 @@ export interface IEditorPlugin {
 export interface WorkspaceSession {
   sandboxId: string;
   workspaceName?: string;
+  /**
+   * Where this session's compute and storage live. 'browser' runs with NO server: files in
+   * OPFS, isomorphic-git, and therefore no terminal, preview or language server. Defaults
+   * to 'server'. See editor/core/tier.ts.
+   */
+  tier?: 'server' | 'browser';
+  /** Namespaces the browser tier's OPFS subtree; falls back to sandboxId. */
+  workspaceId?: string;
+  /** The browser tier needs this to reach a git remote — hosts send no CORS headers. */
+  corsProxy?: string;
   /** From env-manager. Typed seam — not yet consumed by the editor. */
   envConfig?: EnvironmentConfig;
   /** Resume-from-snapshot seam — typed, not yet consumed. */

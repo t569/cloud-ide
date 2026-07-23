@@ -26,10 +26,10 @@ export interface EnvironmentRecord {
 // sandbox. This record is what lifts it out into a first-class, reusable entity.
 // No `host-folder`: in a browser IDE the "host" is the SERVER, not the user's machine, so
 // binding an arbitrary server directory into a tenant's container buys a dev convenience
-// at the price of a mount-security policy. A local repo is reachable as a `git-url`
-// source instead (git clones from a filesystem path), which lands it in the allow-listed
-// worktrees root with the whole git surface working. See workspace-entity.md.
-export type WorkspaceSourceKind = 'blank' | 'git-url';
+// at the price of a mount-security policy. Bringing local code in is `archive` instead —
+// upload a zip, which the server unpacks and `git init`s under its OWN root and then
+// clones exactly like a git-url. See workspace-entity.md.
+export type WorkspaceSourceKind = 'blank' | 'git-url' | 'archive';
 export type WorkspacePersistence = 'persistent' | 'ephemeral';
 
 export interface WorkspaceRecord {

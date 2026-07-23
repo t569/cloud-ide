@@ -127,5 +127,8 @@ export const apiClient = {
   get: <T>(endpoint: string, options?: RequestInit) => request<T>(endpoint, { ...options, method: 'GET' }),
   post: <T>(endpoint: string, body: any, options?: RequestInit) => request<T>(endpoint, { ...options, method: 'POST', body: JSON.stringify(body) }),
   put: <T>(endpoint: string, body: any, options?: RequestInit) => request<T>(endpoint, { ...options, method: 'PUT', body: JSON.stringify(body) }),
+  /** POST raw bytes (an archive upload). `post` JSON-stringifies, which a File can't survive. */
+  postBlob: <T>(endpoint: string, body: Blob, contentType = 'application/zip') =>
+    request<T>(endpoint, { method: 'POST', body, headers: { 'Content-Type': contentType } }),
   delete: <T>(endpoint: string, options?: RequestInit) => request<T>(endpoint, { ...options, method: 'DELETE' }),
 };

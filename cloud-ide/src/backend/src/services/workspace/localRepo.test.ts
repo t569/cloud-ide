@@ -1,61 +1,61 @@
-// The gate on local clone sources. This is a filesystem read primitive, so the cases that
-// matter are the ESCAPES: off by default, and no walking out of the declared root.
+// The gate on non-http clone sources. Only the server's own unpacked-archive root is a
+// legal local source, so the cases that matter are the ESCAPES from it.
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
-import { assertSourceUrlAllowed } from './localRepo';
+import { assertSourceUrlAllowed, WORKSPACE_SOURCES_ROOT } from './localRepo';
 
 describe('assertSourceUrlAllowed', () => {
-  let root: string;
   let inside: string;
   let outside: string;
-  const savedEnv = process.env.CIDE_LOCAL_REPO_ROOT;
 
   beforeEach(async () => {
-    const tmp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'localrepo-')));
-    root = path.join(tmp, 'projects');
-    inside = path.join(root, 'mine');
-    outside = path.join(tmp, 'secrets');
+    await fs.mkdir(WORKSPACE_SOURCES_ROOT, { recursive: true });
+    inside = path.join(WORKSPACE_SOURCES_ROOT, 'wsp-test');
+    // A sibling of the root — i.e. elsewhere under the data dir, where central-repo.git and
+    // every tenant's worktree live. This is the thing the check exists to keep unreachable.
+    outside = path.join(WORKSPACE_SOURCES_ROOT, '..', 'not-a-source');
     await fs.mkdir(inside, { recursive: true });
     await fs.mkdir(outside, { recursive: true });
-    process.env.CIDE_LOCAL_REPO_ROOT = root;
   });
 
-  afterEach(() => {
-    if (savedEnv === undefined) delete process.env.CIDE_LOCAL_REPO_ROOT;
-    else process.env.CIDE_LOCAL_REPO_ROOT = savedEnv;
+  afterEach(async () => {
+    await fs.rm(inside, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(outside, { recursive: true, force: true }).catch(() => {});
   });
 
-  it('always allows an http(s) remote', async () => {
-    delete process.env.CIDE_LOCAL_REPO_ROOT; // the knob is irrelevant to remotes
+  it('allows an http(s) remote', async () => {
     await expect(assertSourceUrlAllowed('https://github.com/o/r.git')).resolves.toBeUndefined();
   });
 
-  it('refuses every local path when no root is declared (the production default)', async () => {
-    delete process.env.CIDE_LOCAL_REPO_ROOT;
-    await expect(assertSourceUrlAllowed(inside)).rejects.toThrow(/http\(s\) git URL/);
-  });
-
-  it('allows a path inside the declared root', async () => {
+  it('allows an unpacked source directory the server owns', async () => {
     await expect(assertSourceUrlAllowed(inside)).resolves.toBeUndefined();
   });
 
-  it('refuses a traversal out of the root', async () => {
-    await expect(assertSourceUrlAllowed(path.join(root, '..', 'secrets'))).rejects.toThrow(/outside/);
+  it('refuses a traversal out of the sources root', async () => {
+    await expect(assertSourceUrlAllowed(outside)).rejects.toThrow(/http\(s\) git URL/);
   });
 
   it('refuses a SYMLINK inside the root that points out of it', async () => {
-    // The whole reason both sides are realpath'd. A lexical check passes this.
-    const link = path.join(root, 'looks-legit');
+    // The whole reason both sides are realpath'd — a lexical check passes this.
+    const link = path.join(WORKSPACE_SOURCES_ROOT, 'looks-legit');
     try {
-      await fs.symlink(outside, link, 'junction');
+      await fs.symlink(path.resolve(outside), link, 'junction');
     } catch {
-      return; // unprivileged Windows can't make links; the lexical cases above still ran
+      return; // unprivileged Windows can't link; the lexical cases above still ran
     }
-    await expect(assertSourceUrlAllowed(link)).rejects.toThrow(/outside/);
+    try {
+      await expect(assertSourceUrlAllowed(link)).rejects.toThrow(/http\(s\) git URL/);
+    } finally {
+      await fs.rm(link, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  it('refuses a git transport that executes a command', async () => {
+    // `ext::` runs a shell command as a "remote". It is not a path, so realpath kills it.
+    await expect(assertSourceUrlAllowed('ext::sh -c "id>&2"')).rejects.toThrow(/http\(s\) git URL/);
   });
 
   it('refuses a path that does not exist', async () => {
-    await expect(assertSourceUrlAllowed(path.join(root, 'nope'))).rejects.toThrow(/does not exist/);
+    await expect(assertSourceUrlAllowed(path.join(WORKSPACE_SOURCES_ROOT, 'nope'))).rejects.toThrow(/http\(s\) git URL/);
   });
 });

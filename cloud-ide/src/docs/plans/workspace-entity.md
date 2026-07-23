@@ -97,12 +97,14 @@ Per the CLAUDE.md mandate ("a feature is a new adapter, not a core edit"), the w
 
 - New entity `WorkspaceRecord` (like `EnvironmentRecord`) in a `JsonWorkspaceRepository`:
   `{ id, name, ownerId, ref, source, persistence, cacheKey, createdAt, lastAttachedSandbox }`.
-- `source ∈ { blank | git-url }` — the git feature's `cloneInto` is the `git-url` source;
-  `blank` is an empty ref. **Git is one workspace source, not the workspace abstraction
-  itself.** (`host-folder` was a third source; **dropped 2026-07-23**, rationale in
-  [git-integration.md](./git-integration.md) — the daemon allow-list, the engine's
-  `worktreesRoot`-derived paths, and the disposable-checkout invariant all say no, and a
-  local repo is reachable as a `git-url` source anyway. `LocalMountStrategy` deleted.)
+- `source ∈ { blank | git-url | archive }` — the git feature's `cloneInto` is the `git-url`
+  source; `archive` is an uploaded .zip unpacked and `git init`ed under
+  `<dataDir>/workspace-sources/<id>`, then cloned through that same path; `blank` is an
+  empty ref. **Git is one workspace source, not the workspace abstraction itself.**
+  (`host-folder` was a fourth source; **dropped 2026-07-23** — the daemon allow-list, the
+  engine's `worktreesRoot`-derived paths, and the disposable-checkout invariant all say no.
+  `LocalMountStrategy` deleted; `archive` is how local code gets in. Full rationale and the
+  upload's security model in [git-integration.md](./git-integration.md).)
 - `SandboxRecord` gains `workspaceId` (the anonymous per-sandbox `worktreeId` becomes the degenerate
   case: an unnamed, ephemeral workspace). `getWorkspaceHostPath` resolves via the workspace.
 - A `WorkspaceManager` orchestrates: `materialise(workspaceId, sandboxId)` (inject), `save(sandboxId)`
@@ -211,7 +213,8 @@ a fresh sandbox, state restored.
 4. **Save/persistence.** WIP-snapshot (uncommitted capture), auto-save-on-detach, persistence modes,
    "Save as workspace" / "Discard".
 5. **Sources.** Wire `git-url` (cloneInto) as a workspace source; `blank` default.
-   (`host-folder` dropped 2026-07-23 — a local repo is a `git-url` source.)
+   `archive` (zip upload → unpack → git init → clone) DONE 2026-07-23; `host-folder`
+   dropped the same day.
 6. **Frontend** (UI shape DECIDED 2026-07-18): a **dedicated `/workspaces` page** — a sibling to
    `/environments`, built like the env-manager — listing saved workspaces (name, source,
    persistence, last-attached sandbox) with rename/save/delete/detach; **plus a workspace picker in

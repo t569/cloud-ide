@@ -164,6 +164,28 @@ describe('WorktreeEngine — the branch outlives the checkout', () => {
       expect(stdout.trim()).toBe('picked.txt');
     }, 30_000);
 
+    it('initSourceRepo makes an unpacked upload cloneable, and keeps existing history', async () => {
+      // The whole archive-upload substrate: a plain directory of files becomes a repo we
+      // can clone from, which is how a workspace materialises without a new mount.
+      const upload = path.join(root, 'upload');
+      await fs.mkdir(upload, { recursive: true });
+      await fs.writeFile(path.join(upload, 'index.js'), 'console.log(1)\n');
+      await engine.initSourceRepo(upload);
+
+      await engine.cloneInto('sbx-up', upload);
+      const cloned = path.join(worktrees, 'sbx-up');
+      // Normalised: a Windows dev box with core.autocrlf=true checks this out as CRLF.
+      // That is git being git on any clone, not something the upload path decides.
+      const body = await fs.readFile(path.join(cloned, 'index.js'), 'utf8');
+      expect(body.replace(/\r\n/g, '\n')).toBe('console.log(1)\n');
+      expect((await engine.log('sbx-up', 1))[0].subject).toBe('Imported from upload');
+
+      // An upload that ALREADY carries .git keeps its own history — re-running must not
+      // squash it into a fresh "Imported from upload" commit.
+      await engine.initSourceRepo(upload);
+      expect(await engine.log('sbx-up', 5)).toHaveLength(1);
+    }, 30_000);
+
     it('cloneInto lands a working checkout from a remote', async () => {
       // Build a tiny local bare repo to act as the remote.
       const remote = path.join(root, 'remote.git');

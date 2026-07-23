@@ -268,6 +268,29 @@ export class WorktreeEngine {
         return targetPath;
     }
 
+    /**
+     * Turn a plain directory into a repo we can clone FROM — how an uploaded archive
+     * becomes a workspace source (services/workspace/localRepo.ts). Lives here because
+     * every `git` invocation in the backend goes through this class (ARCHITECTURE.md's
+     * one-choke-point rule), not because the directory is a worktree; it isn't.
+     *
+     * An archive that already contains `.git` keeps its own history untouched — that is
+     * the whole reason to upload an archive rather than a file list.
+     */
+    public async initSourceRepo(dir: string): Promise<void> {
+        const hasGit = await fs.access(path.join(dir, '.git')).then(() => true).catch(() => false);
+        if (hasGit) return;
+        await this.git(dir, ['init', '-b', 'main']);
+        await this.git(dir, ['add', '--', '.']);
+        await this.git(dir, [
+            '-c', 'user.name=Cloud IDE',
+            '-c', 'user.email=noreply@cloud-ide',
+            // --allow-empty: an empty upload is a valid (if dull) workspace, and a clone
+            // needs HEAD to point at a commit either way.
+            'commit', '--allow-empty', '-m', 'Imported from upload',
+        ]);
+    }
+
     /** Parsed `git status` (NUL-delimited, rename-safe). Empty when clean. */
     public async status(sandboxId: string): Promise<GitStatusEntry[]> {
         const cwd = path.join(this.worktreesRoot, sandboxId);

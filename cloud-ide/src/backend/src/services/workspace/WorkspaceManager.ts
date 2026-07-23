@@ -57,6 +57,24 @@ export class WorkspaceManager {
     return record;
   }
 
+  /**
+   * Point a workspace at the unpacked archive that now backs it. The upload is what makes
+   * the source real, so the record only learns its sourceUrl once the bytes are on disk —
+   * a workspace never advertises a source that failed to extract.
+   */
+  public async setArchiveSource(id: string, sourceDir: string): Promise<WorkspaceRecord> {
+    const workspace = await this.repo.get(id);
+    if (!workspace) throw new Error(`Workspace ${id} not found.`);
+    const updated: WorkspaceRecord = {
+      ...workspace,
+      source: 'archive',
+      sourceUrl: sourceDir,
+      updatedAt: Date.now(),
+    };
+    await this.repo.save(updated);
+    return updated;
+  }
+
   /** The caller's workspaces — what the /workspaces manager lists. */
   public list(ownerId: string): Promise<WorkspaceRecord[]> {
     return this.repo.listForOwner(ownerId);

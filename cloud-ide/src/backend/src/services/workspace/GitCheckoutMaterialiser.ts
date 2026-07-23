@@ -21,7 +21,10 @@ export class GitCheckoutMaterialiser implements IMaterialiser {
   public async materialise({ workspace, worktreeId, fresh, auth }: MaterialiseRequest): Promise<string> {
     // A fresh git-url workspace is cloned into its checkout; a blank one gets an empty
     // checkout; a recovery (fresh === false) reuses the existing checkout untouched.
-    if (fresh && workspace.source === 'git-url' && workspace.sourceUrl) {
+    // `archive` is a git-url whose remote happens to be the unpacked upload on our own
+    // disk (localRepo.ts) — same clone, no second code path.
+    const clones = workspace.source === 'git-url' || workspace.source === 'archive';
+    if (fresh && clones && workspace.sourceUrl) {
       // THE gate, not a repeat of the controller's: a local sourceUrl is re-resolved here,
       // immediately before the clone, so a symlink re-pointed since create can't slip past.
       await assertSourceUrlAllowed(workspace.sourceUrl);

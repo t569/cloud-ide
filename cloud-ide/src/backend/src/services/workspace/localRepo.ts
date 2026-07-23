@@ -1,46 +1,49 @@
 // backend/src/services/workspace/localRepo.ts
 //
-// A workspace's `sourceUrl` is normally an http(s) remote. It may ALSO be a path to a git
-// repo already on the server's disk — the supported answer to "I want to work on a local
-// folder" now that host-folder mounts are dropped (git-integration.md). git clones happily
-// from a filesystem path, and the clone lands in the allow-listed worktrees root, so the
-// whole git surface keeps working; nothing about the mount boundary moves.
+// A workspace's `sourceUrl` is normally an http(s) remote. It may ALSO be a path on the
+// server's disk — but only one the SERVER chose: <dataDir>/workspace-sources/<workspaceId>,
+// where an uploaded archive is unpacked and `git init`ed. The materialiser then clones from
+// it through the ordinary git-url path, so an upload needs no new materialiser, no new
+// mount, and no widening of the daemon's bind allow-list.
 //
-// But it IS a read primitive over the server's filesystem, and the reachable targets are
-// not hypothetical: `<dataDir>/central-repo.git` holds every tenant's `sbx-*` branch, and
-// `<dataDir>/worktrees/<id>` is someone's checkout. So it is OFF unless an operator opts
-// in by declaring a root:
+// This is deliberately NOT operator-configurable. An earlier cut had CIDE_LOCAL_REPO_ROOT,
+// letting an operator declare a root so a repo already on the host could be cloned. The
+// archive upload removes the reason to name a server path at all, and with it a filesystem
+// read primitive whose reachable targets included <dataDir>/central-repo.git — which holds
+// every tenant's `sbx-*` branch. A path nobody can name is a boundary nobody can argue with.
 //
-//   CIDE_LOCAL_REPO_ROOT=/home/me/projects
-//
-// Unset (the production default) → only http(s) is accepted, exactly as before.
-//
-// ponytail: one root, not a per-user policy table — this exists for a single-node dev host.
-// If it ever needs to be per-tenant, that is a mount-security model and belongs with one.
+// The containment check stays even though the only writer is now us: `sourceUrl` is
+// persisted JSON, so it is data that can be tampered with or restored from an older file,
+// and a symlink can appear under the extraction root after the fact.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { dataPath } from '../../config/paths';
+
+/** Where uploaded archives are unpacked. One directory per workspace, server-named. */
+export const WORKSPACE_SOURCES_ROOT = dataPath('workspace-sources');
+
+/** The unpacked-source directory for one workspace. */
+export const workspaceSourceDir = (workspaceId: string): string =>
+  path.join(WORKSPACE_SOURCES_ROOT, workspaceId);
 
 /** Throws with a user-safe message if `sourceUrl` is not a permitted clone source. */
 export async function assertSourceUrlAllowed(sourceUrl: string): Promise<void> {
   if (/^https?:\/\//i.test(sourceUrl)) return;
 
-  const root = process.env.CIDE_LOCAL_REPO_ROOT?.trim();
-  if (!root) throw new Error('sourceUrl must be an http(s) git URL.');
+  // realpath BOTH sides: containment has to be judged on resolved paths, or a symlink
+  // under the root pointing out of it walks straight through a lexical check. This also
+  // rejects the git transports that are not paths at all — `ext::sh -c ...` executes a
+  // command, and it can never resolve to a real file.
+  const realRoot = await fs.realpath(WORKSPACE_SOURCES_ROOT).catch(() => null);
+  if (!realRoot) throw new Error('sourceUrl must be an http(s) git URL.');
 
-  // realpath BOTH sides: containment has to be judged on the resolved paths, or a symlink
-  // inside the root pointing out of it walks straight through the check. This is also why
-  // the materialiser re-checks instead of trusting the create-time verdict — the link can
-  // be re-pointed in between.
-  const realRoot = await fs.realpath(root).catch(() => {
-    throw new Error('CIDE_LOCAL_REPO_ROOT does not exist.');
-  });
   const realSource = await fs.realpath(sourceUrl).catch(() => {
-    throw new Error('Local repo path does not exist.');
+    throw new Error('sourceUrl must be an http(s) git URL, or an uploaded workspace source.');
   });
 
   const rel = path.relative(realRoot, realSource);
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
-    throw new Error('Local repo path is outside CIDE_LOCAL_REPO_ROOT.');
+    throw new Error('sourceUrl must be an http(s) git URL, or an uploaded workspace source.');
   }
 }

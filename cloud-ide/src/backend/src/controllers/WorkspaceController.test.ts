@@ -46,7 +46,12 @@ describe('WorkspaceController', () => {
   let mgr: any;
   let creds: any;
   let ctrl: WorkspaceController;
-  beforeEach(() => { mgr = fakeMgr(); creds = fakeCreds(); ctrl = new WorkspaceController(mgr, creds); });
+  beforeEach(() => {
+    mgr = fakeMgr();
+    creds = fakeCreds();
+    // The engine is only reached by the archive upload, which these cases don't exercise.
+    ctrl = new WorkspaceController(mgr, creds, { initSourceRepo: jest.fn() } as any);
+  });
 
   it('creates a workspace attributed to the caller', async () => {
     const res = fakeRes();

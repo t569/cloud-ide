@@ -5,7 +5,7 @@
 import React, { useEffect, useState } from 'react';
 import { VscRepo, VscAdd, VscTrash, VscRocket, VscServerProcess, VscClose, VscPulse, VscRefresh, VscGithub, VscKey } from 'react-icons/vsc';
 import {
-  listWorkspaces, createWorkspace, deleteWorkspace,
+  listWorkspaces, createWorkspace, deleteWorkspace, uploadWorkspaceArchive,
   setWorkspaceCredential, clearWorkspaceCredential, type Workspace,
 } from '../api/workspaces';
 import { getGitCredential, setGitCredential, clearGitCredential, type GitCredentialState } from '../api/git';
@@ -18,6 +18,7 @@ import { timeAgo } from '../env-manager/utils/timeAgo';
 const SOURCE_STYLE: Record<Workspace['source'], { label: string; color: string }> = {
   'git-url': { label: 'Git', color: '#5ec8d8' },
   blank: { label: 'Blank', color: '#8b8b96' },
+  archive: { label: 'Upload', color: '#a78bfa' },
 };
 
 export default function Workspaces() {
@@ -149,8 +150,10 @@ export default function Workspaces() {
 
 function NewWorkspaceDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('');
-  const [source, setSource] = useState<'blank' | 'git-url'>('blank');
+  const [source, setSource] = useState<'blank' | 'git-url' | 'archive'>('blank');
   const [sourceUrl, setSourceUrl] = useState('');
+  /** The .zip for an `archive` workspace. Uploaded AFTER create — the id only exists then. */
+  const [archive, setArchive] = useState<File | null>(null);
   // Optional repo-specific PAT. Applied AFTER create (the workspace id only exists then);
   // blank falls back to the account token at launch.
   const [wsToken, setWsToken] = useState('');
@@ -165,22 +168,29 @@ function NewWorkspaceDialog({ onClose, onCreated }: { onClose: () => void; onCre
 
   const submit = async () => {
     if (!name.trim()) { setError('Give the workspace a name.'); return; }
-    // https, or an absolute path to a repo already on the SERVER's disk — the latter only
-    // works if the operator declared CIDE_LOCAL_REPO_ROOT, which the browser can't know,
-    // so let it through and let the backend give the real verdict (localRepo.ts).
-    if (source === 'git-url' && !/^(https:\/\/.+|\/|[A-Za-z]:[\\/])/i.test(sourceUrl.trim())) {
-      setError('Enter an https git URL, or an absolute path to a repo on the server.');
+    if (source === 'git-url' && !/^https:\/\/.+/i.test(sourceUrl.trim())) {
+      setError('Enter an https git URL.');
       return;
     }
+    if (source === 'archive' && !archive) { setError('Choose a .zip to upload.'); return; }
     setBusy(true);
     try {
+      // An archive workspace is created BLANK and then given its source by the upload:
+      // the upload endpoint needs an id to unpack into, and a workspace should never
+      // advertise a source whose bytes failed to extract.
       const created = await createWorkspace({
         name: name.trim(),
-        source,
+        source: source === 'archive' ? 'blank' : source,
         sourceUrl: source === 'git-url' ? sourceUrl.trim() : undefined,
       });
       if (source === 'git-url' && wsToken.trim()) {
         await setWorkspaceCredential(created.id, wsToken.trim());
+      }
+      if (source === 'archive' && archive) {
+        const { files } = await uploadWorkspaceArchive(created.id, archive);
+        toast.success(`Workspace “${name.trim()}” created — ${files} file${files === 1 ? '' : 's'} uploaded.`);
+        onCreated();
+        return;
       }
       toast.success(`Workspace “${name.trim()}” created.`);
       onCreated();
@@ -203,7 +213,7 @@ function NewWorkspaceDialog({ onClose, onCreated }: { onClose: () => void; onCre
 
       <label className="block text-[12px] text-gray-500 mt-4 mb-1.5">Source</label>
       <div className="flex gap-2">
-        {(['blank', 'git-url'] as const).map((s) => (
+        {(['blank', 'git-url', 'archive'] as const).map((s) => (
           <button
             key={s}
             onClick={() => { setSource(s); setError(null); }}
@@ -211,10 +221,26 @@ function NewWorkspaceDialog({ onClose, onCreated }: { onClose: () => void; onCre
               source === s ? 'border-[#5ec8d8]/60 bg-[#5ec8d8]/10 text-[#5ec8d8]' : 'border-gray-800 bg-[#0d0d0f] text-gray-400 hover:border-gray-600'
             }`}
           >
-            {s === 'blank' ? 'Blank' : 'Clone git repo'}
+            {s === 'blank' ? 'Blank' : s === 'git-url' ? 'Clone repo' : 'Upload .zip'}
           </button>
         ))}
       </div>
+
+      {source === 'archive' && (
+        <>
+          <input
+            type="file"
+            accept=".zip,application/zip,application/x-zip-compressed"
+            onChange={(e) => { setArchive(e.target.files?.[0] ?? null); setError(null); }}
+            className="mt-3 w-full rounded-lg border border-gray-800 bg-[#0d0d0f] px-3 py-2 text-[12.5px] text-gray-400 file:mr-3 file:rounded-md file:border-0 file:bg-[#5ec8d8]/15 file:px-3 file:py-1 file:text-[12px] file:text-[#5ec8d8] hover:file:bg-[#5ec8d8]/25"
+          />
+          <p className="mt-1.5 text-[11.5px] leading-snug text-gray-500">
+            Zip your project folder and drop it here (100 MB max). If it contains a{' '}
+            <span className="font-mono text-gray-300">.git</span> directory its history comes
+            with it; otherwise the upload becomes the first commit.
+          </p>
+        </>
+      )}
 
       {source === 'git-url' && (
         <>

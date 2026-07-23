@@ -4,10 +4,13 @@
 // USER-scoped, like the git credential routes: a workspace belongs to a person, so every
 // route keys off req.userId and owner-gates by it (404, never 403, so ids stay opaque).
 import { Request, Response } from 'express';
+import fs from 'node:fs/promises';
 import { WorkspaceManager } from '../services/workspace/WorkspaceManager';
 import { GitCredentialStore, workspaceCredentialKey as wsKey } from '../services/git/GitCredentialStore';
 import { WorkspaceRecord } from '../database/models';
-import { assertSourceUrlAllowed } from '../services/workspace/localRepo';
+import { assertSourceUrlAllowed, workspaceSourceDir } from '../services/workspace/localRepo';
+import { extractZip } from '../services/workspace/unzip';
+import { WorktreeEngine } from '../services/storage/WorktreeEngine';
 
 const SOURCES = new Set(['blank', 'git-url']);
 const PERSISTENCE = new Set(['persistent', 'ephemeral']);
@@ -16,7 +19,12 @@ const PERSISTENCE = new Set(['persistent', 'ephemeral']);
 // `ws:<workspaceId>` (ids are opaque) — split into a second store instance if that breaks.
 
 export class WorkspaceController {
-  constructor(private workspaces: WorkspaceManager, private credentials: GitCredentialStore) {}
+  constructor(
+    private workspaces: WorkspaceManager,
+    private credentials: GitCredentialStore,
+    /** Only to `git init` an unpacked upload — every git invocation goes through it. */
+    private worktrees: WorktreeEngine,
+  ) {}
 
   /** Load a workspace only if the caller owns it (ownerless records are adoptable). */
   private async owned(req: Request): Promise<WorkspaceRecord | null> {
@@ -98,6 +106,46 @@ export class WorkspaceController {
     await this.workspaces.delete(w.id);
     await this.credentials.clear(wsKey(w.id)); // don't strand this workspace's token
     res.status(204).end();
+  };
+
+  /**
+   * POST /api/v1/workspaces/:id/archive — upload a .zip of a project folder, which becomes
+   * this workspace's source.
+   *
+   * RAW bytes, not multipart: the browser sends the File object straight as the body, so
+   * there is no multipart parser to add and nothing to reassemble. The route mounts its own
+   * express.raw with the size cap (WorkspaceRoutes.ts).
+   *
+   * The archive is unpacked into a directory the SERVER names and `git init`ed, so the
+   * workspace materialises by cloning it exactly like any git-url — no new materialiser,
+   * no new mount, nothing added to the daemon's bind allow-list.
+   */
+  public uploadArchive = async (req: Request, res: Response): Promise<void> => {
+    const w = await this.owned(req);
+    if (!w) {
+      res.status(404).json({ error: 'Not found' });
+      return;
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      res.status(400).json({ error: 'Send the archive as the raw request body.' });
+      return;
+    }
+
+    const dir = workspaceSourceDir(w.id);
+    try {
+      // Replace rather than merge: a re-upload is a NEW source, and files left from the
+      // previous one would silently join the workspace without appearing in the archive.
+      await fs.rm(dir, { recursive: true, force: true });
+      await fs.mkdir(dir, { recursive: true });
+      const files = await extractZip(req.body, dir);
+      await this.worktrees.initSourceRepo(dir);
+      res.json({ ...(await this.workspaces.setArchiveSource(w.id, dir)), files });
+    } catch (err: any) {
+      // A rejected archive leaves nothing behind — the record still points at whatever
+      // source it had before, which is why setArchiveSource runs last.
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+      res.status(400).json({ error: (err.stderr || err.message || 'Could not read the archive.').toString().trim() });
+    }
   };
 
   /** PUT /api/v1/workspaces/:id/credential { token, host? } — repo-specific PAT (encrypted). */

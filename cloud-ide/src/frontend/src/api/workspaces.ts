@@ -7,7 +7,7 @@ export interface Workspace {
   name: string;
   ownerId: string;
   ref: string;
-  source: 'blank' | 'git-url';
+  source: 'blank' | 'git-url' | 'archive';
   sourceUrl?: string;
   persistence: 'persistent' | 'ephemeral';
   createdAt: number;
@@ -32,6 +32,17 @@ export const createWorkspace = (input: CreateWorkspaceInput) =>
 
 export const deleteWorkspace = (id: string) =>
   apiClient.delete<void>(`/v1/workspaces/${encodeURIComponent(id)}`);
+
+/**
+ * Upload a .zip of a project folder as this workspace's source. Sent as raw bytes, not
+ * multipart — the server unpacks it and `git init`s it, then clones it at launch like any
+ * other remote. `files` is how many were written.
+ */
+export const uploadWorkspaceArchive = (id: string, archive: File) =>
+  apiClient.postBlob<Workspace & { files: number }>(
+    `/v1/workspaces/${encodeURIComponent(id)}/archive`,
+    archive,
+  );
 
 // Repo-specific PAT: overrides the account token when THIS workspace launches. Stored
 // encrypted server-side; never returned to the browser (list only reports has/host).

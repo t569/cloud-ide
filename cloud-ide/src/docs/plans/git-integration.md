@@ -74,11 +74,37 @@ bind a host dir into the sandbox. Four things were wrong with that:
    and possibly a real repo with its own remote — the mounted thing becomes the durable one.
 
 In a browser IDE the "host" is the **server**, not the user's machine, so this only ever
-served someone running the whole stack locally. A local repo is reachable as a `git-url`
-source instead (git clones from a filesystem path; `authForUrl` already tolerates a non-URL
-remote), which lands it in the allow-listed worktrees root with the full git surface intact.
-Pushing back into a non-bare local repo needs `receive.denyCurrentBranch=updateInstead` on
-that repo.
+served someone running the whole stack locally. Bringing local code in is the `archive`
+source instead — see below.
+
+### Bringing local code in: the `archive` source
+
+**Upload a .zip; the server unpacks it, `git init`s it, and clones it like any remote.**
+
+- `POST /api/v1/workspaces/:id/archive`, **raw bytes** (`express.raw`, 100 MB cap) — the
+  browser sends the `File` as the body, so there is no multipart parser to add.
+- Unpacked into `<dataDir>/workspace-sources/<workspaceId>`, a path the **server** names.
+  `WorktreeEngine.initSourceRepo` commits it — unless the archive already contains `.git`,
+  in which case its history is kept untouched (the reason to upload an archive at all).
+- Materialising is then the ordinary `git-url` clone (`GitCheckoutMaterialiser`). No new
+  materialiser, no new mount, nothing added to the daemon's bind allow-list.
+
+**An interim cut allowed a `git-url` pointing at an operator-declared root
+(`CIDE_LOCAL_REPO_ROOT`) so a repo already on the host could be cloned. It was removed once
+this landed** — it was a filesystem read primitive whose reachable targets included
+`<dataDir>/central-repo.git`, which holds every tenant's `sbx-*` branch, and the archive
+upload removes any reason for a user to name a server path. `assertSourceUrlAllowed`
+survives, now pinned to the server-owned sources root: `sourceUrl` is persisted JSON, so it
+is still data worth re-validating immediately before a clone.
+
+The parser (`services/workspace/unzip.ts`) stays small by REFUSING: no encryption, no
+zip64, no symlink entries, no method but stored/deflate, caps on entry count and on
+per-file and total uncompressed size (`inflateRawSync` gets `maxOutputLength`, so a bomb
+dies mid-inflate rather than after). Entry paths are rejected, never sanitised —
+`../`, absolute, drive-letter and NUL names are all refused, and Windows `\` separators are
+normalised because PowerShell's `Compress-Archive` genuinely emits them. A failed extract
+removes the directory, so a rejected upload leaves nothing behind and the record still
+points at its previous source.
 
 ## Architecture
 

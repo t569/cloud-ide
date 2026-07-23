@@ -77,6 +77,35 @@ export const WASM_MODULES_ROOT = process.env.WASM_MODULES_ROOT
   ? path.resolve(process.env.WASM_MODULES_ROOT)
   : dataPath('wasm-modules');
 
+/**
+ * What one exec is allowed to consume. Without these a guest is bounded by nothing, and
+ * two of the three failure modes take down the GATEWAY rather than the sandbox:
+ *
+ *   maxOutputBytes — execCommand buffers stdout/stderr in memory to return them. A guest
+ *                    printing in a loop therefore OOMs the server, not itself. This is the
+ *                    most dangerous of the three and the only one that is purely ours.
+ *   timeoutMs      — `loop { br 0 }` is four bytes of wasm. Without a clock, that child
+ *                    lives forever and enough of them exhaust the box.
+ *   maxMemoryMb    — address-space cap on the guest process.
+ *
+ * The first two are enforced by the parent and are fully portable, because the parent is
+ * not the thing that blocks. The third needs the OS (see limitedArgv).
+ */
+export interface WasmLimits {
+  timeoutMs: number;
+  maxOutputBytes: number;
+  maxMemoryMb: number;
+}
+
+export const DEFAULT_LIMITS: WasmLimits = {
+  timeoutMs: 30_000,
+  maxOutputBytes: 8 * 1024 * 1024,
+  maxMemoryMb: 512,
+};
+
+/** Why a guest was killed, so callers can say so instead of reporting a bare exit code. */
+export type KillReason = 'timeout' | 'output';
+
 interface WasmSandbox {
   spec: SandboxSpec;
   /** The directory of .wasm modules this sandbox may run. */
@@ -104,7 +133,83 @@ export class WasmDriver implements ISandboxDriver {
   private sandboxes = new Map<string, WasmSandbox>();
   private shim?: WasmExecdShim;
 
-  constructor(private modulesRoot: string = WASM_MODULES_ROOT) {}
+  constructor(
+    private modulesRoot: string = WASM_MODULES_ROOT,
+    private limits: WasmLimits = DEFAULT_LIMITS,
+  ) {}
+
+  /**
+   * Wrap the guest argv so the OS caps its address space.
+   *
+   * `ulimit` is a shell builtin, so this needs a shell — but NOTHING is interpolated into
+   * the script. The values ride as POSITIONAL PARAMETERS and `"$@"` re-expands them as
+   * argv, so a module name still cannot inject shell syntax. (`sh -c SCRIPT name a b`
+   * gives $0=name, $1=a, $2=b; one shift drops the limit and leaves the real command.)
+   *
+   * POSIX only. Windows has no ulimit, so a dev box gets the timeout and output caps but
+   * not this one — stated rather than silently skipped, because production is Linux and
+   * this is the limit that stops a guest eating the host's RAM.
+   */
+  private limitedArgv(bin: string, args: string[]): { bin: string; args: string[] } {
+    if (process.platform === 'win32' || !this.limits.maxMemoryMb) return { bin, args };
+    return {
+      bin: 'sh',
+      args: [
+        '-c',
+        'ulimit -v "$1" 2>/dev/null; shift; exec "$@"',
+        'sh',
+        String(this.limits.maxMemoryMb * 1024), // ulimit -v counts KiB
+        bin,
+        ...args,
+      ],
+    };
+  }
+
+  /**
+   * Run a guest under the wall-clock and output caps, feeding each chunk to `onChunk`.
+   * Resolves with the exit code and why it died, if it was killed.
+   *
+   * The counter spans BOTH streams: a guest that splits its flood across stdout and stderr
+   * is still one flood, and the memory it costs the gateway is the sum.
+   */
+  private runLimited(
+    child: ChildProcess,
+    onChunk: (stream: 'stdout' | 'stderr', chunk: string) => void,
+  ): Promise<{ exitCode: number; killedBy?: KillReason }> {
+    return new Promise((resolve) => {
+      let bytes = 0;
+      let killedBy: KillReason | undefined;
+
+      const stop = (reason: KillReason) => {
+        if (killedBy) return; // already dying; don't re-kill or overwrite the reason
+        killedBy = reason;
+        child.kill();
+      };
+
+      const timer = setTimeout(() => stop('timeout'), this.limits.timeoutMs);
+
+      const pipe = (stream: 'stdout' | 'stderr') => {
+        child[stream]!.on('data', (chunk: Buffer) => {
+          if (killedBy) return; // output after the kill decision is dropped, not counted
+          bytes += chunk.length;
+          if (bytes > this.limits.maxOutputBytes) {
+            stop('output');
+            return;
+          }
+          onChunk(stream, chunk.toString());
+        });
+      };
+      pipe('stdout');
+      pipe('stderr');
+
+      const finish = (exitCode: number) => {
+        clearTimeout(timer); // an un-cleared timer holds the event loop open
+        resolve({ exitCode, killedBy });
+      };
+      child.on('error', () => finish(-1));
+      child.on('close', (code) => finish(code ?? -1));
+    });
+  }
 
   /** No PTY: WASI preview1 has no fork/exec, so there is no shell to attach a TTY to.
    *  The terminal transport factory reads this and falls back to line-mode exec. */
@@ -176,12 +281,15 @@ export class WasmDriver implements ISandboxDriver {
     const { child } = this.spawnGuest(sandboxId, payload.command, payload.env);
     let stdout = '';
     let stderr = '';
-    child.stdout!.on('data', (c) => { stdout += c; });
-    child.stderr!.on('data', (c) => { stderr += c; });
-    const exitCode = await new Promise<number>((resolve) => {
-      child.on('error', () => resolve(-1));
-      child.on('close', (code) => resolve(code ?? -1));
+
+    const { exitCode, killedBy } = await this.runLimited(child, (stream, chunk) => {
+      if (stream === 'stdout') stdout += chunk;
+      else stderr += chunk;
     });
+
+    // Say why it stopped. A bare non-zero exit after a kill looks like the program's own
+    // failure, which sends people debugging the wrong thing.
+    if (killedBy) stderr += `\n[sandbox] killed: ${limitMessage(killedBy, this.limits)}\n`;
     return { stdout, stderr, exitCode };
   }
 
@@ -204,24 +312,21 @@ export class WasmDriver implements ISandboxDriver {
     const { child } = this.spawnGuest(sandboxId, command, env);
 
     // Partial reads must not become partial lines: a chunk boundary can land mid-line, and
-    // the terminal renders one event as one line.
-    const pump = (stream: NodeJS.ReadableStream, type: 'stdout' | 'stderr') => {
-      let pending = '';
-      stream.on('data', (chunk) => {
-        pending += chunk;
-        const lines = pending.split('\n');
-        pending = lines.pop() ?? '';
-        for (const line of lines) onLine(type, line.replace(/\r$/, ''));
-      });
-      stream.on('end', () => { if (pending) onLine(type, pending); });
-    };
-    pump(child.stdout!, 'stdout');
-    pump(child.stderr!, 'stderr');
-
-    return new Promise<number>((resolve) => {
-      child.on('error', () => resolve(-1));
-      child.on('close', (code) => resolve(code ?? -1));
+    // the terminal renders one event as one line. `pending` is per-stream and bounded by
+    // the same output cap, since runLimited counts bytes before they get here.
+    const pending: Record<string, string> = { stdout: '', stderr: '' };
+    const { exitCode, killedBy } = await this.runLimited(child, (stream, chunk) => {
+      const lines = (pending[stream] + chunk).split('\n');
+      pending[stream] = lines.pop() ?? '';
+      for (const line of lines) onLine(stream, line.replace(/\r$/, ''));
     });
+
+    // Flush whatever never got its newline, then explain a kill on the same channel.
+    for (const stream of ['stdout', 'stderr'] as const) {
+      if (pending[stream]) onLine(stream, pending[stream]);
+    }
+    if (killedBy) onLine('stderr', `[sandbox] killed: ${limitMessage(killedBy, this.limits)}`);
+    return exitCode;
   }
 
   /**
@@ -284,7 +389,8 @@ export class WasmDriver implements ISandboxDriver {
       // Per-exec env overrides the sandbox's, matching how execCommand behaves elsewhere.
       args[5] = JSON.stringify({ ...sandbox.spec.envVars, ...env });
     }
-    const child = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const limited = this.limitedArgv(bin, args);
+    const child = spawn(limited.bin, limited.args, { stdio: ['pipe', 'pipe', 'pipe'] });
     sandbox.children.add(child);
     child.on('close', () => sandbox.children.delete(child));
     return { child, sandbox };
@@ -299,6 +405,13 @@ export class WasmDriver implements ISandboxDriver {
  * WASI preview1 has no chdir, so SandboxExecRequest.cwd is NOT honoured; a guest resolves
  * relative paths against its preopens. Programs are given absolute paths instead.
  */
+export /** A kill reason the user can act on — which limit, and what it was set to. */
+function limitMessage(reason: KillReason, limits: WasmLimits): string {
+  return reason === 'timeout'
+    ? `exceeded the ${limits.timeoutMs} ms time limit`
+    : `produced more than ${limits.maxOutputBytes} bytes of output`;
+}
+
 export function preopensFor(spec: SandboxSpec): Record<string, string> {
   const preopens: Record<string, string> = {};
   for (const volume of spec.volumes ?? []) {

@@ -8,7 +8,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { WasmDriver, moduleDirName, preopensFor } from './WasmDriver';
+import { WasmDriver, moduleDirName, preopensFor, DEFAULT_LIMITS } from './WasmDriver';
 import { SandboxSpec } from '@cloud-ide/shared/types/sandbox';
 
 // Regenerate: see docs/plans/wasm-runtime.md. Sections are type/import/func/memory/export/
@@ -34,6 +34,11 @@ const WRITEFILE_WASM_B64 =
   'QQgoAgBBAEEBQQwQARpBAEEQNgIAQQRBBDYCAEEBQQBBAUEMEAEaCwskAgBBwAALB291dC50eHQAQeAACxB3' +
   'cml0dGVuIGJ5IHdhc20K';
 
+// A module that never returns: `loop { br 0 }`, 55 bytes. Four bytes of wasm is all it
+// takes to hang a sandbox forever, which is the case the wall-clock limit exists for.
+const SPIN_WASM_B64 =
+  'AGFzbQEAAAABBAFgAAADAgEABQMBAAEHEwIGbWVtb3J5AgAGX3N0YXJ0AAAKCQEHAANADAALCw==';
+
 const SPEC: SandboxSpec = { imageTag: 'demo-env:latest' };
 
 describe('WasmDriver — phase 1', () => {
@@ -50,6 +55,7 @@ describe('WasmDriver — phase 1', () => {
     const modules = path.join(root, moduleDirName(SPEC.imageTag));
     await fs.writeFile(path.join(modules, 'hello.wasm'), Buffer.from(HELLO_WASM_B64, 'base64'));
     await fs.writeFile(path.join(modules, 'writefile.wasm'), Buffer.from(WRITEFILE_WASM_B64, 'base64'));
+    await fs.writeFile(path.join(modules, 'spin.wasm'), Buffer.from(SPIN_WASM_B64, 'base64'));
     driver = new WasmDriver(root);
   });
 
@@ -157,6 +163,56 @@ describe('WasmDriver — phase 1', () => {
     expect(response.status).toBe(200);
     const events = (await response.text()).trim().split('\n').map((l) => JSON.parse(l));
     expect(events).toContainEqual({ type: 'stdout', text: 'hi from wasm' });
+  }, 30_000);
+
+  // ── Resource limits ───────────────────────────────────────────────────────
+  // Without these a guest is bounded by nothing, and two of the three failure modes take
+  // down the GATEWAY rather than the sandbox.
+
+  it('kills a guest that runs past the time limit, and says so', async () => {
+    const limited = new WasmDriver(root, { ...DEFAULT_LIMITS, timeoutMs: 400 });
+    const { sandboxId } = await limited.bootSandbox(SPEC);
+
+    const started = Date.now();
+    const result = await limited.execCommand(sandboxId, { command: ['spin'] });
+
+    // Really killed, not merely reported: `spin` never returns on its own.
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(result.stderr).toMatch(/killed: exceeded the 400 ms time limit/);
+    await limited.close();
+  }, 30_000);
+
+  it('kills a guest that floods output — the gateway buffers it, so this is a server DoS', async () => {
+    // 'hi from wasm\n' is 13 bytes; a 4-byte budget is exceeded by the first chunk.
+    const limited = new WasmDriver(root, { ...DEFAULT_LIMITS, maxOutputBytes: 4 });
+    const { sandboxId } = await limited.bootSandbox(SPEC);
+
+    const result = await limited.execCommand(sandboxId, { command: ['hello'] });
+    expect(result.stderr).toMatch(/killed: produced more than 4 bytes/);
+    // The over-budget chunk is dropped rather than buffered — that's the point.
+    expect(result.stdout).not.toContain('hi from wasm');
+    await limited.close();
+  }, 30_000);
+
+  it('leaves a well-behaved guest completely alone', async () => {
+    // The limits must not be visible to anything that stays inside them.
+    const result = await driver.execCommand(
+      (await driver.bootSandbox(SPEC)).sandboxId,
+      { command: ['hello'] },
+    );
+    expect(result.stdout).toContain('hi from wasm');
+    expect(result.stderr).toBe('');
+    expect(result.exitCode).toBe(0);
+  }, 30_000);
+
+  it('applies the same limits to the terminal path, not just execCommand', async () => {
+    const limited = new WasmDriver(root, { ...DEFAULT_LIMITS, timeoutMs: 400 });
+    const { sandboxId } = await limited.bootSandbox(SPEC);
+
+    const lines: string[] = [];
+    await limited.execLines(sandboxId, ['spin'], undefined, (_t, text) => lines.push(text));
+    expect(lines.join('\n')).toMatch(/killed: exceeded the 400 ms time limit/);
+    await limited.close();
   }, 30_000);
 
   it('rejects a program name that tries to escape the module directory', async () => {

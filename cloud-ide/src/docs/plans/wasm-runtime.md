@@ -563,40 +563,68 @@ phase-1 driver already spawns one per exec, so this is a natural place), or embe
 runtime via its Rust API where limits are first-class. **Do not deploy multi-tenant without
 this.**
 
-## Deployment pipeline — the cost-effective build
+## Deployment: two tiers, the user picks
 
-**Total: ~$1/month** (a domain), with everything else on free tiers.
+The product offers a choice, and the architecture follows from it:
+
+| Tier | Compute runs | Costs the operator | Trade |
+|---|---|---|---|
+| **Free** | the user's **browser** (WASM) | **$0, unmetered** | ~10× on interpreted code, no native modules |
+| **Fast** | a hosted sandbox provider | provider's free tier, then usage | full fidelity, native speed |
+
+**Nothing self-hosted, and no persistent VM.** That was the error in an earlier draft of this
+section: it recommended an Oracle VM plus Vercel Sandbox as a burst tier — which
+reintroduces a paid sandbox provider, the exact thing WASM exists to delete, while *also*
+keeping a box alive.
 
 ```
-Cloudflare Pages (free)          ← frontend, global CDN, unlimited bandwidth
-        │  HTTPS
-Oracle Cloud Always Free VM      ← backend + worktrees + WASM sandboxes IN-PROCESS
-  (4 ARM cores, 24 GB, real disk)
-        │  optional burst
-Vercel Sandbox (free tier)       ← full-fidelity Docker tier, git as transport
+Vercel (free)          ← frontend AND backend. Backend is a stateless CONTROL PLANE:
+                         auth, workspace/env metadata, short-lived sandbox tokens,
+                         git CORS proxy. No worktrees, no sandboxes, no bind mounts.
+   ├── Free tier  →  browser: WASM + OPFS + isomorphic-git
+   └── Fast tier  →  sandbox provider, browser connects DIRECTLY
+GitHub                 ← durable storage for BOTH tiers
 ```
 
-**Why one VM is enough:** WASM sandboxes run *inside the backend process*. There is no
-per-sandbox container, no daemon, no image storage. Idle cost is a map entry; active cost is
-one child process. 24 GB therefore holds order-of-hundreds of concurrent users, where Docker
-would hold tens.
+### Hosting the sandbox API — what the free tiers actually are (July 2026)
 
-**ARM is an advantage here, not a caveat.** Oracle's free tier is Ampere ARM, which normally
-means building multi-arch Docker images. **Wasm is architecture-neutral** — the same module
-runs on ARM and x86 unchanged. The WASM tier makes the free ARM box usable *without* a
-multi-arch pipeline.
+| Provider | Free allowance | Notes |
+|---|---|---|
+| **Modal** | **$30/month recurring credits** | ≈600 vCPU-hours at ~$0.05/vCPU-hr. Best recurring allowance. |
+| **E2B** | $100 one-time, 20 concurrent, 1-hour sessions, no card | Purpose-built for code-exec sandboxes; filesystem + PTY APIs |
+| **Daytona** | price parity with E2B | sub-90 ms cold start; dev-environment shaped |
+| Koyeb | 1 service, 0.1 vCPU, 512 MB, 2 GB SSD | real but tiny |
+| Render | free tier exists | **spins down at 15 min idle**, 30–60 s cold start, ephemeral disk |
+| Fly.io | **none — free tier removed in 2024** | trial only |
+| Railway | $1/month credit | no real free tier for new signups |
 
-**CI/CD:** GitHub Actions (free for public repos) builds the frontend and deploys to Pages;
-the backend deploys to the VM over SSH as a systemd service. Runtime modules are pre-fetched
-into the build store at deploy time, and **AOT-precompiled with `wasmer compile`** so the
-first user never pays the 4.7 s cold compile.
+**Modal or E2B for the fast tier.** Both fit `ISandboxDriver` as a new driver.
 
-**Risks to plan for, not discover:**
-- Single VM = single point of failure. Acceptable for a solo product; back up worktrees.
-- **Oracle reclaims idle Always-Free instances.** Keep it genuinely busy or lose it.
-- Resource limits (above) must be added before any untrusted multi-tenant use.
-- Vercel Sandbox is ephemeral with a 45-minute session cap — only viable with git transport
-  and the file-authority question settled.
+### Two consequences that simplify the design
+
+**1. The worktree stops being ours.** A sandbox provider gives you a filesystem *and* a
+session, so the checkout lives in the sandbox during use and **git is the durable store
+between sessions**. That removes the persistent-disk requirement that forced a VM, and it
+answers the file-authority question: *sandbox authoritative during a session, git
+authoritative between them.*
+
+**2. The browser talks to the sandbox directly.** Vercel Hobby has no WebSockets on
+serverless — which would have killed the PTY bridge. It does not, because the backend only
+mints a short-lived scoped token and the browser connects straight to the provider. No WS
+through Vercel, and terminal traffic never touches the control plane.
+
+### What this costs to build
+
+- Browser tier: OPFS + isomorphic-git behind a storage port, service-worker preview, PAT
+  moves into the browser (reversing a `git-integration.md` decision), CORS proxy.
+- Fast tier: one `ISandboxDriver` per provider, `/api/fs` proxying to the provider's
+  filesystem API instead of reading local disk.
+- Backend: strip local-disk state — worktrees, `central-repo.git`, and the JSON stores move
+  to Vercel KV/Postgres (free tier) or disappear into git.
+
+`WasmDriver` (phase 1) becomes the **self-hosted** path — useful for anyone running their
+own box, and it already proved the seam and the storage model — but it is not on the road
+to $0.
 
 ## Explicitly out of scope
 

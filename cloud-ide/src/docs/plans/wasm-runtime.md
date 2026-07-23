@@ -1,8 +1,48 @@
 # WASM sandbox runtime — scope
 
-Status: **SCOPED, not approved, not built.** Written 2026-07-23.
+Status: **PHASES 1, 1b AND RESOURCE LIMITS BUILT** (2026-07-23, branch `feat/wasm`).
+`SANDBOX_DRIVER=wasm` boots, execs, shares the worktree, serves a terminal, and is bounded.
+Phase 2 (the WASM `IBuilder` and a curated module set) is designed below, not built.
+
 Related: [`ARCHITECTURE.md`](../../ARCHITECTURE.md) (the driver seam),
+[`browser-tier.md`](./browser-tier.md) (the $0 tier this analysis argues for),
 [`git-integration.md`](./git-integration.md), [`workspace-entity.md`](./workspace-entity.md).
+
+## What shipped
+
+| Piece | Where | State |
+|---|---|---|
+| `WasmDriver` on `node:wasi` (**no dependency**) | `backend/…/drivers/wasm/WasmDriver.ts` | ✅ |
+| Guest file I/O through a WASI preopen | proven with a hand-built `path_open` module | ✅ |
+| Loopback execd shim (terminal) | `drivers/wasm/wasmExecdShim.ts` | ✅ |
+| Resource limits | see below | ✅ |
+| WASM `IBuilder` / curated module set | — | ✗ phase 2 |
+| Sockets → `resolveEndpoint` → preview | needs wasmtime or WASIX | ✗ |
+| PTY | needs WASIX | ✗ |
+
+### Resource limits (prerequisite to any untrusted use)
+
+`wasmer run` exposes no memory cap, no CPU metering and no fuel, so limits come from the
+parent and the OS — which works because the driver spawns one child per exec.
+
+| Limit | Default | Enforced by | Portable |
+|---|---|---|---|
+| `maxOutputBytes` | 8 MB | parent counts both streams, kills | yes |
+| `timeoutMs` | 30 s | parent timer, kills | yes |
+| `maxMemoryMb` | 512 | `ulimit -v` on the child | **POSIX only** |
+
+**Two of these protect the gateway, not the sandbox.** `execCommand` buffers stdout/stderr
+in memory to return them, so a guest printing in a loop OOMs the *server*; and
+`loop { br 0 }` is four bytes of wasm, so without a clock that child lives forever.
+
+`ulimit` needs a shell, but nothing is interpolated: the values ride as **positional
+parameters** and `"$@"` re-expands them as argv. Verified in WSL that `$(touch /tmp/pwned)`
+passed as an argument stays a literal string, and that a 500 MB allocation under a 256 MB
+cap kills the process while the same allocation uncapped succeeds.
+
+A kill reports *which* limit and *what it was set to* on the same channel as the output — a
+bare non-zero exit after a kill reads as the program's own failure. `openExecStream` is
+deliberately exempt: it hosts language servers, which are meant to run forever.
 
 ## Goal
 

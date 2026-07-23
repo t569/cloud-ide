@@ -6,7 +6,7 @@ The VFS is the high-performance data layer of the Cloud IDE. It acts as the "Sin
 
 The system is strictly decoupled into two distinct parts to separate data logic from UI rendering:
 
-1. **`VirtualFileSystem.ts` (The Engine):** A pure data structure. It manages an $O(1)$ memory map, a debounced background sync queue (outbound), and `applyPatch` (inbound). It knows *nothing* about React or the Event Bus.
+1. **`VirtualFileSystem.ts` (The Engine):** A pure data structure. It manages an $O(1)$ memory map, a debounced background sync queue (outbound), and `applyPatch` (inbound). It knows *nothing* about React or the Event Bus — **nor where the bytes live** (see the storage port below).
 
 > **Where the "Merkle tree" lives:** in the backend **git worktree**, not here. Git's object store already gives us a content-addressed tree (hashing + cheap diff via `git status`) and a write-ahead log (commits + reflog), so the client deliberately does **no** hashing or SHA-sync protocol — it would just duplicate git with weaker guarantees. The VFS is plain state: last-write-wins outbound, a dirty-preserving patch inbound. See root `ARCHITECTURE.md` → "git IS our Merkle tree + WAL" for the full rationale.
 2. **`VFSController.ts` (The Traffic Cop):** The bridge, located in [`../editor/core/VFSController.ts`](../editor/core/VFSController.ts) (not in this folder). It listens to the `EditorEventBus`, translates user actions into VFS commands, and dispatches state updates back to the React UI via Context/Reducers.
@@ -67,5 +67,42 @@ The `VFSController` (in [`../editor/core/`](../editor/core/VFSController.ts)) st
 
 ---
 
+---
+
+## 🔀 The storage port — where bytes actually live
+
+`VirtualFileSystem` owns the map, the dirty tracking and the sync queue. It does **not**
+own storage: that is `FileStore.ts`, five operations behind an interface, so the engine
+above is identical whichever tier is running.
+
+| Implementation | Backing | Used by |
+|---|---|---|
+| `HttpFileStore` | the backend worktree over `/api/fs` | server tiers |
+| `OpfsFileStore` | the browser's own disk (**OPFS**, a native API — no dependency) | the free/browser tier |
+
+The constructor takes `string \| FileStore`; a string is shorthand for the HTTP store, which
+is why every existing caller passes a sandbox id unchanged. `apiClient` and `sandboxId` no
+longer appear in the engine at all.
+
+**`readExternal` is optional on the port.** It only means something where a machine exists
+beyond the workspace; a browser has none, so its absence is expressed in the type rather
+than by a stub that throws.
+
+### Git, and the layer below
+
+- **`GitPort.ts`** — version control behind the same idea: `HttpGitPort` (real git on the
+  backend worktree) and `BrowserGitPort` (isomorphic-git). `diff` is optional, because
+  isomorphic-git ships no unified-diff formatter.
+- **`OpfsFs.ts`** — a node-`fs`-shaped API over OPFS that isomorphic-git drives. It sits
+  *below* `FileStore` because git needs binary I/O, `mkdir`, `stat` and `unlink`.
+  **It addresses the same OPFS namespace as `OpfsFileStore`** — one tree, or a commit would
+  record something the editor never wrote.
+- **`fakeOpfs.ts`** — test-only, binary-backed in-memory OPFS. Both stores take their
+  storage root as a seam so they can be exercised without a browser.
+
+Full design + the known trades (per-device durability, PAT in the page, shallow clone):
+[`docs/plans/browser-tier.md`](../../../docs/plans/browser-tier.md).
+
 ## 🛠️ Modifying the Sync Backend
-If you change your backend API structure, you only need to update the `flushSyncQueue` and `hydrateWorkspace` methods inside `VirtualFileSystem.ts`. The rest of the IDE will remain unaffected.
+Swap or add a `FileStore` — that is the whole surface. `flushSyncQueue` and
+`hydrateWorkspace` call the port, not the network, so the rest of the IDE is unaffected.

@@ -30,6 +30,17 @@ Where each part of the system is documented. Paths are relative to `src/`.
 
 **Plans** — approved implementation plans live in [`docs/plans/`](./docs/plans/) (e.g. the egress/network layer).
 
+**Deployment tiers.** A sandbox is not always a container. Two alternatives to the Docker
+tier exist behind the seams above, both chosen so the product can run where Docker cannot:
+- [`docs/plans/wasm-runtime.md`](./docs/plans/wasm-runtime.md) — `SANDBOX_DRIVER=wasm`: WASM
+  modules instead of containers, behind the same `ISandboxDriver`. Storage does not move
+  (WASI preopens hand a module the real worktree). Includes the measured performance audit —
+  **interpreted languages run ~10× slower in WASM, compiled ones ~1.3×**, which is the single
+  number to know before designing on it.
+- [`docs/plans/browser-tier.md`](./docs/plans/browser-tier.md) — no server at all: files in
+  OPFS, isomorphic-git, behind the `FileStore` / `GitPort` ports. The one tier that costs
+  nothing to operate.
+
 ---
 
 ## Phase 1: Completed Infrastructure (The Foundation)

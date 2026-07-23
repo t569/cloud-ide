@@ -145,6 +145,25 @@ describe('WorktreeEngine — the branch outlives the checkout', () => {
       expect(diff).toContain('+two');
     }, 30_000);
 
+    it('commits ONLY the paths it was given, even with the rest staged', async () => {
+      // What makes per-file commit safe without an unstage endpoint: `commit -- <paths>`
+      // disregards the index, so a file staged earlier can't ride along uninvited.
+      const wt = await engine.createWorktree('sbx-pf');
+      await fs.writeFile(path.join(wt, 'seed.txt'), 'x');
+      await engine.stage('sbx-pf');
+      await engine.commit('sbx-pf', 'seed');
+
+      await fs.writeFile(path.join(wt, 'picked.txt'), 'yes');
+      await fs.writeFile(path.join(wt, 'skipped.txt'), 'no');
+      await engine.stage('sbx-pf'); // stage BOTH — the trap this guards against
+      await engine.commit('sbx-pf', 'only picked', undefined, ['picked.txt']);
+
+      const status = await engine.status('sbx-pf');
+      expect(status.map((e) => e.path)).toEqual(['skipped.txt']); // still uncommitted
+      const { stdout } = await git(wt, 'show', '--name-only', '--format=', 'HEAD');
+      expect(stdout.trim()).toBe('picked.txt');
+    }, 30_000);
+
     it('cloneInto lands a working checkout from a remote', async () => {
       // Build a tiny local bare repo to act as the remote.
       const remote = path.join(root, 'remote.git');

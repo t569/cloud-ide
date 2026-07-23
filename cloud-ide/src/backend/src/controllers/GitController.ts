@@ -101,9 +101,14 @@ export class GitController {
     return this.withWorktree(req, res, (wt) => this.worktrees.diff(wt, filePath).then((diff) => ({ diff })));
   };
 
+  /** An optional `paths` body field — shared by stage and commit. */
+  private static badPaths(paths: unknown): boolean {
+    return paths !== undefined && (!Array.isArray(paths) || paths.some((p) => typeof p !== 'string'));
+  }
+
   public stage = (req: Request, res: Response) => {
     const paths = req.body?.paths;
-    if (paths !== undefined && (!Array.isArray(paths) || paths.some((p) => typeof p !== 'string'))) {
+    if (GitController.badPaths(paths)) {
       res.status(400).json({ error: 'paths must be an array of strings.' });
       return Promise.resolve();
     }
@@ -121,7 +126,13 @@ export class GitController {
       res.status(400).json({ error: 'author must be { name, email }.' });
       return Promise.resolve();
     }
-    return this.withWorktree(req, res, (wt) => this.worktrees.commit(wt, message, author));
+    // `paths` scopes the commit to the files the user ticked in the pane (per-file commit).
+    const paths = req.body?.paths;
+    if (GitController.badPaths(paths)) {
+      res.status(400).json({ error: 'paths must be an array of strings.' });
+      return Promise.resolve();
+    }
+    return this.withWorktree(req, res, (wt) => this.worktrees.commit(wt, message, author, paths));
   };
 
   public push = (req: Request, res: Response) => {

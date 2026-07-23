@@ -286,17 +286,26 @@ export class WorktreeEngine {
         await this.git(cwd, ['add', '--', ...paths]);
     }
 
-    /** Commit staged changes. Identity is passed per-command; not persisted globally. */
+    /**
+     * Commit staged changes. Identity is passed per-command; not persisted globally.
+     *
+     * `paths` (when given) commits EXACTLY those paths from the working tree and
+     * disregards whatever else is staged — which is what lets the UI offer per-file
+     * commits with no unstage/reset endpoint to go with them: nothing the user didn't
+     * pick can ride along, so a leftover index entry is never a trap.
+     */
     public async commit(
         sandboxId: string,
         message: string,
         author: { name: string; email: string } = { name: 'Cloud IDE', email: 'noreply@cloud-ide' },
+        paths?: string[],
     ): Promise<void> {
         const cwd = path.join(this.worktreesRoot, sandboxId);
         await this.git(cwd, [
             '-c', `user.name=${author.name}`,
             '-c', `user.email=${author.email}`,
             'commit', '-m', message,
+            ...(paths?.length ? ['--', ...paths] : []),
         ]);
     }
 
@@ -321,10 +330,15 @@ export class WorktreeEngine {
         });
     }
 
-    /** Unified diff for the worktree, optionally scoped to one path. */
+    /**
+     * Unified diff of the worktree against HEAD — staged AND unstaged, i.e. exactly what
+     * a commit would capture, which is what the Source Control pane shows. Optionally
+     * scoped to one path. Untracked files aren't in HEAD so they diff empty; the pane
+     * offers to open those in the editor instead.
+     */
     public async diff(sandboxId: string, filePath?: string): Promise<string> {
         const cwd = path.join(this.worktreesRoot, sandboxId);
-        const args = ['diff'];
+        const args = ['diff', 'HEAD'];
         if (filePath) args.push('--', filePath);
         const { stdout } = await this.git(cwd, args);
         return stdout;

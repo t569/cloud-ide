@@ -35,8 +35,18 @@ export const getGitDiff = (sandboxId: string, path?: string) =>
 export const gitStage = (sandboxId: string, paths?: string[]) =>
   apiClient.post<void>(`${base(sandboxId)}/stage`, paths ? { paths } : {});
 
-export const gitCommit = (sandboxId: string, message: string, author?: { name: string; email: string }) =>
-  apiClient.post<void>(`${base(sandboxId)}/commit`, author ? { message, author } : { message });
+/** Commit. `paths` scopes it to exactly those files (the index is disregarded). */
+export const gitCommit = (
+  sandboxId: string,
+  message: string,
+  author?: { name: string; email: string },
+  paths?: string[],
+) =>
+  apiClient.post<void>(`${base(sandboxId)}/commit`, {
+    message,
+    ...(author && { author }),
+    ...(paths && { paths }),
+  });
 
 export const gitPush = (sandboxId: string) => apiClient.post<void>(`${base(sandboxId)}/push`, {});
 export const gitPull = (sandboxId: string) => apiClient.post<void>(`${base(sandboxId)}/pull`, {});

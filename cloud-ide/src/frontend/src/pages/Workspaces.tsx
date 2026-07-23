@@ -3,14 +3,14 @@
 // cloned from a git URL), launch it INTO a fresh sandbox on a chosen environment, or delete
 // it. A workspace outlives the containers it's injected into — that's the whole point.
 import React, { useEffect, useState } from 'react';
-import { VscRepo, VscAdd, VscTrash, VscRocket, VscServerProcess, VscClose, VscPulse, VscRefresh, VscGithub, VscKey } from 'react-icons/vsc';
+import { VscRepo, VscAdd, VscTrash, VscRocket, VscServerProcess, VscClose, VscPulse, VscRefresh, VscGithub, VscKey, VscBrowser } from 'react-icons/vsc';
 import {
   listWorkspaces, createWorkspace, deleteWorkspace, uploadWorkspaceArchive,
   setWorkspaceCredential, clearWorkspaceCredential, type Workspace,
 } from '../api/workspaces';
 import { getGitCredential, setGitCredential, clearGitCredential, type GitCredentialState } from '../api/git';
 import { listEnvironments, type SavedEnvironment } from '../env-manager/services/api/environmentApi';
-import { launchEnvironment } from './launch';
+import { launchEnvironment, openLocalWorkspace } from './launch';
 import { navigate } from './router';
 import { toast } from '../notifications';
 import { timeAgo } from '../env-manager/utils/timeAgo';
@@ -111,6 +111,14 @@ export default function Workspaces() {
                   className="flex-1 flex items-center justify-center gap-1.5 text-[12px] font-semibold py-1.5 rounded border border-[#5ec8d8]/50 bg-[#5ec8d8]/10 text-[#5ec8d8] hover:border-[#5ec8d8]"
                 >
                   <VscRocket /> Launch
+                </button>
+                <button
+                  onClick={() => openLocalWorkspace(w.id, { workspaceName: w.name })}
+                  title="Open in this browser — no sandbox, no server, works offline. Slower, and no terminal or preview."
+                  aria-label={`Open ${w.name} in this browser`}
+                  className="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded border border-gray-800 text-[12px] text-gray-400 hover:border-[#a78bfa]/60 hover:text-[#a78bfa]"
+                >
+                  <VscBrowser /> Browser
                 </button>
                 {w.source === 'git-url' && (
                   <button

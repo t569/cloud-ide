@@ -27,6 +27,7 @@ import { SessionController } from './controllers/SessionController';
 import { GitController } from './controllers/GitController';
 import { WorkspaceController } from './controllers/WorkspaceController';
 import { createWorkspaceRouter } from './api/WorkspaceRoutes';
+import { createGitProxyRouter } from './api/GitProxyRoutes';
 
 // Security middleware (CSRF + IDOR ownership) — SECURITY finding #2
 import { csrfProtection, requireAdmin, securityHeaders } from './api/middleware/security';
@@ -186,6 +187,12 @@ app.delete('/api/v1/git/credential', gitController.clearCredential);
 
 // Workspace management plane (workspace-entity.md) — user-scoped, owner-gated per :id.
 app.use('/api/v1/workspaces', createWorkspaceRouter(workspaceController));
+
+// CORS shim for the BROWSER tier's git traffic (git hosts send no CORS headers, so a page
+// cannot reach them directly). Host- and path-allow-listed inside — it forwards the
+// caller's Authorization header, so it must never become a general-purpose proxy.
+// express.raw here because git POSTs a binary packfile body, which express.json ignores.
+app.use('/api/git-proxy', express.raw({ type: '*/*', limit: '50mb' }), createGitProxyRouter());
 
 // Read-only GitHub browse (no clone): peek at a repo tree + file content, using the
 // caller's stored PAT for private repos. User-scoped, like the credential routes.

@@ -27,6 +27,24 @@ export function openWorkspace(sandboxId: string, opts: LaunchOptions = {}): Prom
 }
 
 /**
+ * Open a workspace that runs ENTIRELY IN THE BROWSER — no session, no sandbox, no server.
+ *
+ * Deliberately not routed through `launch()`: there is nothing to provision and nothing to
+ * wait for, so calling POST /v1/sessions would be inventing work. It navigates to /local/:id,
+ * and the tier lives in that URL rather than in the in-memory session store so a reload or a
+ * shared link still lands on the browser tier (see AppShell).
+ */
+export function openLocalWorkspace(workspaceId: string, opts: LaunchOptions = {}): void {
+  stashSession({
+    sandboxId: workspaceId,
+    workspaceId,
+    tier: 'browser',
+    workspaceName: opts.workspaceName || workspaceId,
+  });
+  navigate(`/local/${encodeURIComponent(workspaceId)}`);
+}
+
+/**
  * Open this user's workspace for an environment, cold-booting one if they have none.
  * `fresh` forces an ADDITIONAL workspace on the same env instead of reusing.
  */

@@ -5,7 +5,8 @@ import {
   FsChange,
   SyncStatus
 } from './types/vfs';
-import { apiClient } from '../lib/apiClient';
+import { FileStore } from './FileStore';
+import { HttpFileStore } from './HttpFileStore';
 
 /** The container-visible workspace root; the whole tree hangs under here. */
 const WORKSPACE_ROOT = '/workspace';
@@ -37,13 +38,6 @@ const HEAVY_DIRS = new Set([
 
 function isHeavyDir(path: string): boolean {
   return HEAVY_DIRS.has(path.split('/').pop() ?? '');
-}
-
-/** One entry from GET /api/fs/:id/ls (backend VfsNode: name + container path + type). */
-interface VfsEntry {
-  name: string;
-  path: string;
-  type: 'file' | 'directory';
 }
 
 /**
@@ -89,15 +83,21 @@ export class VirtualFileSystem {
   private syncIntervalId: number | null = null;
   private readonly SYNC_INTERVAL_MS = 2000;
 
+  /** Where the bytes live. The engine above it is identical for every tier. */
+  private store: FileStore;
+
   /**
    * Initializes the VFS and starts the background synchronization daemon.
-   * @param sandboxId - The unique ID of the backend sandbox/container this VFS talks to.
+   * @param source - A FileStore, or a sandbox id as shorthand for the backend worktree
+   *                 over /api/fs. The shorthand keeps every existing caller unchanged;
+   *                 the browser tier passes an OpfsFileStore instead.
    * @param onSyncStatusChange - Callback used to update the React UI traffic light.
    */
   constructor(
-    private sandboxId: string,
+    source: string | FileStore,
     private onSyncStatusChange: (status: SyncStatus) => void
   ) {
+    this.store = typeof source === 'string' ? new HttpFileStore(source) : source;
     this.startBackgroundSync();
   }
 
@@ -173,9 +173,7 @@ export class VirtualFileSystem {
    * immediate child directory paths so a caller can decide what to recurse into.
    */
   private async listInto(dirPath: string): Promise<string[]> {
-    const entries = await apiClient.get<VfsEntry[]>(
-      `/fs/${encodeURIComponent(this.sandboxId)}/ls?path=${encodeURIComponent(dirPath)}`,
-    );
+    const entries = await this.store.list(dirPath);
     const childDirs: string[] = [];
     for (const entry of entries) {
       // Never map (or recurse into) .git — keeps it out of the tree and out of
@@ -241,10 +239,7 @@ export class VirtualFileSystem {
     // Lazy-load: hydrate only fetched the tree, so pull the blob on first open
     // via GET /api/fs/:id/read and cache it for instant subsequent reads.
     if (node.content === null) {
-      const { content } = await apiClient.get<{ content: string }>(
-        `/fs/${encodeURIComponent(this.sandboxId)}/read?path=${encodeURIComponent(path)}`,
-      );
-      node.content = content;
+      node.content = await this.store.read(path);
       this.fileMap.set(path, node);
     }
     return node.content;
@@ -261,10 +256,12 @@ export class VirtualFileSystem {
    * relying on a read-only flag being checked everywhere.
    */
   public async readExternalFile(path: string): Promise<string> {
-    const { content } = await apiClient.get<{ content: string }>(
-      `/fs/${encodeURIComponent(this.sandboxId)}/read-external?path=${encodeURIComponent(path)}`,
-    );
-    return content;
+    // Optional on the port: a browser-backed store has no world outside the workspace, so
+    // this is a genuine "not here" rather than a failure to implement.
+    if (!this.store.readExternal) {
+      throw new Error(`No filesystem outside the workspace on this tier: ${path}`);
+    }
+    return this.store.readExternal(path);
   }
 
   /**
@@ -509,11 +506,10 @@ export class VirtualFileSystem {
       else if (node.content !== null) writes.push({ path, content: node.content });
     }
 
-    const id = encodeURIComponent(this.sandboxId);
     try {
       await Promise.all([
-        ...writes.map((w) => apiClient.post(`/fs/${id}/write`, { path: w.path, content: w.content })),
-        ...deletes.map((p) => apiClient.delete(`/fs/${id}/delete?path=${encodeURIComponent(p)}`)),
+        ...writes.map((w) => this.store.write(w.path, w.content)),
+        ...deletes.map((p) => this.store.remove(p)),
       ]);
 
       // Success: clear the queue, drop deleted nodes, un-dirty the written ones.

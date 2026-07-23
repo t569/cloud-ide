@@ -311,13 +311,66 @@ split below becomes an optimisation rather than a requirement.
 
 (`HOME` must be set, or npm dies earlier still on `uv_os_homedir returned ENOENT`.)
 
-### The permanent limit
+### The permanent limit: why native bindings cannot load
 
-**Native modules never work.** C/C++ addons and C-extension wheels are compiled for the
-host architecture and cannot load in a wasm guest. No runtime, no toolchain, no amount of
-host-side cleverness changes this. The reachable ecosystem is the **pure-source** one —
-which is most of npm and a large fraction of PyPI, but must be stated plainly in the UI
-rather than discovered at import time.
+A "native module" (`.node` for Node, `.so` for a Python C extension) is **compiled machine
+code** for one CPU architecture and OS ABI — x86-64 ELF, arm64 Mach-O. A wasm guest has no
+CPU to run that on: the VM executes wasm bytecode and nothing else. Loading one is not
+forbidden, it is *meaningless* — there is no instruction decoder for it. Three further walls
+sit behind that one: WASI preview1 has no `dlopen`; wasm modules have separate linear
+memories, so N-API's pointer-passing C ABI has nothing to point into; and addons routinely
+need threads, `mmap` and `ioctl` that WASI does not expose.
+
+**Verified, and the result is instructive.** Installing `bufferutil` (a native addon) on the
+host and requiring it in the guest *appears to work* — but a `process.dlopen` hook proves no
+library is ever loaded:
+
+```
+platform: wasi   arch: unknown   execPath: /bin/edge
+(DLOPEN never called)
+loaded, mask is function
+mask RAN ok: [0,3,2,5]        ← correct XOR masking, from the package's JS fallback
+```
+
+The prebuilds on disk are `linux-x64`, `darwin-arm64`, `win32-ia32`. The guest reports
+`arch: unknown`, so `node-gyp-build` matches none of them and `bufferutil` silently falls
+back to its **pure-JS implementation**. So:
+
+- Packages with a JS fallback (`bufferutil`, `ws`, many others) **degrade gracefully and work**.
+- Packages without one **hard-fail at require time**.
+
+**The exception that proves the rule:** `import sqlite3` in `wasmer/python` works
+(`SQLITE_OK 3.43.0`) — not because a `.so` was loaded, but because CPython's WASI build
+**statically compiles sqlite into the interpreter**. That is the only route to native
+functionality: someone recompiles the library to wasm and links it *into the runtime
+distribution*. Pyodide does this for ~250 packages. It is a per-package, per-runtime
+effort — never dynamic, never automatic.
+
+So the reachable ecosystem is: **pure-source packages, plus whatever was pre-compiled into
+the runtime you chose.** That belongs in the UI, not at import time.
+
+## Multiple languages in one environment
+
+**Naturally supported — arguably better than Docker.** A WASM environment is a *directory of
+modules*, and `WasmDriver` already resolves `command[0]` → `<modulesDir>/<program>.wasm`.
+Drop `python.wasm` and `edge.wasm` in the same directory and one sandbox runs both, over one
+shared worktree. No combined base image to build.
+
+A Django + React environment is therefore:
+
+| Need | Status |
+|---|---|
+| Django itself | ✅ pure Python — host `pip --target`, verified |
+| `sqlite3` for the ORM | ✅ statically linked into the WASI CPython build |
+| React / Vite deps | ✅ pure JS — host `npm install`, verified |
+| `python manage.py …` | ✅ resolves to `python.wasm` |
+| `node …` / bundler | ✅ resolves to `edge.wasm` |
+| **`runserver` on :8000, Vite on :5173** | ❌ **needs sockets** |
+
+**This changes the runtime priority.** Both halves of that stack are servers, and WASI
+preview1 cannot `listen()`. So for the use case people actually want, **sockets matter more
+than a PTY** — which moves wasmer/WASIX (`--net`, wasi-sockets) up the roadmap ahead of the
+terminal work, and ahead of where the WASIX spike placed it.
 
 ## Explicitly out of scope
 

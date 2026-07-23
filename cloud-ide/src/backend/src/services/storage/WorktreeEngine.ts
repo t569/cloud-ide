@@ -256,8 +256,13 @@ export class WorktreeEngine {
     public async cloneInto(sandboxId: string, url: string, auth?: GitAuth): Promise<string> {
         const targetPath = path.join(this.worktreesRoot, sandboxId);
         await fs.mkdir(this.worktreesRoot, { recursive: true });
+        // --no-hardlinks: a no-op for remote clones, but a LOCAL source (a repo already on
+        // the server's disk — see workspace/localRepo.ts) would otherwise share object-file
+        // inodes with its origin. The container mounts this checkout read-write, so a
+        // hardlinked .git/objects entry is a write handle into the source repo. Copy instead.
+        // `--` keeps a url beginning with `-` from being read as a flag.
         await this.git(this.worktreesRoot, [
-            'clone', '--filter=blob:none', '--', url, targetPath,
+            'clone', '--filter=blob:none', '--no-hardlinks', '--', url, targetPath,
         ], this.authForUrl(url, auth));
         await this.makeContainerWritable(targetPath);
         return targetPath;

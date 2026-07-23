@@ -3,7 +3,6 @@
 
 // provisioner strategies
 export { GitStrategy } from './strategies/git';
-export {LocalMountStrategy} from './strategies/local';
 
 
 // workspace provisioner

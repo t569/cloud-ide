@@ -7,8 +7,9 @@ import { Request, Response } from 'express';
 import { WorkspaceManager } from '../services/workspace/WorkspaceManager';
 import { GitCredentialStore, workspaceCredentialKey as wsKey } from '../services/git/GitCredentialStore';
 import { WorkspaceRecord } from '../database/models';
+import { assertSourceUrlAllowed } from '../services/workspace/localRepo';
 
-const SOURCES = new Set(['blank', 'git-url', 'host-folder']);
+const SOURCES = new Set(['blank', 'git-url']);
 const PERSISTENCE = new Set(['persistent', 'ephemeral']);
 // Workspace tokens share the user credential store under a `ws:` namespace (wsKey) — same
 // AES-256-GCM + atomic writes, no second file. ponytail: assumes no userId literally equals
@@ -48,18 +49,22 @@ export class WorkspaceController {
       return;
     }
     if (source !== undefined && !SOURCES.has(source)) {
-      res.status(400).json({ error: 'source must be blank | git-url | host-folder.' });
+      res.status(400).json({ error: 'source must be blank | git-url.' });
       return;
     }
-    if (source === 'host-folder') {
-      // Deferred: host-folder mounts need a mount-security model (the boot allow-list only
-      // permits worktrees/caches). Tracked in workspace-entity.md.
-      res.status(400).json({ error: 'host-folder workspaces are not supported yet.' });
-      return;
-    }
-    if (source === 'git-url' && (typeof sourceUrl !== 'string' || !/^https?:\/\//i.test(sourceUrl))) {
-      res.status(400).json({ error: 'git-url workspaces need an http(s) sourceUrl.' });
-      return;
+    if (source === 'git-url') {
+      if (typeof sourceUrl !== 'string' || !sourceUrl.trim()) {
+        res.status(400).json({ error: 'git-url workspaces need a sourceUrl.' });
+        return;
+      }
+      // http(s), or a local repo path when the operator has declared a root (localRepo.ts).
+      // Checked again at materialise time — this call is for a clean error, not the gate.
+      try {
+        await assertSourceUrlAllowed(sourceUrl.trim());
+      } catch (err: any) {
+        res.status(400).json({ error: err.message });
+        return;
+      }
     }
     if (persistence !== undefined && !PERSISTENCE.has(persistence)) {
       res.status(400).json({ error: 'persistence must be persistent | ephemeral.' });

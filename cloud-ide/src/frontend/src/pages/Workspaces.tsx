@@ -18,7 +18,6 @@ import { timeAgo } from '../env-manager/utils/timeAgo';
 const SOURCE_STYLE: Record<Workspace['source'], { label: string; color: string }> = {
   'git-url': { label: 'Git', color: '#5ec8d8' },
   blank: { label: 'Blank', color: '#8b8b96' },
-  'host-folder': { label: 'Host', color: '#fbbf24' },
 };
 
 export default function Workspaces() {
@@ -166,8 +165,11 @@ function NewWorkspaceDialog({ onClose, onCreated }: { onClose: () => void; onCre
 
   const submit = async () => {
     if (!name.trim()) { setError('Give the workspace a name.'); return; }
-    if (source === 'git-url' && !/^https:\/\/.+/i.test(sourceUrl.trim())) {
-      setError('Enter an https git URL.');
+    // https, or an absolute path to a repo already on the SERVER's disk — the latter only
+    // works if the operator declared CIDE_LOCAL_REPO_ROOT, which the browser can't know,
+    // so let it through and let the backend give the real verdict (localRepo.ts).
+    if (source === 'git-url' && !/^(https:\/\/.+|\/|[A-Za-z]:[\\/])/i.test(sourceUrl.trim())) {
+      setError('Enter an https git URL, or an absolute path to a repo on the server.');
       return;
     }
     setBusy(true);

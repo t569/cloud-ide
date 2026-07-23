@@ -97,9 +97,12 @@ Per the CLAUDE.md mandate ("a feature is a new adapter, not a core edit"), the w
 
 - New entity `WorkspaceRecord` (like `EnvironmentRecord`) in a `JsonWorkspaceRepository`:
   `{ id, name, ownerId, ref, source, persistence, cacheKey, createdAt, lastAttachedSandbox }`.
-- `source ∈ { blank | git-url | host-folder }` — the git feature's `cloneInto` is the `git-url`
-  source; `LocalMountStrategy` (to be revived) is `host-folder`; `blank` is an empty ref. **Git is
-  one workspace source, not the workspace abstraction itself.**
+- `source ∈ { blank | git-url }` — the git feature's `cloneInto` is the `git-url` source;
+  `blank` is an empty ref. **Git is one workspace source, not the workspace abstraction
+  itself.** (`host-folder` was a third source; **dropped 2026-07-23**, rationale in
+  [git-integration.md](./git-integration.md) — the daemon allow-list, the engine's
+  `worktreesRoot`-derived paths, and the disposable-checkout invariant all say no, and a
+  local repo is reachable as a `git-url` source anyway. `LocalMountStrategy` deleted.)
 - `SandboxRecord` gains `workspaceId` (the anonymous per-sandbox `worktreeId` becomes the degenerate
   case: an unnamed, ephemeral workspace). `getWorkspaceHostPath` resolves via the workspace.
 - A `WorkspaceManager` orchestrates: `materialise(workspaceId, sandboxId)` (inject), `save(sandboxId)`
@@ -160,7 +163,7 @@ WorkspaceRecord (durable: ref + policy + source)         JsonWorkspaceRepository
    sandbox container  ── caches at /cide-cache (already per-owner, already survives)
 ```
 
-Lifecycle: **create** workspace (from blank/git-url/host-folder) → **inject** (materialise, instant)
+Lifecycle: **create** workspace (from blank/git-url) → **inject** (materialise, instant)
 → user edits (writes land in the ephemeral upper layer) → **save** (WIP-commit upper → ref, auto on
 detach for `persistent`) → container dies (upper discarded; ref + caches survive) → **re-inject** into
 a fresh sandbox, state restored.
@@ -198,8 +201,8 @@ a fresh sandbox, state restored.
    suite 374 pass. NO route passes `workspaceId` yet — that's the routes slice; the overlay
    materialiser is Phase 3.
    - **Routes DONE**: `WorkspaceController` + `createWorkspaceRouter` at `/api/v1/workspaces`
-     (list/create/get/delete, user-scoped, owner-gated per id; host-folder source 400s until
-     its mount-security model lands). `startSession` accepts `workspaceId` (+ resolves the
+     (list/create/get/delete, user-scoped, owner-gated per id; any unknown source 400s).
+     `startSession` accepts `workspaceId` (+ resolves the
      caller's PAT) and threads it → provision. The workspace path now has a real caller.
      Frontend `startSession` type carries `workspaceId`; the `/workspaces` PAGE is Phase 6.
      Full suite 378 pass.
@@ -207,8 +210,8 @@ a fresh sandbox, state restored.
    allow-list + teardown cleanup + capability detection + graceful fallback.
 4. **Save/persistence.** WIP-snapshot (uncommitted capture), auto-save-on-detach, persistence modes,
    "Save as workspace" / "Discard".
-5. **Sources.** Wire `git-url` (cloneInto) and revive `LocalMountStrategy` (`host-folder`) as workspace
-   sources; `blank` default.
+5. **Sources.** Wire `git-url` (cloneInto) as a workspace source; `blank` default.
+   (`host-folder` dropped 2026-07-23 — a local repo is a `git-url` source.)
 6. **Frontend** (UI shape DECIDED 2026-07-18): a **dedicated `/workspaces` page** — a sibling to
    `/environments`, built like the env-manager — listing saved workspaces (name, source,
    persistence, last-attached sandbox) with rename/save/delete/detach; **plus a workspace picker in

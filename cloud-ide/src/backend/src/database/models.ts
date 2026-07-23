@@ -24,7 +24,12 @@ export interface EnvironmentRecord {
 // SURVIVES it — a named, injectable/detachable git ref + policy. Today's per-sandbox
 // worktree is the degenerate case: an unnamed, ephemeral workspace welded 1:1 to one
 // sandbox. This record is what lifts it out into a first-class, reusable entity.
-export type WorkspaceSourceKind = 'blank' | 'git-url' | 'host-folder';
+// No `host-folder`: in a browser IDE the "host" is the SERVER, not the user's machine, so
+// binding an arbitrary server directory into a tenant's container buys a dev convenience
+// at the price of a mount-security policy. A local repo is reachable as a `git-url`
+// source instead (git clones from a filesystem path), which lands it in the allow-listed
+// worktrees root with the whole git surface working. See workspace-entity.md.
+export type WorkspaceSourceKind = 'blank' | 'git-url';
 export type WorkspacePersistence = 'persistent' | 'ephemeral';
 
 export interface WorkspaceRecord {

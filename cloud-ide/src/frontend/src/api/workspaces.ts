@@ -7,7 +7,7 @@ export interface Workspace {
   name: string;
   ownerId: string;
   ref: string;
-  source: 'blank' | 'git-url' | 'host-folder';
+  source: 'blank' | 'git-url';
   sourceUrl?: string;
   persistence: 'persistent' | 'ephemeral';
   createdAt: number;

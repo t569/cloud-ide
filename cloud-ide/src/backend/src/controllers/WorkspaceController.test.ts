@@ -62,10 +62,12 @@ describe('WorkspaceController', () => {
     expect(mgr.create).not.toHaveBeenCalled();
   });
 
-  it('400s a git-url source without an http(s) url, and rejects host-folder', async () => {
+  it('400s a git-url source without an http(s) url, and any unknown source', async () => {
     const r1 = fakeRes();
     await ctrl.create({ userId: 'u', body: { name: 'r', source: 'git-url', sourceUrl: 'ssh://x' } } as any, r1 as any);
     expect(r1.statusCode).toBe(400);
+    // 'host-folder' was removed as a source (see WorkspaceSourceKind) — it must land in
+    // the unknown-source branch, not quietly create a workspace nothing can materialise.
     const r2 = fakeRes();
     await ctrl.create({ userId: 'u', body: { name: 'r', source: 'host-folder' } } as any, r2 as any);
     expect(r2.statusCode).toBe(400);

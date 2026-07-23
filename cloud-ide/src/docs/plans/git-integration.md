@@ -3,17 +3,17 @@
 Status: approved (decisions taken 2026-07-18). Branch: `feat/git` (pushed to origin).
 **COMPLETE & MERGEABLE**: engine + credentials + GitRoutes + GitHubBrowse (all tested), the
 frontend Source Control pane, clone-on-create, and the scratch-island deletion. Host-folder
-source is DEFERRED to [workspace-entity.md](./workspace-entity.md) — the boot allow-list only
-permits mounts under worktrees/caches, so arbitrary host-folder mounts need a mount-security
-model that feature owns; `LocalMountStrategy` is kept, unwired, for it to revive.
+source is **DROPPED, not deferred** (2026-07-23) — see the decision table below;
+`LocalMountStrategy` is deleted with it.
 Related: [sandbox-privileges.md](./sandbox-privileges.md) (non-root uid debt this deliberately sidesteps),
 [workspace-entity.md](./workspace-entity.md) (git becomes one workspace *source* under that entity).
 
 ## Goal
 
-Real version control on the worktree, exposed to the user: **clone** a GitHub repo, **use a
-host folder**, and run the **full git surface** (status / stage / commit / push / branch /
-diff / log) — plus an optional read-only **repo browser** that never clones.
+Real version control on the worktree, exposed to the user: **clone** a GitHub repo and run
+the **full git surface** (status / stage / commit / push / branch / diff / log) — plus an
+optional read-only **repo browser** that never clones. (A third goal, "use a host folder",
+was dropped — see the decision table.)
 
 The driving constraint: **minimal memory + compute**. A "lightning-fast git that is still
 full git." The two ideas the user wanted to mix — GitHub REST and real git — resolve into
@@ -53,7 +53,32 @@ You "upgrade" browse → clone the moment you want to write. Same PAT throughout
 | Where do git ops run? | **Host-side** (backend route → host `git` in the worktree → push with the PAT). Keeps the PAT server-side and sidesteps the non-root in-container uid debt (privileges Phase 2.1) entirely. |
 | Lightweight mechanism | **`--filter=blob:none` partial clone** + git's native lazy blob fetch. |
 | GitHub REST client | **Native `fetch`**, not `octokit`. Two GET calls (getTree/getContent) do not need a heavy dep. Drop `octokit`. |
-| Host folder | **Revive `LocalMountStrategy`** (already written) — bind a host dir into the sandbox. |
+| Host folder | ~~Revive `LocalMountStrategy`~~ → **dropped** (2026-07-23, see below). |
+
+**Host folder — dropped, and why.** The original plan was to revive `LocalMountStrategy` and
+bind a host dir into the sandbox. Four things were wrong with that:
+
+1. **The daemon rejects it.** `boot.js` resolves `allowed_host_paths` to exactly
+   `<dataDir>/worktrees` and `<dataDir>/caches`. Honouring a caller-supplied path means
+   widening that list, i.e. letting an HTTP request name any server directory to bind into a
+   tenant's container — other tenants' worktrees, the encrypted PAT store, `/etc`.
+2. **The git surface can't see it.** Every `WorktreeEngine` method derives its cwd as
+   `path.join(this.worktreesRoot, sandboxId)`. A mount outside that root is invisible to
+   status/commit/diff/push — and `isDirty` treats a missing path as *clean*, so destroy()'s
+   unsaved-work pre-flight would silently pass for every host-folder sandbox.
+3. **`LocalMountStrategy` was the wrong tool anyway.** It emits a `kind: 'user'` volume, and
+   `normalizeUserVolume` force-mounts those under `/workspace/mounts/<name>` and explicitly
+   throws on `/workspace`. It could never have produced the workspace root.
+4. **It inverts the durability contract.** "The checkout is disposable, the branch is
+   durable" is the invariant `WorktreeEngine.test.ts` defends. A host folder is user-owned
+   and possibly a real repo with its own remote — the mounted thing becomes the durable one.
+
+In a browser IDE the "host" is the **server**, not the user's machine, so this only ever
+served someone running the whole stack locally. A local repo is reachable as a `git-url`
+source instead (git clones from a filesystem path; `authForUrl` already tolerates a non-URL
+remote), which lands it in the allow-listed worktrees root with the full git surface intact.
+Pushing back into a non-bare local repo needs `receive.denyCurrentBranch=updateInstead` on
+that repo.
 
 ## Architecture
 
@@ -95,8 +120,6 @@ You "upgrade" browse → clone the moment you want to write. Same PAT throughout
   sandbox guard). Each op resolves `sandboxId → record.worktreeId` before touching the
   engine (the worktree dir is named by worktreeId). git failures map to 400 with stderr;
   no-worktree → 409.
-- **`LocalMountStrategy`:** revived through the existing `WorkspaceProvisioner` seam for the
-  host-folder source.
 
 ## Deleted (dead scratch, unreachable from `main.tsx → AppShell`) — DONE
 
@@ -120,6 +143,6 @@ host so it is mounted + durable, not inside an ephemeral container.
 ## Phases
 
 1. **Backend** — `WorktreeEngine.cloneInto` + git-ops wrappers + PAT credential + `GitRoutes`
-   + `GitHubBrowse`; revive `LocalMountStrategy`. Tests alongside.
+   + `GitHubBrowse`. Tests alongside.
 2. **Frontend** — Source-Control pane (status / stage / commit / push) + optional read-only
    repo browser, built with the frontend-design plugin. Delete the scratch island.

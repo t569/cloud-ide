@@ -13,6 +13,7 @@
 
 import { IMaterialiser, MaterialiseRequest } from './IMaterialiser';
 import { WorktreeEngine } from '../storage/WorktreeEngine';
+import { assertSourceUrlAllowed } from './localRepo';
 
 export class GitCheckoutMaterialiser implements IMaterialiser {
   constructor(private worktrees: WorktreeEngine) {}
@@ -21,6 +22,9 @@ export class GitCheckoutMaterialiser implements IMaterialiser {
     // A fresh git-url workspace is cloned into its checkout; a blank one gets an empty
     // checkout; a recovery (fresh === false) reuses the existing checkout untouched.
     if (fresh && workspace.source === 'git-url' && workspace.sourceUrl) {
+      // THE gate, not a repeat of the controller's: a local sourceUrl is re-resolved here,
+      // immediately before the clone, so a symlink re-pointed since create can't slip past.
+      await assertSourceUrlAllowed(workspace.sourceUrl);
       return this.worktrees.cloneInto(worktreeId, workspace.sourceUrl, auth);
     }
     return this.worktrees.createWorktree(worktreeId);

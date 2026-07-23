@@ -249,6 +249,76 @@ use — it is a cheap, well-understood change whenever you want it, and it forec
 Revisit when either the terminal becomes the blocking complaint in real use, or a Node
 build for WASIX appears.
 
+## Package ecosystem — RESEARCHED + VERIFIED (2026-07-23)
+
+### Correction: Node-in-WASM exists
+
+The WASIX spike above concluded "no Node, therefore no npm, on any WASM runtime". **That was
+wrong** — it searched for `wasmer/node`, which does not exist, and stopped there. The
+package is **`wasmer/edgejs-quickjs`**, and it reports `v24.13.2`:
+
+```
+$ wasmer run wasmer/edgejs-quickjs -- --version   →  v24.13.2-pre
+```
+
+[Edge.js](https://wasmer.io/posts/edgejs-safe-nodejs-using-wasm-sandbox) is a real Node
+runtime in a Wasm sandbox — built on Node's own dependencies (libuv, llhttp, ada, ncrypto),
+claiming 3,592/3,626 core Node tests passing and 30% slowdown when fully sandboxed.
+Verified here: `node:fs` and `node:path` work, files written by the guest appear on the
+host. It is **pre-1.0**.
+
+### The working answer: resolve on the HOST, execute in the GUEST
+
+Both ecosystems work today, and the mechanism is the same for each — because the backend is
+already Node, already on a real OS with network, and the worktree is already a host
+directory that gets mounted into the sandbox.
+
+**JavaScript — verified end to end:**
+```
+host $  npm install lodash.chunk            # real npm, into the worktree's node_modules
+guest$  wasmer run wasmer/edgejs-quickjs --volume=$WORKTREE:/app -- /app/index.js
+        →  NPM_PKG_OK [[1,2],[3,4]]
+```
+
+**Python — verified end to end.** The flags are the whole trick: they force pip to take only
+pure-Python wheels and never execute a build step.
+```
+host $  pip3 install --target=$W/libs --only-binary=:all: \
+          --implementation py --python-version 3.12 --abi none --platform any toml
+guest$  wasmer run wasmer/python --volume=$W:/app -- /app/t.py
+        →  PY_PKG_OK {'a': 1}
+```
+
+This is elegant *because it changes nothing structurally*. Installing is build-time work on
+the host — which is what `IBuilder` already is — and the per-user cache volume
+(`cacheVolumes.ts`, `/cide-cache`) already persists exactly this kind of artifact between
+sandboxes. The guest never needs a package manager, a network stack, or a compiler.
+
+### In-guest `npm install` — runs, but blocked by a bug
+
+Worth knowing, because it is *nearly* there. npm itself executes inside the sandbox:
+
+```
+$ wasmer run wasmer/edgejs-quickjs --volume=/usr/lib/node_modules/npm:/npm \
+    --env HOME=/app/home --net -- /npm/bin/npm-cli.js --version   →  10.9.8
+```
+
+`npm install` then fails with `cannot set sizeCalculation without setting maxSize`. Root
+cause found: **`os.totalmem()` returns 4 MiB** in the guest, so npm's cache layer computes a
+nonsense memory budget and its lru-cache constructor throws. That is an Edge.js bug, not a
+WASM limit — if it is fixed upstream, in-guest installs become possible and the host/guest
+split below becomes an optimisation rather than a requirement.
+
+(`HOME` must be set, or npm dies earlier still on `uv_os_homedir returned ENOENT`.)
+
+### The permanent limit
+
+**Native modules never work.** C/C++ addons and C-extension wheels are compiled for the
+host architecture and cannot load in a wasm guest. No runtime, no toolchain, no amount of
+host-side cleverness changes this. The reachable ecosystem is the **pure-source** one —
+which is most of npm and a large fraction of PyPI, but must be stated plainly in the UI
+rather than discovered at import time.
+
 ## Explicitly out of scope
 
 - Replacing the Docker tier. It stays the full-fidelity option.

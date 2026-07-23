@@ -369,8 +369,64 @@ A Django + React environment is therefore:
 
 **This changes the runtime priority.** Both halves of that stack are servers, and WASI
 preview1 cannot `listen()`. So for the use case people actually want, **sockets matter more
-than a PTY** — which moves wasmer/WASIX (`--net`, wasi-sockets) up the roadmap ahead of the
-terminal work, and ahead of where the WASIX spike placed it.
+than a PTY** — which moves wasmer/WASIX up the roadmap ahead of the terminal work, and ahead
+of where the WASIX spike placed it. See below: the blocker turns out to be removable.
+
+## "Needs sockets" — what it means, and the workarounds
+
+Preview1 has `sock_recv`/`sock_send`/`sock_accept` but **no `socket`, `bind` or `listen`**. A
+guest cannot *create* a listener. It can still serve, three different ways:
+
+**1. Host pre-opens the listener (works on preview1 today).**
+`wasmtime run --tcplisten 127.0.0.1:6000 server.wasm` — the *host* binds and listens, and
+hands the guest a raw fd it can `sock_accept()` on. This is systemd socket activation.
+Trade-off: the application must accept an **inherited fd** rather than binding its own.
+Fine for Rust/Go with `listenfd`; Django's `runserver` and Vite both bind their own, so
+they would need a shim.
+
+**2. WASIX (wasmer) — full BSD sockets, apps unmodified. ✅ VERIFIED.**
+A stock Node HTTP server, no changes at all:
+```js
+http.createServer(...).listen(8111, "0.0.0.0")     // inside the guest
+```
+```
+$ wasmer run wasmer/edgejs-quickjs --volume=$W:/app --net -- /app/srv.js
+  → LISTENING on 8111
+$ curl http://127.0.0.1:8111/     (from the HOST)
+  → SERVED_FROM_WASM
+```
+`bind`/`listen` worked untouched and the host reached it. **This removes the blocker
+entirely** — `runserver` and Vite need no shim, and `resolveEndpoint()` becomes trivial.
+
+**3. WASI preview 2 `wasi-sockets`** — the standardised version of the same thing, via the
+component model. The portable long-term answer; wasmtime's path.
+
+### Consequence for the runtime choice
+
+`node:wasi` was right for phase 1 — zero dependencies, and it proved the storage model and
+the driver seam. **But wasmer/WASIX is the production target**, and now on evidence rather
+than preference. Verified across this and earlier probes: sockets, Node v24 (`edgejs`),
+real bash with fork/exec, host directory mounts, 0.10s warm start.
+
+## Escape hatch: running arbitrary native binaries under emulation
+
+If an environment genuinely needs native code, there is a way — at a price.
+[container2wasm](https://github.com/container2wasm/container2wasm) converts a **container
+image** to wasm by shipping an emulated CPU: **Bochs** for x86_64, **TinyEMU** for riscv64,
+with QEMU as an alternative. A whole Linux kernel and userland run inside the wasm sandbox,
+so *any* binary works — including native modules, `apt`, compilers.
+
+The cost is emulation: an interpreted CPU inside a VM, so orders of magnitude slower than
+the direct path, and a much larger image. That makes it a deliberate third tier, not a
+default. (CheerpX/WebVM does the same with an x86 JIT, but is proprietary.)
+
+**Three tiers of fidelity, then:**
+
+| Tier | Speed | Runs |
+|---|---|---|
+| WASM direct (`node:wasi`, wasmer) | near-native | pure-source packages, curated runtimes |
+| container2wasm | slow (emulated CPU) | anything, including native modules |
+| Docker | native | anything |
 
 ## Explicitly out of scope
 

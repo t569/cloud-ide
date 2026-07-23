@@ -506,6 +506,98 @@ authoritative and the diff is pushed before each run, or the sandbox becomes aut
 and `/api/fs` proxies to it. That decision should be made deliberately before any remote
 driver is written — it is a bigger change than the driver itself.
 
+## Capability + performance audit (measured 2026-07-23)
+
+Every capability a sandbox needs, with evidence. Measured on wasmer 7.2.1, WSL kernel 6.18.
+
+| Capability | Status | Evidence |
+|---|---|---|
+| Worktree file I/O | ✅ | guest `path_open` wrote a file the host read |
+| Mount host dir | ✅ | `--volume HOST:GUEST` round-trips |
+| Exec commands | ✅ | phase-1 driver, 24 tests |
+| Real shell, fork/exec | ✅ | `$(…)` and pipelines in `wasmer/bash` |
+| Multiple languages, one sandbox | ✅ | `python.wasm` + `edge.wasm` resolve by `command[0]` |
+| Node ecosystem | ✅ | Edge.js reports v24.13.2; `node:fs`/`node:path` work |
+| Package install | ✅ host-side | `npm install` + `pip --target`, both verified |
+| **Listening sockets / dev servers** | ✅ | Node server on :8111 **curled from the host** |
+| **Outbound network** | ✅ | `fetch()` to the npm registry from inside the guest |
+| Warm start | ✅ **0.10s** | 4.7s cold (compile), then cached |
+| Interactive PTY | ⚠️ untested | bash runs; SIGWINCH/SIGINT unverified |
+| **Resource limits (mem/CPU)** | ❌ **gap** | no `--max-memory`/fuel flags on `wasmer run` |
+| Native modules | ❌ permanent | see above; emulation tier only |
+
+### Speed: there are two regimes, and the difference is 10×
+
+This is the single most important number in this document.
+
+| Workload | Native | WASM | Ratio |
+|---|---|---|---|
+| JS compute loop (Edge.js) | 112 ms | 1869 ms | **16.7×** |
+| Python compute loop | 361 ms | 4808 ms | **13.3×** |
+| Python, LLVM backend | 361 ms | 3521 ms | **9.8×** |
+| File I/O, 300 write+read | 90 ms | 1006 ms | **11×** |
+| **AOT code (C/Rust), libsodium** | — | — | **1.33×** ([2026 benchmark](https://00f.net/2026/06/23/webassembly-runtimes-2026/)) |
+
+**Interpreted languages pay interpretation twice** — your Python bytecode is interpreted by
+a CPython that is itself wasm being JIT-compiled. Compiled languages pay it once and land
+near native.
+
+Backends measured (`wasmer run --llvm|--cranelift|--singlepass`): LLVM 3521 ms, Cranelift
+4554 ms, Singlepass 6687 ms. **Use `--llvm`** — ~23% over the default, free.
+
+**The design consequence: prefer wasm-native tooling.** A bundler, linter or formatter
+written in Rust/Go (esbuild, swc, biome, ruff) runs at ~1.3× native in wasm. The same job
+done by a JS implementation runs at ~16×. Choosing the compiled tool is worth more than any
+runtime tuning.
+
+**Honest verdict on speed:** fine for editing, dev servers (I/O-bound), light scripts and
+small test runs. Painful for large test suites, data processing, and any JS-implemented
+build step. A dev request that takes 5 ms takes 50 ms — acceptable. A 10 s webpack build
+takes ~2 minutes — not.
+
+### The one real gap: resource limits
+
+`wasmer run` exposes no memory cap, no CPU metering, no fuel. For a multi-tenant deployment
+that must be solved outside the CLI: OS-level `ulimit`/cgroups on the child process (the
+phase-1 driver already spawns one per exec, so this is a natural place), or embedding the
+runtime via its Rust API where limits are first-class. **Do not deploy multi-tenant without
+this.**
+
+## Deployment pipeline — the cost-effective build
+
+**Total: ~$1/month** (a domain), with everything else on free tiers.
+
+```
+Cloudflare Pages (free)          ← frontend, global CDN, unlimited bandwidth
+        │  HTTPS
+Oracle Cloud Always Free VM      ← backend + worktrees + WASM sandboxes IN-PROCESS
+  (4 ARM cores, 24 GB, real disk)
+        │  optional burst
+Vercel Sandbox (free tier)       ← full-fidelity Docker tier, git as transport
+```
+
+**Why one VM is enough:** WASM sandboxes run *inside the backend process*. There is no
+per-sandbox container, no daemon, no image storage. Idle cost is a map entry; active cost is
+one child process. 24 GB therefore holds order-of-hundreds of concurrent users, where Docker
+would hold tens.
+
+**ARM is an advantage here, not a caveat.** Oracle's free tier is Ampere ARM, which normally
+means building multi-arch Docker images. **Wasm is architecture-neutral** — the same module
+runs on ARM and x86 unchanged. The WASM tier makes the free ARM box usable *without* a
+multi-arch pipeline.
+
+**CI/CD:** GitHub Actions (free for public repos) builds the frontend and deploys to Pages;
+the backend deploys to the VM over SSH as a systemd service. Runtime modules are pre-fetched
+into the build store at deploy time, and **AOT-precompiled with `wasmer compile`** so the
+first user never pays the 4.7 s cold compile.
+
+**Risks to plan for, not discover:**
+- Single VM = single point of failure. Acceptable for a solo product; back up worktrees.
+- **Oracle reclaims idle Always-Free instances.** Keep it genuinely busy or lose it.
+- Resource limits (above) must be added before any untrusted multi-tenant use.
+- Vercel Sandbox is ephemeral with a 45-minute session cap — only viable with git transport
+  and the file-authority question settled.
+
 ## Explicitly out of scope
 
 - Replacing the Docker tier. It stays the full-fidelity option.

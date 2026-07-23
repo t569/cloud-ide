@@ -36,6 +36,7 @@ import { DriverCapabilities, ISandboxDriver } from '../ISandboxDriver';
 import { ExecConnectionInfo, SandboxEndpoint } from '../../../../types/engine';
 import { dataPath } from '../../../../config/paths';
 import { spawnDuplex } from '../execStream';
+import { WasmExecdShim } from './wasmExecdShim';
 
 /**
  * The guest program, run by `node -e`. Inline rather than a sibling .js file so there is
@@ -101,6 +102,7 @@ export function moduleDirName(imageTag: string): string {
 
 export class WasmDriver implements ISandboxDriver {
   private sandboxes = new Map<string, WasmSandbox>();
+  private shim?: WasmExecdShim;
 
   constructor(private modulesRoot: string = WASM_MODULES_ROOT) {}
 
@@ -190,13 +192,53 @@ export class WasmDriver implements ISandboxDriver {
   }
 
   /**
-   * Phase 1 has no execd to point at: the guest runs in a child process on this host, not
-   * behind an HTTP server. SandboxController streams exec by fetching this URL directly, so
-   * making one up would fail confusingly at the fetch instead of clearly here.
-   * Phase 1b adds a loopback shim speaking execd's protocol (bare newline JSON, NOT SSE).
+   * Run a guest, delivering output a LINE at a time. The shape the execd shim serves, and
+   * the shape the terminal wants: one JSON event per line.
    */
-  public async resolveExecConnection(_sandboxId: string): Promise<ExecConnectionInfo> {
-    throw new Error('The wasm driver has no execd endpoint yet (see docs/plans/wasm-runtime.md).');
+  public async execLines(
+    sandboxId: string,
+    command: string[],
+    env: Record<string, string> | undefined,
+    onLine: (type: 'stdout' | 'stderr', text: string) => void,
+  ): Promise<number> {
+    const { child } = this.spawnGuest(sandboxId, command, env);
+
+    // Partial reads must not become partial lines: a chunk boundary can land mid-line, and
+    // the terminal renders one event as one line.
+    const pump = (stream: NodeJS.ReadableStream, type: 'stdout' | 'stderr') => {
+      let pending = '';
+      stream.on('data', (chunk) => {
+        pending += chunk;
+        const lines = pending.split('\n');
+        pending = lines.pop() ?? '';
+        for (const line of lines) onLine(type, line.replace(/\r$/, ''));
+      });
+      stream.on('end', () => { if (pending) onLine(type, pending); });
+    };
+    pump(child.stdout!, 'stdout');
+    pump(child.stderr!, 'stderr');
+
+    return new Promise<number>((resolve) => {
+      child.on('error', () => resolve(-1));
+      child.on('close', (code) => resolve(code ?? -1));
+    });
+  }
+
+  /**
+   * The loopback execd stand-in (wasmExecdShim.ts). Started on first use rather than at
+   * boot so a deployment that never opens a terminal never opens a port.
+   */
+  public async resolveExecConnection(sandboxId: string): Promise<ExecConnectionInfo> {
+    if (!this.sandboxes.has(sandboxId)) throw new Error(`Unknown sandbox ${sandboxId}.`);
+    if (!this.shim) this.shim = new WasmExecdShim(this);
+    await this.shim.start();
+    return { baseUrl: this.shim.baseUrl(sandboxId), accessToken: this.shim.token };
+  }
+
+  /** Release the loopback port. Tests and a graceful shutdown both need this. */
+  public async close(): Promise<void> {
+    await this.shim?.stop();
+    this.shim = undefined;
   }
 
   /**

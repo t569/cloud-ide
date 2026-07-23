@@ -18,6 +18,22 @@ const HELLO_WASM_B64 =
   'BQMBAAEHEwIGbWVtb3J5AgAGX3N0YXJ0AAEKHQEbAEEAQQg2AgBBBEENNgIAQQFBAEEBQRQQABoLCxMBAEEI' +
   'Cw1oaSBmcm9tIHdhc20K';
 
+// A second hand-assembled module, and the one that matters: it calls path_open on fd 3 —
+// the FIRST PREOPEN — creates `out.txt` there, writes to it, then writes path_open's errno
+// to stdout as 4 raw little-endian bytes so a failure is diagnosable instead of silent.
+//
+// Two traps cost real time building this, both worth keeping written down:
+//   - constants are SIGNED LEB128; a naive single byte silently means something else once
+//     bit 6 is set (rights 0x46 decodes as negative).
+//   - a rights mask of all bits (-1) is REJECTED by uvwasi with ENOTCAPABLE. A directory
+//     fd can only delegate rights it holds, so ask for a realistic set.
+const WRITEFILE_WASM_B64 =
+  'AGFzbQEAAAABGQNgCX9/f39/fn5/fwF/YAR/f39/AX9gAAACRgIWd2FzaV9zbmFwc2hvdF9wcmV2aWV3MQlw' +
+  'YXRoX29wZW4AABZ3YXNpX3NuYXBzaG90X3ByZXZpZXcxCGZkX3dyaXRlAAEDAgECBQMBAAEHEwIGbWVtb3J5' +
+  'AgAGX3N0YXJ0AAIKWgFYAEEQQQNBAEHAAEEHQQFCxoCAAULGgIABQQBBCBAANgIAQQBB4AA2AgBBBEEQNgIA' +
+  'QQgoAgBBAEEBQQwQARpBAEEQNgIAQQRBBDYCAEEBQQBBAUEMEAEaCwskAgBBwAALB291dC50eHQAQeAACxB3' +
+  'cml0dGVuIGJ5IHdhc20K';
+
 const SPEC: SandboxSpec = { imageTag: 'demo-env:latest' };
 
 describe('WasmDriver — phase 1', () => {
@@ -31,12 +47,14 @@ describe('WasmDriver — phase 1', () => {
     workspace = path.join(tmp, 'workspace');
     await fs.mkdir(path.join(root, moduleDirName(SPEC.imageTag)), { recursive: true });
     await fs.mkdir(workspace, { recursive: true });
-    await fs.writeFile(
-      path.join(root, moduleDirName(SPEC.imageTag), 'hello.wasm'),
-      Buffer.from(HELLO_WASM_B64, 'base64'),
-    );
+    const modules = path.join(root, moduleDirName(SPEC.imageTag));
+    await fs.writeFile(path.join(modules, 'hello.wasm'), Buffer.from(HELLO_WASM_B64, 'base64'));
+    await fs.writeFile(path.join(modules, 'writefile.wasm'), Buffer.from(WRITEFILE_WASM_B64, 'base64'));
     driver = new WasmDriver(root);
   });
+
+  // The shim opens a real listener on first use; leave it running and jest can't exit.
+  afterEach(async () => { await driver.close(); });
 
   it('reports its capabilities honestly — exec yes, pty no', () => {
     expect(driver.capabilities()).toEqual({ exec: true, pty: false });
@@ -78,9 +96,6 @@ describe('WasmDriver — phase 1', () => {
     // The worktree's HOST path must reach the guest verbatim — that mapping is the whole
     // claim that storage doesn't move for this tier.
     expect(preopensFor(spec)).toEqual({ '/workspace': workspace });
-    // NOT proven here: that a guest can read/write through it. The fixture only calls
-    // fd_write on stdout; proving file I/O needs a module that calls path_open, i.e. a real
-    // toolchain build. First job of phase 1b — see docs/plans/wasm-runtime.md.
     const { sandboxId } = await driver.bootSandbox(spec);
     const stream = await driver.openExecStream(sandboxId, ['hello']);
     const seen = await new Promise<string>((resolve) => {
@@ -89,6 +104,59 @@ describe('WasmDriver — phase 1', () => {
       stream.on('close', () => resolve(out));
     });
     expect(seen).toContain('hi from wasm');
+  }, 30_000);
+
+  // ACCEPTANCE 1, the load-bearing one: a guest WRITES A REAL FILE into the worktree
+  // through its preopen. This is what "storage does not move for this tier" means — if it
+  // failed, the whole reason for choosing server-side WASM over the browser would collapse.
+  it('lets a guest create a file in the worktree, visible to the host', async () => {
+    const spec: SandboxSpec = {
+      ...SPEC,
+      volumes: [{ name: 'w', kind: 'workspace', mountPath: '/workspace', hostPath: workspace }],
+    };
+    const { sandboxId } = await driver.bootSandbox(spec);
+    const result = await driver.execCommand(sandboxId, { command: ['writefile'] });
+
+    expect(result.exitCode).toBe(0);
+    // The guest's own view: path_open returned errno 0, as 4 little-endian bytes.
+    expect(Buffer.from(result.stdout, 'binary').subarray(0, 4)).toEqual(Buffer.from([0, 0, 0, 0]));
+    // The host's view: the file is simply there, no sync step, no bind mount.
+    expect(await fs.readFile(path.join(workspace, 'out.txt'), 'utf8')).toBe('written by wasm\n');
+  }, 30_000);
+
+  it('confines a guest to its preopens — no preopen, no filesystem', async () => {
+    // Booted with NO volumes, the same module cannot reach anything: WASI hands out no
+    // ambient filesystem, which is why this tier needs no egress/nftables machinery.
+    const { sandboxId } = await driver.bootSandbox(SPEC);
+    const result = await driver.execCommand(sandboxId, { command: ['writefile'] });
+    const errno = Buffer.from(result.stdout, 'binary').readUInt32LE(0);
+    expect(errno).not.toBe(0); // EBADF — fd 3 was never granted
+    await expect(fs.access(path.join(workspace, 'out.txt'))).rejects.toThrow();
+  }, 30_000);
+
+  // The whole terminal path, no fakes: real driver → real shim → real wasm, using the exact
+  // request body SandboxController.ts builds (command JOINED into one shell-ish string).
+  it('runs a real module through the shim over HTTP, as the controller would', async () => {
+    const { sandboxId } = await driver.bootSandbox(SPEC);
+    const connection = await driver.resolveExecConnection(sandboxId);
+
+    const response = await fetch(`${connection.baseUrl}/command`, {
+      method: 'POST',
+      headers: {
+        Accept: 'text/event-stream',
+        'Content-Type': 'application/json',
+        'X-EXECD-ACCESS-TOKEN': connection.accessToken!,
+      },
+      body: JSON.stringify({
+        command: 'export TERM=xterm-256color; hello',
+        cwd: '/workspace',
+        env: {},
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const events = (await response.text()).trim().split('\n').map((l) => JSON.parse(l));
+    expect(events).toContainEqual({ type: 'stdout', text: 'hi from wasm' });
   }, 30_000);
 
   it('rejects a program name that tries to escape the module directory', async () => {
@@ -100,8 +168,16 @@ describe('WasmDriver — phase 1', () => {
 
   it('is honest about what preview1 cannot do, instead of inventing an endpoint', async () => {
     const { sandboxId } = await driver.bootSandbox(SPEC);
+    // Still true, and the one thing moving to wasmtime buys.
     await expect(driver.resolveEndpoint(sandboxId, 5173)).rejects.toThrow(/no sockets/);
-    await expect(driver.resolveExecConnection(sandboxId)).rejects.toThrow(/no execd endpoint/);
+  });
+
+  it('serves exec over a loopback execd shim, started on first use', async () => {
+    const { sandboxId } = await driver.bootSandbox(SPEC);
+    const connection = await driver.resolveExecConnection(sandboxId);
+    expect(connection.baseUrl).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:\\d+/${sandboxId}$`));
+    expect(connection.accessToken).toEqual(expect.any(String));
+    await expect(driver.resolveExecConnection('wsm-nope')).rejects.toThrow(/Unknown sandbox/);
   });
 
   // ACCEPTANCE 6: teardown leaves nothing behind.
